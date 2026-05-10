@@ -302,7 +302,7 @@
     <div class="stat-label">Reported</div>
   </div>
   <div class="stat-card">
-    <div class="stat-value" style="color:var(--success)">{{ (stats.approved or 0) + (stats.done or 0) | fmt_currency }}</div>
+    <div class="stat-value" style="color:var(--success)">{{ ((stats.approved or 0) + (stats.done or 0)) | fmt_currency }}</div>
     <div class="stat-label">Approved / Done</div>
   </div>
 </div>

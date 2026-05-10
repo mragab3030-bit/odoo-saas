@@ -69,6 +69,13 @@ def three_months_ago_str():
     return d.isoformat()
 
 
+def safe_int_param(name: str, default: int = 1) -> int:
+    try:
+        return int(request.args.get(name, default))
+    except (ValueError, TypeError):
+        return default
+
+
 app.jinja_env.filters['fmt_currency'] = fmt_currency
 
 
@@ -209,11 +216,6 @@ def dashboard():
 
     # --- Invoice chart (monthly revenue last 6 months) ---
     try:
-        months = []
-        for i in range(5, -1, -1):
-            d = date.today().replace(day=1) - timedelta(days=i * 28)
-            months.append(d.replace(day=1))
-
         inv_grp = c.safe_read_group(
             'account.move',
             [['move_type', '=', 'out_invoice'], ['state', '=', 'posted'],
@@ -221,13 +223,10 @@ def dashboard():
             ['amount_untaxed:sum', 'invoice_date:month'],
             ['invoice_date:month'],
         )
-        inv_by_month = {
-            g.get('invoice_date:month', ''): g.get('amount_untaxed', 0)
-            for g in inv_grp
-        }
+        # Use Odoo's own labels directly — avoids locale/format mismatches
         charts['revenue'] = json.dumps({
-            'labels': [m.strftime('%b %Y') for m in months],
-            'values': [inv_by_month.get(m.strftime('%B %Y'), 0) for m in months],
+            'labels': [g.get('invoice_date:month', '') for g in inv_grp],
+            'values': [g.get('amount_untaxed', 0) for g in inv_grp],
         })
     except Exception:
         charts['revenue'] = json.dumps({'labels': [], 'values': []})
@@ -246,7 +245,7 @@ def dashboard():
         }
         charts['inv_status'] = json.dumps({
             'labels': [labels_map.get(g['payment_state'], g['payment_state']) for g in status_grp],
-            'values': [g['payment_state_count'] for g in status_grp],
+            'values': [g.get('__count', 0) for g in status_grp],
         })
     except Exception:
         charts['inv_status'] = json.dumps({'labels': [], 'values': []})
@@ -265,7 +264,7 @@ def dashboard():
 def financial():
     c = get_client()
     tab = request.args.get('tab', 'invoices')
-    page = max(1, int(request.args.get('page', 1)))
+    page = safe_int_param('page')
     search = request.args.get('search', '').strip()
     date_from = request.args.get('date_from', three_months_ago_str())
     date_to = request.args.get('date_to', today_str())
@@ -287,7 +286,7 @@ def financial():
         if date_to:
             domain.append(['invoice_date', '<=', date_to])
         if search:
-            domain += [['|', ['name', 'ilike', search], ['partner_id.name', 'ilike', search]]]
+            domain += ['|', ['name', 'ilike', search], ['partner_id.name', 'ilike', search]]
 
         total = c.safe_count('account.move', domain)
         records = c.safe_search_read('account.move', domain,
@@ -317,7 +316,7 @@ def financial():
                       'paid': 'Paid', 'partial': 'Partial', 'reversed': 'Reversed'}
         ctx['charts']['status'] = json.dumps({
             'labels': [labels_map.get(g['payment_state'], g['payment_state']) for g in status_grp],
-            'values': [g['payment_state_count'] for g in status_grp],
+            'values': [g.get('__count', 0) for g in status_grp],
         })
 
     elif tab == 'banks':
@@ -377,7 +376,7 @@ def financial():
         if date_to:
             domain.append(['date', '<=', date_to])
         if search:
-            domain += [['|', ['name', 'ilike', search], ['employee_id.name', 'ilike', search]]]
+            domain += ['|', ['name', 'ilike', search], ['employee_id.name', 'ilike', search]]
 
         total = c.safe_count('hr.expense', domain)
         records = c.safe_search_read('hr.expense', domain,
@@ -410,7 +409,7 @@ def financial():
 def inventory():
     c = get_client()
     tab = request.args.get('tab', 'stock')
-    page = max(1, int(request.args.get('page', 1)))
+    page = safe_int_param('page')
     search = request.args.get('search', '').strip()
     date_from = request.args.get('date_from', month_start_str())
     date_to = request.args.get('date_to', today_str())
@@ -511,7 +510,7 @@ def inventory():
 def sales():
     c = get_client()
     tab = request.args.get('tab', 'orders')
-    page = max(1, int(request.args.get('page', 1)))
+    page = safe_int_param('page')
     search = request.args.get('search', '').strip()
     date_from = request.args.get('date_from', month_start_str())
     date_to = request.args.get('date_to', today_str())
@@ -526,7 +525,7 @@ def sales():
         if date_to:
             domain.append(['date_order', '<=', date_to])
         if search:
-            domain += [['|', ['name', 'ilike', search], ['partner_id.name', 'ilike', search]]]
+            domain += ['|', ['name', 'ilike', search], ['partner_id.name', 'ilike', search]]
 
         total = c.safe_count('sale.order', domain)
         records = c.safe_search_read('sale.order', domain,
@@ -561,7 +560,7 @@ def sales():
     elif tab == 'pipeline':
         domain = [['type', '=', 'opportunity'], ['active', '=', True]]
         if search:
-            domain += [['|', ['name', 'ilike', search], ['partner_id.name', 'ilike', search]]]
+            domain += ['|', ['name', 'ilike', search], ['partner_id.name', 'ilike', search]]
 
         total = c.safe_count('crm.lead', domain)
         records = c.safe_search_read('crm.lead', domain,
@@ -597,7 +596,7 @@ def sales():
 def hr():
     c = get_client()
     tab = request.args.get('tab', 'attendance')
-    page = max(1, int(request.args.get('page', 1)))
+    page = safe_int_param('page')
     search = request.args.get('search', '').strip()
     date_from = request.args.get('date_from', month_start_str())
     date_to = request.args.get('date_to', today_str())
@@ -642,8 +641,8 @@ def hr():
         if date_to:
             domain.append(['date_from', '<=', date_to])
         if search:
-            domain += [['|', ['employee_id.name', 'ilike', search],
-                        ['holiday_status_id.name', 'ilike', search]]]
+            domain += ['|', ['employee_id.name', 'ilike', search],
+                       ['holiday_status_id.name', 'ilike', search]]
 
         total = c.safe_count('hr.leave', domain)
         records = c.safe_search_read('hr.leave', domain,
@@ -653,7 +652,7 @@ def hr():
 
         state_grp = c.safe_read_group('hr.leave', domain,
             ['state', 'number_of_days:sum'], ['state'])
-        state_counts = {g['state']: g.get('state_count', 0) for g in state_grp}
+        state_counts = {g['state']: g.get('__count', 0) for g in state_grp}
         state_days = {g['state']: g.get('number_of_days', 0) for g in state_grp}
 
         ctx['records'] = records
@@ -668,7 +667,7 @@ def hr():
         }
         ctx['charts']['status'] = json.dumps({
             'labels': [g['state'] for g in state_grp],
-            'values': [g.get('state_count', 0) for g in state_grp],
+            'values': [g.get('__count', 0) for g in state_grp],
         })
 
     return render_template('hr.html', **ctx)
@@ -683,7 +682,7 @@ def hr():
 def manufacturing():
     c = get_client()
     tab = request.args.get('tab', 'production')
-    page = max(1, int(request.args.get('page', 1)))
+    page = safe_int_param('page')
     search = request.args.get('search', '').strip()
     date_from = request.args.get('date_from', month_start_str())
     date_to = request.args.get('date_to', today_str())
@@ -697,7 +696,7 @@ def manufacturing():
     if date_to:
         domain.append(['date_planned_start', '<=', date_to])
     if search:
-        domain += [['|', ['name', 'ilike', search], ['product_id.name', 'ilike', search]]]
+        domain += ['|', ['name', 'ilike', search], ['product_id.name', 'ilike', search]]
 
     total = c.safe_count('mrp.production', domain)
     records = c.safe_search_read('mrp.production', domain,
@@ -707,7 +706,7 @@ def manufacturing():
 
     state_grp = c.safe_read_group('mrp.production', domain,
         ['state', 'product_qty:sum'], ['state'])
-    state_counts = {g['state']: g.get('state_count', 0) for g in state_grp}
+    state_counts = {g['state']: g.get('__count', 0) for g in state_grp}
     state_qty = {g['state']: g.get('product_qty', 0) for g in state_grp}
 
     ctx['records'] = records
@@ -723,7 +722,7 @@ def manufacturing():
     }
     ctx['charts']['status'] = json.dumps({
         'labels': [g['state'] for g in state_grp],
-        'values': [g.get('state_count', 0) for g in state_grp],
+        'values': [g.get('__count', 0) for g in state_grp],
     })
 
     return render_template('manufacturing.html', **ctx)
