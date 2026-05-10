@@ -283,6 +283,20 @@ def financial():
     if tab in ('invoices', 'bills'):
         move_type = 'out_invoice' if tab == 'invoices' else 'in_invoice'
         period_days = max(1, safe_int_param('period', 30))
+
+        status_filter = request.args.get('status', '').strip()
+        if status_filter not in ('not_paid', 'paid', 'partial', 'reversed'):
+            status_filter = ''
+        aging_raw = request.args.get('aging', '').strip()
+        aging_filter = None
+        if aging_raw:
+            try:
+                ai = int(aging_raw)
+                if 0 <= ai <= 4:
+                    aging_filter = ai
+            except (ValueError, TypeError):
+                pass
+
         domain = [['move_type', '=', move_type], ['state', '!=', 'cancel']]
         if date_from:
             domain.append(['invoice_date', '>=', date_from])
@@ -291,8 +305,31 @@ def financial():
         if search:
             domain += ['|', ['name', 'ilike', search], ['partner_id.name', 'ilike', search]]
 
-        total = c.safe_count('account.move', domain)
-        records = c.safe_search_read('account.move', domain,
+        n = period_days
+        bucket_ranges = [
+            (0,       n),
+            (n + 1,   2 * n),
+            (2 * n + 1, 3 * n),
+            (3 * n + 1, 4 * n),
+            (4 * n + 1, None),
+        ]
+
+        table_domain = list(domain)
+        if status_filter:
+            table_domain.append(['payment_state', '=', status_filter])
+        if aging_filter is not None:
+            lo, hi = bucket_ranges[aging_filter]
+            today_d = date.today()
+            table_domain.append(['state', '=', 'posted'])
+            table_domain.append(['payment_state', 'in', ['not_paid', 'partial']])
+            table_domain.append(['invoice_date_due', '<=',
+                                 (today_d - timedelta(days=lo)).isoformat()])
+            if hi is not None:
+                table_domain.append(['invoice_date_due', '>=',
+                                     (today_d - timedelta(days=hi)).isoformat()])
+
+        total = c.safe_count('account.move', table_domain)
+        records = c.safe_search_read('account.move', table_domain,
             ['name', 'partner_id', 'invoice_date', 'invoice_date_due',
              'amount_total', 'amount_residual', 'currency_id', 'state', 'payment_state'],
             limit=PAGE_SIZE, offset=(page - 1) * PAGE_SIZE, order='invoice_date desc')
@@ -304,6 +341,9 @@ def financial():
         ctx['records'] = records
         ctx['total_pages'] = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
         ctx['total_count'] = total
+        ctx['status_filter'] = status_filter
+        ctx['aging_filter'] = aging_filter
+        ctx['today_iso'] = today_str()
         ctx['stats'] = {
             'total': totals.get('amount_total', 0),
             'unpaid': totals.get('amount_residual', 0),

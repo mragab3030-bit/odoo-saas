@@ -90,52 +90,68 @@
 </form>
 
 <div class="section-title">
-  <i class="fa-solid fa-circle-dot" style="color:var(--primary)"></i>
-  <h5>Payment Status</h5>
-</div>
-<div class="stat-grid">
-  {% for s in payment_status %}
-  {% set color = {'not_paid':'var(--danger)', 'paid':'var(--success)',
-                  'partial':'var(--warning)', 'reversed':'var(--text-muted)'}[s.key] %}
-  <div class="stat-card">
-    <div class="stat-label">{{ s.label }}</div>
-    <div class="stat-value" style="color:{{ color }}">{{ s.count }}</div>
-    <div style="font-weight:600;font-size:.95rem">{{ s.amount | fmt_currency_int }}</div>
-    {% if s.overdue and s.overdue > 0 %}
-    <div style="margin-top:.4rem;font-size:.72rem;color:var(--danger);font-weight:600">
-      <i class="fa-solid fa-triangle-exclamation"></i> {{ s.overdue }} overdue
-    </div>
-    {% else %}
-    <div style="margin-top:.4rem;font-size:.72rem;color:var(--text-muted)">
-      <i class="fa-regular fa-circle-check"></i> No overdue
-    </div>
-    {% endif %}
-  </div>
-  {% endfor %}
-</div>
-
-<div class="section-title" style="margin-top:1rem">
-  <i class="fa-solid fa-hourglass-half" style="color:var(--primary)"></i>
-  <h5>{{ doc_label }} Aging</h5>
-  <form method="GET" action="{{ url_for('financial') }}" style="display:flex;gap:.5rem;align-items:center;margin-left:auto">
+  <i class="fa-solid fa-filter" style="color:var(--primary)"></i>
+  <h5>Payment Status &amp; Aging</h5>
+  <form method="GET" action="{{ url_for('financial') }}" style="display:flex;gap:.4rem;align-items:center;margin-left:auto">
     <input type="hidden" name="tab" value="{{ tab }}">
     <input type="hidden" name="search" value="{{ search }}">
     <input type="hidden" name="date_from" value="{{ date_from }}">
     <input type="hidden" name="date_to" value="{{ date_to }}">
+    {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
+    {% if aging_filter is not none %}<input type="hidden" name="aging" value="{{ aging_filter }}">{% endif %}
     <label style="font-size:.78rem;color:var(--text-muted);margin:0">Period (days)</label>
     <input type="number" name="period" min="1" max="365" value="{{ period_days }}"
-           class="form-control form-control-sm" style="width:80px">
+           class="form-control form-control-sm" style="width:75px">
     <button type="submit" class="btn btn-primary btn-sm">Apply</button>
   </form>
+  {% if status_filter or aging_filter is not none %}
+  <a href="{{ url_for('financial', tab=tab, search=search, date_from=date_from, date_to=date_to, period=period_days) }}"
+     class="btn btn-outline btn-sm" style="color:var(--danger);border-color:var(--danger)">
+    <i class="fa-solid fa-filter-circle-xmark"></i> Clear
+  </a>
+  {% endif %}
 </div>
-<div class="stat-grid">
-  {% for b in aging_buckets %}
+
+<div class="cards-row">
+  {% for s in payment_status %}
+  {% set is_active = (status_filter == s.key) %}
+  {% set color = {'not_paid':'var(--danger)', 'paid':'var(--success)',
+                  'partial':'var(--warning)', 'reversed':'var(--text-muted)'}[s.key] %}
+  <a href="{{ url_for('financial', tab=tab, search=search,
+                      date_from=date_from, date_to=date_to, period=period_days,
+                      status=(none if is_active else s.key),
+                      aging=(aging_filter if aging_filter is not none else none)) }}"
+     class="stat-card stat-card-link {% if is_active %}stat-card-active{% endif %}">
+    <div class="stat-label">{{ s.label }}</div>
+    <div class="stat-value" style="color:{{ color }}">{{ s.count }}</div>
+    <div style="font-weight:600;font-size:.9rem">{{ s.amount | fmt_currency_int }}</div>
+    {% if s.overdue and s.overdue > 0 %}
+    <div style="margin-top:.3rem;font-size:.7rem;color:var(--danger);font-weight:600">
+      <i class="fa-solid fa-triangle-exclamation"></i> {{ s.overdue }} overdue
+    </div>
+    {% else %}
+    <div style="margin-top:.3rem;font-size:.7rem;color:var(--text-muted)">
+      <i class="fa-regular fa-circle-check"></i> No overdue
+    </div>
+    {% endif %}
+  </a>
+  {% endfor %}
+
   {% set bucket_colors = ['var(--success)', '#3b82f6', 'var(--warning)', '#f97316', 'var(--danger)'] %}
-  <div class="stat-card">
+  {% for b in aging_buckets %}
+  {% set is_active = (aging_filter == loop.index0) %}
+  <a href="{{ url_for('financial', tab=tab, search=search,
+                      date_from=date_from, date_to=date_to, period=period_days,
+                      status=(status_filter or none),
+                      aging=(none if is_active else loop.index0)) }}"
+     class="stat-card stat-card-link {% if is_active %}stat-card-active{% endif %}">
     <div class="stat-label">{{ b.label }} days</div>
     <div class="stat-value" style="color:{{ bucket_colors[loop.index0] }}">{{ b.count }}</div>
-    <div style="font-weight:600;font-size:.95rem">{{ b.amount | fmt_currency_int }}</div>
-  </div>
+    <div style="font-weight:600;font-size:.9rem">{{ b.amount | fmt_currency_int }}</div>
+    <div style="margin-top:.3rem;font-size:.7rem;color:var(--text-muted)">
+      <i class="fa-solid fa-hourglass-half"></i> Outstanding
+    </div>
+  </a>
   {% endfor %}
 </div>
 
@@ -144,7 +160,7 @@
     <thead>
       <tr>
         <th>Number</th><th>{{ partner_label }}</th><th>Date</th><th>Due Date</th>
-        <th>Amount</th><th>Status</th><th>Payment</th>
+        <th>Amount</th><th>Status</th><th>Payment</th><th>Overdue</th>
       </tr>
     </thead>
     <tbody>
@@ -174,10 +190,27 @@
           {% elif inv.payment_state == 'reversed' %}<span class="badge badge-secondary">Reversed</span>
           {% else %}<span class="badge badge-secondary">{{ inv.payment_state or '—' }}</span>{% endif %}
         </td>
+        <td>
+          {% if not inv.invoice_date_due %}
+            <span style="color:var(--text-muted)">—</span>
+          {% elif inv.payment_state == 'paid' %}
+            <span style="color:var(--success);font-weight:600">
+              <i class="fa-solid fa-circle-check"></i> Paid
+            </span>
+          {% elif inv.invoice_date_due < today_iso %}
+            <span style="color:var(--danger);font-weight:600">
+              <i class="fa-solid fa-circle-exclamation"></i> Overdue
+            </span>
+          {% else %}
+            <span style="color:var(--success);font-weight:600">
+              <i class="fa-solid fa-circle-check"></i> On Time
+            </span>
+          {% endif %}
+        </td>
       </tr>
       {% else %}
       <tr>
-        <td colspan="7">
+        <td colspan="8">
           <div class="empty-state">
             <i class="fa-solid {{ 'fa-file-invoice' if is_bills else 'fa-file-invoice-dollar' }}"></i>
             <p>No {{ doc_label | lower }}s found</p>
