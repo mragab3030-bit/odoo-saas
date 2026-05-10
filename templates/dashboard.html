@@ -1,0 +1,169 @@
+{% extends 'base.html' %}
+{% block title %}Dashboard — Odoo SaaS{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% block page_subtitle %}<small>{{ odoo_url }}</small>{% endblock %}
+
+{% block content %}
+
+<div class="kpi-grid">
+
+  <a href="{{ url_for('financial', tab='invoices') }}" class="kpi-card">
+    <div class="kpi-icon blue"><i class="fa-solid fa-file-invoice-dollar"></i></div>
+    <div class="kpi-body">
+      <div class="kpi-value">{{ kpis.unpaid_invoices }}</div>
+      <div class="kpi-label">Unpaid Invoices</div>
+      <div class="kpi-sub">{{ kpis.unpaid_amount | fmt_currency }}</div>
+    </div>
+  </a>
+
+  <a href="{{ url_for('sales', tab='orders') }}" class="kpi-card">
+    <div class="kpi-icon green"><i class="fa-solid fa-cart-shopping"></i></div>
+    <div class="kpi-body">
+      <div class="kpi-value">{{ kpis.open_orders }}</div>
+      <div class="kpi-label">Open Sales Orders</div>
+      <div class="kpi-sub">{{ kpis.monthly_sales | fmt_currency }} this month</div>
+    </div>
+  </a>
+
+  <a href="{{ url_for('sales', tab='pipeline') }}" class="kpi-card">
+    <div class="kpi-icon orange"><i class="fa-solid fa-funnel-dollar"></i></div>
+    <div class="kpi-body">
+      <div class="kpi-value">{{ kpis.active_leads }}</div>
+      <div class="kpi-label">Active Opportunities</div>
+    </div>
+  </a>
+
+  <a href="{{ url_for('inventory', tab='stock') }}" class="kpi-card">
+    <div class="kpi-icon teal"><i class="fa-solid fa-warehouse"></i></div>
+    <div class="kpi-body">
+      <div class="kpi-value">{{ kpis.stock_products }}</div>
+      <div class="kpi-label">Stock Products</div>
+      <div class="kpi-sub">{{ kpis.stock_value | fmt_currency }} value</div>
+    </div>
+  </a>
+
+  <a href="{{ url_for('hr', tab='leave') }}" class="kpi-card">
+    <div class="kpi-icon red"><i class="fa-solid fa-calendar-xmark"></i></div>
+    <div class="kpi-body">
+      <div class="kpi-value">{{ kpis.pending_leaves }}</div>
+      <div class="kpi-label">Pending Leave Requests</div>
+    </div>
+  </a>
+
+  <a href="{{ url_for('hr', tab='attendance') }}" class="kpi-card">
+    <div class="kpi-icon purple"><i class="fa-solid fa-users"></i></div>
+    <div class="kpi-body">
+      <div class="kpi-value">{{ kpis.employees }}</div>
+      <div class="kpi-label">Active Employees</div>
+    </div>
+  </a>
+
+  <a href="{{ url_for('manufacturing') }}" class="kpi-card">
+    <div class="kpi-icon indigo"><i class="fa-solid fa-industry"></i></div>
+    <div class="kpi-body">
+      <div class="kpi-value">{{ kpis.in_progress_mo }}</div>
+      <div class="kpi-label">Production In Progress</div>
+    </div>
+  </a>
+
+  <a href="{{ url_for('financial', tab='expenses') }}" class="kpi-card">
+    <div class="kpi-icon pink"><i class="fa-solid fa-receipt"></i></div>
+    <div class="kpi-body">
+      <div class="kpi-value">{{ kpis.pending_expenses }}</div>
+      <div class="kpi-label">Pending Expenses</div>
+    </div>
+  </a>
+
+</div>
+
+<!-- Charts row -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem">
+
+  <div class="card">
+    <div class="card-header">
+      <i class="fa-solid fa-chart-bar" style="color:var(--primary)"></i>
+      <h5>Monthly Revenue (Last 6 Months)</h5>
+    </div>
+    <div class="card-body">
+      <div class="chart-container" style="height:220px">
+        <canvas id="revenueChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <i class="fa-solid fa-chart-pie" style="color:var(--primary)"></i>
+      <h5>Invoice Payment Status</h5>
+    </div>
+    <div class="card-body">
+      <div class="chart-container" style="height:220px">
+        <canvas id="invStatusChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Quick links -->
+<div class="card">
+  <div class="card-header">
+    <i class="fa-solid fa-bolt" style="color:var(--primary)"></i>
+    <h5>Quick Access</h5>
+  </div>
+  <div class="card-body">
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.75rem">
+      {% set quick = [
+        ('financial', 'invoices', 'fa-file-invoice-dollar', 'blue', 'Invoices'),
+        ('financial', 'banks', 'fa-building-columns', 'green', 'Banks'),
+        ('financial', 'assets', 'fa-boxes-packing', 'orange', 'Assets'),
+        ('financial', 'expenses', 'fa-receipt', 'red', 'Expenses'),
+        ('inventory', 'stock', 'fa-warehouse', 'teal', 'Stock'),
+        ('inventory', 'movements', 'fa-arrows-rotate', 'purple', 'Movements'),
+        ('inventory', 'valuation', 'fa-scale-balanced', 'indigo', 'Valuation'),
+        ('sales', 'pipeline', 'fa-funnel-dollar', 'orange', 'Pipeline'),
+        ('sales', 'orders', 'fa-cart-shopping', 'green', 'Sales Orders'),
+        ('hr', 'attendance', 'fa-clock', 'blue', 'Attendance'),
+        ('hr', 'leave', 'fa-calendar-xmark', 'red', 'Leave'),
+      ] %}
+      {% for section, tab_name, icon, color, label in quick %}
+      <a href="{{ url_for(section, tab=tab_name) }}"
+         style="display:flex;align-items:center;gap:.625rem;padding:.75rem;
+                background:#f8fafc;border-radius:10px;border:1px solid #e2e8f0;
+                color:var(--text);font-size:.8rem;font-weight:600;
+                transition:all .15s;text-decoration:none"
+         onmouseover="this.style.background='#eff6ff';this.style.borderColor='#bfdbfe'"
+         onmouseout="this.style.background='#f8fafc';this.style.borderColor='#e2e8f0'">
+        <div class="kpi-icon {{ color }}" style="width:32px;height:32px;border-radius:7px">
+          <i class="fa-solid {{ icon }}" style="font-size:13px"></i>
+        </div>
+        {{ label }}
+      </a>
+      {% endfor %}
+      <a href="{{ url_for('manufacturing') }}"
+         style="display:flex;align-items:center;gap:.625rem;padding:.75rem;
+                background:#f8fafc;border-radius:10px;border:1px solid #e2e8f0;
+                color:var(--text);font-size:.8rem;font-weight:600;
+                transition:all .15s;text-decoration:none"
+         onmouseover="this.style.background='#eff6ff';this.style.borderColor='#bfdbfe'"
+         onmouseout="this.style.background='#f8fafc';this.style.borderColor='#e2e8f0'">
+        <div class="kpi-icon indigo" style="width:32px;height:32px;border-radius:7px">
+          <i class="fa-solid fa-industry" style="font-size:13px"></i>
+        </div>
+        Production
+      </a>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const revenueData = {{ charts.revenue | safe }};
+const invStatusData = {{ charts.inv_status | safe }};
+
+buildBar('revenueChart', revenueData, 'Revenue', true);
+buildDonut('invStatusChart', invStatusData);
+</script>
+{% endblock %}

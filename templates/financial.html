@@ -1,0 +1,370 @@
+{% extends 'base.html' %}
+{% block title %}Financial — Odoo Dashboard{% endblock %}
+{% block page_title %}Financial{% endblock %}
+
+{% block topbar_actions %}
+<div class="export-group">
+  <a href="{{ url_for('export', key='financial_' + tab, fmt='pdf') }}?date_from={{ date_from }}&date_to={{ date_to }}&search={{ search }}"
+     class="btn btn-outline btn-sm" data-export>
+    <i class="fa-solid fa-file-pdf"></i> PDF
+  </a>
+  <a href="{{ url_for('export', key='financial_' + tab, fmt='excel') }}?date_from={{ date_from }}&date_to={{ date_to }}&search={{ search }}"
+     class="btn btn-outline btn-sm" data-export>
+    <i class="fa-solid fa-file-excel"></i> Excel
+  </a>
+</div>
+{% endblock %}
+
+{% block content %}
+
+<!-- Tabs -->
+<div class="tab-bar">
+  <a href="{{ url_for('financial', tab='invoices') }}" class="tab-item {% if tab == 'invoices' %}active{% endif %}">
+    <i class="fa-solid fa-file-invoice-dollar"></i> Invoices
+  </a>
+  <a href="{{ url_for('financial', tab='banks') }}" class="tab-item {% if tab == 'banks' %}active{% endif %}">
+    <i class="fa-solid fa-building-columns"></i> Banks
+  </a>
+  <a href="{{ url_for('financial', tab='assets') }}" class="tab-item {% if tab == 'assets' %}active{% endif %}">
+    <i class="fa-solid fa-boxes-packing"></i> Assets
+  </a>
+  <a href="{{ url_for('financial', tab='expenses') }}" class="tab-item {% if tab == 'expenses' %}active{% endif %}">
+    <i class="fa-solid fa-receipt"></i> Expenses
+  </a>
+</div>
+
+{% if error %}
+<div class="alert alert-warning"><i class="fa-solid fa-triangle-exclamation"></i> {{ error }}</div>
+{% endif %}
+
+<!-- ============================== INVOICES ============================== -->
+{% if tab == 'invoices' %}
+
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.count }}</div>
+    <div class="stat-label">Total Invoices</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--text)">{{ stats.total | fmt_currency }}</div>
+    <div class="stat-label">Total Amount</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--success)">{{ stats.paid | fmt_currency }}</div>
+    <div class="stat-label">Paid Amount</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--danger)">{{ stats.unpaid | fmt_currency }}</div>
+    <div class="stat-label">Outstanding</div>
+  </div>
+</div>
+
+<!-- Filters -->
+<form method="GET" action="{{ url_for('financial') }}" class="filter-bar">
+  <input type="hidden" name="tab" value="invoices">
+  <div class="filter-group">
+    <label>Search</label>
+    <input type="text" name="search" class="form-control form-control-sm" placeholder="Invoice # or customer…" value="{{ search }}">
+  </div>
+  <div class="filter-group">
+    <label>Type</label>
+    <select name="type" class="form-select form-control-sm" style="min-width:130px">
+      <option value="all" {% if inv_type == 'all' %}selected{% endif %}>All</option>
+      <option value="customer" {% if inv_type == 'customer' %}selected{% endif %}>Customer</option>
+      <option value="vendor" {% if inv_type == 'vendor' %}selected{% endif %}>Vendor</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <label>From</label>
+    <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
+  </div>
+  <div class="filter-group">
+    <label>To</label>
+    <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
+  </div>
+  <div class="filter-group" style="justify-content:flex-end">
+    <label>&nbsp;</label>
+    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> Filter</button>
+  </div>
+</form>
+
+<div style="display:grid;grid-template-columns:1fr 300px;gap:1rem;align-items:start">
+  <div class="card table-card">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Number</th><th>Partner</th><th>Invoice Date</th><th>Due Date</th>
+          <th>Amount</th><th>Status</th><th>Payment</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for inv in records %}
+        <tr>
+          <td><code style="font-size:.78rem;color:var(--primary)">{{ inv.name or 'Draft' }}</code></td>
+          <td>{{ inv.partner_id[1] if inv.partner_id else '—' }}</td>
+          <td>{{ inv.invoice_date or '—' }}</td>
+          <td>{{ inv.invoice_date_due or '—' }}</td>
+          <td>
+            <strong>{{ inv.amount_total | fmt_currency }}</strong>
+            {% if inv.amount_residual and inv.amount_residual > 0 %}
+              <br><small style="color:var(--danger)">Due: {{ inv.amount_residual | fmt_currency }}</small>
+            {% endif %}
+          </td>
+          <td>
+            {% if inv.state == 'posted' %}<span class="badge badge-success">Posted</span>
+            {% elif inv.state == 'draft' %}<span class="badge badge-secondary">Draft</span>
+            {% elif inv.state == 'cancel' %}<span class="badge badge-danger">Cancelled</span>
+            {% else %}<span class="badge badge-secondary">{{ inv.state }}</span>{% endif %}
+          </td>
+          <td>
+            {% if inv.payment_state == 'paid' %}<span class="badge badge-success">Paid</span>
+            {% elif inv.payment_state == 'partial' %}<span class="badge badge-warning">Partial</span>
+            {% elif inv.payment_state == 'not_paid' %}<span class="badge badge-danger">Unpaid</span>
+            {% elif inv.payment_state == 'in_payment' %}<span class="badge badge-info">In Payment</span>
+            {% elif inv.payment_state == 'reversed' %}<span class="badge badge-secondary">Reversed</span>
+            {% else %}<span class="badge badge-secondary">{{ inv.payment_state or '—' }}</span>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7"><div class="empty-state"><i class="fa-solid fa-file-invoice"></i><p>No invoices found</p></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% include '_pagination.html' %}
+  </div>
+
+  <div class="card">
+    <div class="card-header"><i class="fa-solid fa-chart-pie" style="color:var(--primary)"></i><h5>Payment Status</h5></div>
+    <div class="card-body">
+      <canvas id="statusChart" style="max-height:200px"></canvas>
+    </div>
+  </div>
+</div>
+
+{% elif tab == 'banks' %}
+
+<!-- ============================== BANKS ============================== -->
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.count }}</div>
+    <div class="stat-label">Bank / Cash Accounts</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ stmt_total }}</div>
+    <div class="stat-label">Statement Lines</div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <div class="card-header"><i class="fa-solid fa-building-columns" style="color:var(--primary)"></i><h5>Journals</h5></div>
+  <div class="card-body" style="padding:.75rem 1.25rem">
+    <div style="display:flex;flex-wrap:wrap;gap:.75rem">
+      {% for j in records %}
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:.75rem 1rem;min-width:160px">
+        <div style="font-weight:700;font-size:.875rem;color:var(--text)">{{ j.name }}</div>
+        <div style="font-size:.72rem;color:var(--text-muted);margin-top:.2rem">
+          {{ j.code }} &bull;
+          {% if j.type == 'bank' %}<span class="badge badge-info">Bank</span>
+          {% else %}<span class="badge badge-secondary">Cash</span>{% endif %}
+        </div>
+        {% if j.currency_id %}<div style="font-size:.72rem;color:var(--text-muted)">{{ j.currency_id[1] }}</div>{% endif %}
+      </div>
+      {% else %}
+      <p style="color:var(--text-muted);font-size:.875rem">No bank or cash journals found.</p>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<form method="GET" action="{{ url_for('financial') }}" class="filter-bar">
+  <input type="hidden" name="tab" value="banks">
+  <div class="filter-group">
+    <label>Search Reference</label>
+    <input type="text" name="search" class="form-control form-control-sm" placeholder="Reference…" value="{{ search }}">
+  </div>
+  <div class="filter-group">
+    <label>From</label>
+    <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
+  </div>
+  <div class="filter-group">
+    <label>To</label>
+    <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
+  </div>
+  <div class="filter-group" style="justify-content:flex-end">
+    <label>&nbsp;</label>
+    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> Filter</button>
+  </div>
+</form>
+
+<div class="card table-card">
+  <div class="card-header"><h5>Recent Transactions</h5></div>
+  <table class="data-table">
+    <thead>
+      <tr><th>Date</th><th>Journal</th><th>Partner</th><th>Reference</th><th style="text-align:right">Amount</th></tr>
+    </thead>
+    <tbody>
+      {% for s in statements %}
+      <tr>
+        <td>{{ s.date }}</td>
+        <td>{{ s.journal_id[1] if s.journal_id else '—' }}</td>
+        <td>{{ s.partner_id[1] if s.partner_id else '—' }}</td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ s.payment_ref or '—' }}</td>
+        <td style="text-align:right">
+          <span class="{{ 'num-positive' if s.amount >= 0 else 'num-negative' }}">
+            {{ s.amount | fmt_currency }}
+          </span>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5"><div class="empty-state"><i class="fa-solid fa-building-columns"></i><p>No transactions found</p></div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% include '_pagination.html' %}
+</div>
+
+{% elif tab == 'assets' %}
+
+<!-- ============================== ASSETS ============================== -->
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.count }}</div>
+    <div class="stat-label">Total Assets</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.get('original_value', 0) | fmt_currency }}</div>
+    <div class="stat-label">Acquisition Cost</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--success)">{{ stats.get('residual_value', 0) | fmt_currency }}</div>
+    <div class="stat-label">Net Book Value</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--danger)">{{ stats.get('depreciated', 0) | fmt_currency }}</div>
+    <div class="stat-label">Accumulated Dep.</div>
+  </div>
+</div>
+
+<form method="GET" action="{{ url_for('financial') }}" class="filter-bar">
+  <input type="hidden" name="tab" value="assets">
+  <div class="filter-group">
+    <label>Search</label>
+    <input type="text" name="search" class="form-control form-control-sm" placeholder="Asset name…" value="{{ search }}">
+  </div>
+  <div class="filter-group" style="justify-content:flex-end">
+    <label>&nbsp;</label>
+    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> Filter</button>
+  </div>
+</form>
+
+<div class="card table-card">
+  <table class="data-table">
+    <thead>
+      <tr><th>Asset Name</th><th>Category</th><th>Acquisition Date</th><th>Original Value</th><th>Net Value</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+      {% for a in records %}
+      <tr>
+        <td><strong>{{ a.name }}</strong></td>
+        <td>{{ a.category_id[1] if a.category_id else '—' }}</td>
+        <td>{{ a.acquisition_date or '—' }}</td>
+        <td>{{ a.original_value | fmt_currency }}</td>
+        <td>{{ a.value_residual | fmt_currency }}</td>
+        <td>
+          {% if a.state == 'open' %}<span class="badge badge-success">Running</span>
+          {% elif a.state == 'draft' %}<span class="badge badge-secondary">Draft</span>
+          {% elif a.state == 'close' %}<span class="badge badge-info">Closed</span>
+          {% else %}<span class="badge badge-secondary">{{ a.state }}</span>{% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6"><div class="empty-state"><i class="fa-solid fa-boxes-packing"></i><p>No assets found — module may not be installed</p></div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% include '_pagination.html' %}
+</div>
+
+{% elif tab == 'expenses' %}
+
+<!-- ============================== EXPENSES ============================== -->
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.count }}</div>
+    <div class="stat-label">Total Expenses</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--warning)">{{ stats.draft | fmt_currency }}</div>
+    <div class="stat-label">Draft</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--info)">{{ stats.reported | fmt_currency }}</div>
+    <div class="stat-label">Reported</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--success)">{{ (stats.approved or 0) + (stats.done or 0) | fmt_currency }}</div>
+    <div class="stat-label">Approved / Done</div>
+  </div>
+</div>
+
+<form method="GET" action="{{ url_for('financial') }}" class="filter-bar">
+  <input type="hidden" name="tab" value="expenses">
+  <div class="filter-group">
+    <label>Search</label>
+    <input type="text" name="search" class="form-control form-control-sm" placeholder="Description or employee…" value="{{ search }}">
+  </div>
+  <div class="filter-group">
+    <label>From</label>
+    <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
+  </div>
+  <div class="filter-group">
+    <label>To</label>
+    <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
+  </div>
+  <div class="filter-group" style="justify-content:flex-end">
+    <label>&nbsp;</label>
+    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> Filter</button>
+  </div>
+</form>
+
+<div class="card table-card">
+  <table class="data-table">
+    <thead>
+      <tr><th>Description</th><th>Employee</th><th>Date</th><th>Amount</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+      {% for e in records %}
+      <tr>
+        <td>{{ e.name }}</td>
+        <td>{{ e.employee_id[1] if e.employee_id else '—' }}</td>
+        <td>{{ e.date or '—' }}</td>
+        <td>{{ e.total_amount | fmt_currency }}</td>
+        <td>
+          {% if e.state == 'draft' %}<span class="badge badge-secondary">Draft</span>
+          {% elif e.state == 'reported' %}<span class="badge badge-info">Submitted</span>
+          {% elif e.state == 'approved' %}<span class="badge badge-warning">Approved</span>
+          {% elif e.state == 'done' %}<span class="badge badge-success">Done</span>
+          {% elif e.state == 'refused' %}<span class="badge badge-danger">Refused</span>
+          {% else %}<span class="badge badge-secondary">{{ e.state }}</span>{% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5"><div class="empty-state"><i class="fa-solid fa-receipt"></i><p>No expenses found</p></div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% include '_pagination.html' %}
+</div>
+
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+{% if tab == 'invoices' and charts.status %}
+<script>
+const statusData = {{ charts.status | safe }};
+buildDonut('statusChart', statusData);
+</script>
+{% endif %}
+{% endblock %}

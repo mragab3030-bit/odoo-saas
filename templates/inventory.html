@@ -1,0 +1,225 @@
+{% extends 'base.html' %}
+{% block title %}Inventory — Odoo Dashboard{% endblock %}
+{% block page_title %}Inventory{% endblock %}
+
+{% block topbar_actions %}
+<div class="export-group">
+  <a href="{{ url_for('export', key='inventory_' + tab, fmt='pdf') }}?search={{ search }}"
+     class="btn btn-outline btn-sm" data-export>
+    <i class="fa-solid fa-file-pdf"></i> PDF
+  </a>
+  <a href="{{ url_for('export', key='inventory_' + tab, fmt='excel') }}?search={{ search }}"
+     class="btn btn-outline btn-sm" data-export>
+    <i class="fa-solid fa-file-excel"></i> Excel
+  </a>
+</div>
+{% endblock %}
+
+{% block content %}
+
+<div class="tab-bar">
+  <a href="{{ url_for('inventory', tab='stock') }}" class="tab-item {% if tab == 'stock' %}active{% endif %}">
+    <i class="fa-solid fa-warehouse"></i> Stock
+  </a>
+  <a href="{{ url_for('inventory', tab='movements') }}" class="tab-item {% if tab == 'movements' %}active{% endif %}">
+    <i class="fa-solid fa-arrows-rotate"></i> Movements
+  </a>
+  <a href="{{ url_for('inventory', tab='valuation') }}" class="tab-item {% if tab == 'valuation' %}active{% endif %}">
+    <i class="fa-solid fa-scale-balanced"></i> Valuation
+  </a>
+</div>
+
+<!-- ============================== STOCK ============================== -->
+{% if tab == 'stock' %}
+
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.count }}</div>
+    <div class="stat-label">Stock Lines</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--primary)">{{ stats.total_value | fmt_currency }}</div>
+    <div class="stat-label">Total Stock Value</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.total_qty | round(2) }}</div>
+    <div class="stat-label">Total Qty</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--danger)">{{ stats.zero_stock }}</div>
+    <div class="stat-label">Zero Stock Lines</div>
+  </div>
+</div>
+
+<form method="GET" action="{{ url_for('inventory') }}" class="filter-bar">
+  <input type="hidden" name="tab" value="stock">
+  <div class="filter-group">
+    <label>Search Product</label>
+    <input type="text" name="search" class="form-control form-control-sm" placeholder="Product name…" value="{{ search }}">
+  </div>
+  <div class="filter-group" style="justify-content:flex-end">
+    <label>&nbsp;</label>
+    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> Filter</button>
+  </div>
+</form>
+
+<div style="display:grid;grid-template-columns:1fr 320px;gap:1rem;align-items:start">
+  <div class="card table-card">
+    <table class="data-table">
+      <thead>
+        <tr><th>Product</th><th>Location</th><th>Quantity</th><th>Reserved</th><th>Available</th><th>Value</th></tr>
+      </thead>
+      <tbody>
+        {% for q in records %}
+        <tr>
+          <td><strong>{{ q.product_id[1] if q.product_id else '—' }}</strong></td>
+          <td style="font-size:.78rem;color:var(--text-muted)">{{ q.location_id[1] if q.location_id else '—' }}</td>
+          <td>{{ (q.quantity or 0) | round(2) }} {{ q.product_uom_id[1] if q.product_uom_id else '' }}</td>
+          <td style="color:var(--warning)">{{ (q.reserved_quantity or 0) | round(2) }}</td>
+          <td>
+            {% set avail = (q.quantity or 0) - (q.reserved_quantity or 0) %}
+            <span class="{{ 'num-positive' if avail > 0 else 'num-negative' }}">{{ avail | round(2) }}</span>
+          </td>
+          <td>{{ (q.value or 0) | fmt_currency }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6"><div class="empty-state"><i class="fa-solid fa-warehouse"></i><p>No stock records found</p></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% include '_pagination.html' %}
+  </div>
+
+  <div class="card">
+    <div class="card-header"><i class="fa-solid fa-chart-bar" style="color:var(--primary)"></i><h5>Top 10 by Value</h5></div>
+    <div class="card-body" style="padding:.75rem">
+      <canvas id="topChart" style="max-height:280px"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ============================== MOVEMENTS ============================== -->
+{% elif tab == 'movements' %}
+
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.count }}</div>
+    <div class="stat-label">Total Moves</div>
+  </div>
+  {% for mt in move_types[:3] %}
+  <div class="stat-card">
+    <div class="stat-value">{{ (mt.product_uom_qty or 0) | round(1) }}</div>
+    <div class="stat-label">{{ mt.picking_type_id[1] if mt.picking_type_id else 'Unknown' }}</div>
+  </div>
+  {% endfor %}
+</div>
+
+<form method="GET" action="{{ url_for('inventory') }}" class="filter-bar">
+  <input type="hidden" name="tab" value="movements">
+  <div class="filter-group">
+    <label>Search Product</label>
+    <input type="text" name="search" class="form-control form-control-sm" placeholder="Product name…" value="{{ search }}">
+  </div>
+  <div class="filter-group">
+    <label>From</label>
+    <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
+  </div>
+  <div class="filter-group">
+    <label>To</label>
+    <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
+  </div>
+  <div class="filter-group" style="justify-content:flex-end">
+    <label>&nbsp;</label>
+    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> Filter</button>
+  </div>
+</form>
+
+<div class="card table-card">
+  <table class="data-table">
+    <thead>
+      <tr><th>Date</th><th>Product</th><th>From</th><th>To</th><th>Qty</th><th>Reference</th></tr>
+    </thead>
+    <tbody>
+      {% for m in records %}
+      <tr>
+        <td style="font-size:.78rem">{{ m.date[:16] if m.date else '—' }}</td>
+        <td><strong>{{ m.product_id[1] if m.product_id else '—' }}</strong></td>
+        <td style="font-size:.78rem;color:var(--text-muted)">{{ m.location_id[1] if m.location_id else '—' }}</td>
+        <td style="font-size:.78rem;color:var(--text-muted)">{{ m.location_dest_id[1] if m.location_dest_id else '—' }}</td>
+        <td>{{ (m.product_uom_qty or 0) | round(2) }} {{ m.product_uom[1] if m.product_uom else '' }}</td>
+        <td style="font-size:.78rem;color:var(--text-muted)">{{ m.origin or m.picking_id[1] if m.picking_id else '—' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6"><div class="empty-state"><i class="fa-solid fa-arrows-rotate"></i><p>No movements found</p></div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% include '_pagination.html' %}
+</div>
+
+<!-- ============================== VALUATION ============================== -->
+{% elif tab == 'valuation' %}
+
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.count }}</div>
+    <div class="stat-label">Valuation Layers</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--primary)">{{ stats.total_value | fmt_currency }}</div>
+    <div class="stat-label">Total Value</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ (stats.total_qty or 0) | round(2) }}</div>
+    <div class="stat-label">Total Quantity</div>
+  </div>
+</div>
+
+<form method="GET" action="{{ url_for('inventory') }}" class="filter-bar">
+  <input type="hidden" name="tab" value="valuation">
+  <div class="filter-group">
+    <label>Search Product</label>
+    <input type="text" name="search" class="form-control form-control-sm" placeholder="Product name…" value="{{ search }}">
+  </div>
+  <div class="filter-group" style="justify-content:flex-end">
+    <label>&nbsp;</label>
+    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> Filter</button>
+  </div>
+</form>
+
+<div class="card table-card">
+  <table class="data-table">
+    <thead>
+      <tr><th>Product</th><th>Quantity</th><th>Unit Cost</th><th>Total Value</th><th>Company</th></tr>
+    </thead>
+    <tbody>
+      {% for v in records %}
+      <tr>
+        <td><strong>{{ v.product_id[1] if v.product_id else '—' }}</strong></td>
+        <td>{{ (v.quantity or 0) | round(3) }}</td>
+        <td>{{ (v.unit_cost or 0) | fmt_currency }}</td>
+        <td>
+          <span class="{{ 'num-positive' if (v.value or 0) >= 0 else 'num-negative' }}">
+            {{ (v.value or 0) | fmt_currency }}
+          </span>
+        </td>
+        <td style="font-size:.78rem;color:var(--text-muted)">{{ v.company_id[1] if v.company_id else '—' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5"><div class="empty-state"><i class="fa-solid fa-scale-balanced"></i><p>No valuation records found</p></div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% include '_pagination.html' %}
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if tab == 'stock' and charts.top_products %}
+<script>
+buildHorizontalBar('topChart', {{ charts.top_products | safe }});
+</script>
+{% endif %}
+{% endblock %}

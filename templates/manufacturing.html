@@ -1,0 +1,155 @@
+{% extends 'base.html' %}
+{% block title %}Manufacturing — Odoo Dashboard{% endblock %}
+{% block page_title %}Manufacturing{% endblock %}
+
+{% block topbar_actions %}
+<div class="export-group">
+  <a href="{{ url_for('export', key='manufacturing_production', fmt='pdf') }}?date_from={{ date_from }}&date_to={{ date_to }}&search={{ search }}"
+     class="btn btn-outline btn-sm" data-export>
+    <i class="fa-solid fa-file-pdf"></i> PDF
+  </a>
+  <a href="{{ url_for('export', key='manufacturing_production', fmt='excel') }}?date_from={{ date_from }}&date_to={{ date_to }}&search={{ search }}"
+     class="btn btn-outline btn-sm" data-export>
+    <i class="fa-solid fa-file-excel"></i> Excel
+  </a>
+</div>
+{% endblock %}
+
+{% block content %}
+
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.count }}</div>
+    <div class="stat-label">Total Orders</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--text-muted)">{{ stats.draft }}</div>
+    <div class="stat-label">Draft</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--warning)">{{ stats.confirmed }}</div>
+    <div class="stat-label">Confirmed</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--primary)">{{ stats.in_progress }}</div>
+    <div class="stat-label">In Progress</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--success)">{{ stats.done }}</div>
+    <div class="stat-label">Done</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--success)">{{ (stats.done_qty or 0) | round(1) }}</div>
+    <div class="stat-label">Qty Produced</div>
+  </div>
+</div>
+
+<form method="GET" action="{{ url_for('manufacturing') }}" class="filter-bar">
+  <div class="filter-group">
+    <label>Search</label>
+    <input type="text" name="search" class="form-control form-control-sm" placeholder="Reference or product…" value="{{ search }}">
+  </div>
+  <div class="filter-group">
+    <label>From</label>
+    <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
+  </div>
+  <div class="filter-group">
+    <label>To</label>
+    <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
+  </div>
+  <div class="filter-group" style="justify-content:flex-end">
+    <label>&nbsp;</label>
+    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> Filter</button>
+  </div>
+</form>
+
+<div style="display:grid;grid-template-columns:1fr 280px;gap:1rem;align-items:start">
+
+  <div class="card table-card">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Reference</th><th>Product</th><th>Qty</th>
+          <th>Planned Start</th><th>Planned End</th><th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for mo in records %}
+        <tr>
+          <td><code style="font-size:.78rem;color:var(--primary)">{{ mo.name }}</code></td>
+          <td><strong>{{ mo.product_id[1] if mo.product_id else '—' }}</strong></td>
+          <td>{{ (mo.product_qty or 0) | round(2) }} {{ mo.product_uom_id[1] if mo.product_uom_id else '' }}</td>
+          <td style="font-size:.78rem">{{ mo.date_planned_start[:16] if mo.date_planned_start else '—' }}</td>
+          <td style="font-size:.78rem">{{ mo.date_planned_finished[:16] if mo.date_planned_finished else '—' }}</td>
+          <td>
+            {% if mo.state == 'draft' %}<span class="badge badge-secondary">Draft</span>
+            {% elif mo.state == 'confirmed' %}<span class="badge badge-warning">Confirmed</span>
+            {% elif mo.state == 'progress' %}<span class="badge badge-primary">In Progress</span>
+            {% elif mo.state == 'to_close' %}<span class="badge badge-info">To Close</span>
+            {% elif mo.state == 'done' %}<span class="badge badge-success">Done</span>
+            {% elif mo.state == 'cancel' %}<span class="badge badge-danger">Cancelled</span>
+            {% else %}<span class="badge badge-secondary">{{ mo.state }}</span>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6">
+            <div class="empty-state">
+              <i class="fa-solid fa-industry"></i>
+              <p>No production orders found — Manufacturing module may not be installed</p>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% include '_pagination.html' %}
+  </div>
+
+  <div>
+    <div class="card" style="margin-bottom:1rem">
+      <div class="card-header"><i class="fa-solid fa-chart-pie" style="color:var(--primary)"></i><h5>Status Distribution</h5></div>
+      <div class="card-body" style="padding:.75rem">
+        <canvas id="statusChart" style="max-height:220px"></canvas>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><i class="fa-solid fa-bolt" style="color:var(--primary)"></i><h5>Summary</h5></div>
+      <div class="card-body">
+        {% set state_labels = {'draft':'Draft','confirmed':'Confirmed','progress':'In Progress','to_close':'To Close','done':'Done','cancel':'Cancelled'} %}
+        {% for state, count in [('draft', stats.draft), ('confirmed', stats.confirmed), ('in_progress', stats.in_progress), ('done', stats.done)] %}
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:.5rem 0;border-bottom:1px solid #f1f5f9">
+          <span style="font-size:.82rem;color:var(--text-muted)">
+            {% if loop.index == 1 %}Draft
+            {% elif loop.index == 2 %}Confirmed
+            {% elif loop.index == 3 %}In Progress
+            {% else %}Done{% endif %}
+          </span>
+          <strong style="font-size:.9rem">{{ count }}</strong>
+        </div>
+        {% endfor %}
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:.5rem 0;margin-top:.25rem">
+          <span style="font-size:.82rem;color:var(--text-muted)">Total Qty Produced</span>
+          <strong style="color:var(--success)">{{ (stats.done_qty or 0) | round(1) }}</strong>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if charts.status %}
+<script>
+const moStatusLabels = {
+  'draft': 'Draft', 'confirmed': 'Confirmed', 'progress': 'In Progress',
+  'to_close': 'To Close', 'done': 'Done', 'cancel': 'Cancelled'
+};
+const rawData = {{ charts.status | safe }};
+rawData.labels = rawData.labels.map(l => moStatusLabels[l] || l);
+buildDonut('statusChart', rawData);
+</script>
+{% endif %}
+{% endblock %}

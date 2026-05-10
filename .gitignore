@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.env
+.venv/
+venv/
+env/
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+.DS_Store
+*.log
+instance/
+flask_session/

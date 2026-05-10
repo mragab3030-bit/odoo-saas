@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Odoo Dashboard{% endblock %}</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+
+<div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+<div class="app-shell">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+
+    <div class="sidebar-brand">
+      <div class="brand-icon"><i class="fa-solid fa-chart-line"></i></div>
+      <div class="brand-text">
+        <div class="brand-name">Odoo Dashboard</div>
+        <div class="brand-sub">SaaS Analytics</div>
+      </div>
+    </div>
+
+    <div class="sidebar-user">
+      <div class="user-avatar"><i class="fa-solid fa-user"></i></div>
+      <div class="user-info">
+        <div class="user-name">{{ session.get('odoo_username', 'User') }}</div>
+        <div class="user-db">{{ session.get('odoo_db', '') }}</div>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="sidebar-section-label">Overview</div>
+      <a href="{{ url_for('dashboard') }}" class="nav-item {% if request.endpoint == 'dashboard' %}active{% endif %}">
+        <i class="fa-solid fa-gauge-high"></i> Dashboard
+      </a>
+
+      <div class="sidebar-section-label" style="margin-top:.75rem">Finance</div>
+      <a href="{{ url_for('financial', tab='invoices') }}" class="nav-item {% if request.endpoint == 'financial' and tab == 'invoices' %}active{% endif %}">
+        <i class="fa-solid fa-file-invoice-dollar"></i> Invoices
+      </a>
+      <a href="{{ url_for('financial', tab='banks') }}" class="nav-item {% if request.endpoint == 'financial' and tab == 'banks' %}active{% endif %}">
+        <i class="fa-solid fa-building-columns"></i> Banks
+      </a>
+      <a href="{{ url_for('financial', tab='assets') }}" class="nav-item {% if request.endpoint == 'financial' and tab == 'assets' %}active{% endif %}">
+        <i class="fa-solid fa-boxes-packing"></i> Assets
+      </a>
+      <a href="{{ url_for('financial', tab='expenses') }}" class="nav-item {% if request.endpoint == 'financial' and tab == 'expenses' %}active{% endif %}">
+        <i class="fa-solid fa-receipt"></i> Expenses
+      </a>
+
+      <div class="sidebar-section-label" style="margin-top:.75rem">Inventory</div>
+      <a href="{{ url_for('inventory', tab='stock') }}" class="nav-item {% if request.endpoint == 'inventory' and tab == 'stock' %}active{% endif %}">
+        <i class="fa-solid fa-warehouse"></i> Stock
+      </a>
+      <a href="{{ url_for('inventory', tab='movements') }}" class="nav-item {% if request.endpoint == 'inventory' and tab == 'movements' %}active{% endif %}">
+        <i class="fa-solid fa-arrows-rotate"></i> Movements
+      </a>
+      <a href="{{ url_for('inventory', tab='valuation') }}" class="nav-item {% if request.endpoint == 'inventory' and tab == 'valuation' %}active{% endif %}">
+        <i class="fa-solid fa-scale-balanced"></i> Valuation
+      </a>
+
+      <div class="sidebar-section-label" style="margin-top:.75rem">Sales</div>
+      <a href="{{ url_for('sales', tab='pipeline') }}" class="nav-item {% if request.endpoint == 'sales' and tab == 'pipeline' %}active{% endif %}">
+        <i class="fa-solid fa-funnel-dollar"></i> Pipeline
+      </a>
+      <a href="{{ url_for('sales', tab='orders') }}" class="nav-item {% if request.endpoint == 'sales' and tab == 'orders' %}active{% endif %}">
+        <i class="fa-solid fa-cart-shopping"></i> Orders
+      </a>
+
+      <div class="sidebar-section-label" style="margin-top:.75rem">Human Resources</div>
+      <a href="{{ url_for('hr', tab='attendance') }}" class="nav-item {% if request.endpoint == 'hr' and tab == 'attendance' %}active{% endif %}">
+        <i class="fa-solid fa-clock"></i> Attendance
+      </a>
+      <a href="{{ url_for('hr', tab='leave') }}" class="nav-item {% if request.endpoint == 'hr' and tab == 'leave' %}active{% endif %}">
+        <i class="fa-solid fa-calendar-xmark"></i> Leave
+      </a>
+
+      <div class="sidebar-section-label" style="margin-top:.75rem">Manufacturing</div>
+      <a href="{{ url_for('manufacturing') }}" class="nav-item {% if request.endpoint == 'manufacturing' %}active{% endif %}">
+        <i class="fa-solid fa-industry"></i> Production
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <a href="{{ url_for('logout') }}" class="nav-item" style="color:#ef4444">
+        <i class="fa-solid fa-right-from-bracket"></i> Logout
+      </a>
+    </div>
+
+  </aside>
+
+  <!-- Main -->
+  <div class="main-content">
+
+    <header class="topbar">
+      <button class="sidebar-toggle" id="sidebarToggle">
+        <i class="fa-solid fa-bars"></i>
+      </button>
+      <div class="topbar-title">
+        {% block page_title %}Dashboard{% endblock %}
+        {% block page_subtitle %}<small>{{ session.get('odoo_url', '') }}</small>{% endblock %}
+      </div>
+      <div style="display:flex;align-items:center;gap:.75rem">
+        {% block topbar_actions %}{% endblock %}
+        <a href="{{ url_for('logout') }}" class="btn btn-outline btn-sm">
+          <i class="fa-solid fa-right-from-bracket"></i>
+          <span class="d-none d-sm-inline">Logout</span>
+        </a>
+      </div>
+    </header>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div style="padding:1rem 1.5rem 0">
+          {% for cat, msg in messages %}
+            <div class="alert alert-{{ cat }}" data-dismiss>
+              <i class="fa-solid fa-circle-info"></i>{{ msg }}
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    <main class="page-content">
+      {% block content %}{% endblock %}
+    </main>
+
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

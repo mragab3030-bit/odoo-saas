@@ -1,0 +1,213 @@
+{% extends 'base.html' %}
+{% block title %}Sales — Odoo Dashboard{% endblock %}
+{% block page_title %}Sales{% endblock %}
+
+{% block topbar_actions %}
+<div class="export-group">
+  <a href="{{ url_for('export', key='sales_' + tab, fmt='pdf') }}?date_from={{ date_from }}&date_to={{ date_to }}&search={{ search }}"
+     class="btn btn-outline btn-sm" data-export>
+    <i class="fa-solid fa-file-pdf"></i> PDF
+  </a>
+  <a href="{{ url_for('export', key='sales_' + tab, fmt='excel') }}?date_from={{ date_from }}&date_to={{ date_to }}&search={{ search }}"
+     class="btn btn-outline btn-sm" data-export>
+    <i class="fa-solid fa-file-excel"></i> Excel
+  </a>
+</div>
+{% endblock %}
+
+{% block content %}
+
+<div class="tab-bar">
+  <a href="{{ url_for('sales', tab='orders') }}" class="tab-item {% if tab == 'orders' %}active{% endif %}">
+    <i class="fa-solid fa-cart-shopping"></i> Orders
+  </a>
+  <a href="{{ url_for('sales', tab='pipeline') }}" class="tab-item {% if tab == 'pipeline' %}active{% endif %}">
+    <i class="fa-solid fa-funnel-dollar"></i> Pipeline
+  </a>
+</div>
+
+<!-- ============================== ORDERS ============================== -->
+{% if tab == 'orders' %}
+
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.count }}</div>
+    <div class="stat-label">Total Orders</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--primary)">{{ stats.total | fmt_currency }}</div>
+    <div class="stat-label">Total Revenue</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--success)">{{ stats.confirmed | fmt_currency }}</div>
+    <div class="stat-label">Confirmed</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--info)">{{ stats.done | fmt_currency }}</div>
+    <div class="stat-label">Done</div>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 320px;gap:1rem;margin-bottom:1rem">
+  <form method="GET" action="{{ url_for('sales') }}" class="filter-bar" style="margin-bottom:0">
+    <input type="hidden" name="tab" value="orders">
+    <div class="filter-group">
+      <label>Search</label>
+      <input type="text" name="search" class="form-control form-control-sm" placeholder="Order # or customer…" value="{{ search }}">
+    </div>
+    <div class="filter-group">
+      <label>From</label>
+      <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
+    </div>
+    <div class="filter-group">
+      <label>To</label>
+      <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
+    </div>
+    <div class="filter-group" style="justify-content:flex-end">
+      <label>&nbsp;</label>
+      <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> Filter</button>
+    </div>
+  </form>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 320px;gap:1rem;align-items:start">
+  <div class="card table-card">
+    <table class="data-table">
+      <thead>
+        <tr><th>Order</th><th>Customer</th><th>Date</th><th>Amount</th><th>Status</th><th>Invoice</th></tr>
+      </thead>
+      <tbody>
+        {% for o in records %}
+        <tr>
+          <td><code style="font-size:.78rem;color:var(--primary)">{{ o.name }}</code></td>
+          <td>{{ o.partner_id[1] if o.partner_id else '—' }}</td>
+          <td style="font-size:.78rem">{{ o.date_order[:10] if o.date_order else '—' }}</td>
+          <td><strong>{{ (o.amount_total or 0) | fmt_currency }}</strong></td>
+          <td>
+            {% if o.state == 'sale' %}<span class="badge badge-success">Confirmed</span>
+            {% elif o.state == 'done' %}<span class="badge badge-info">Done</span>
+            {% elif o.state == 'draft' %}<span class="badge badge-secondary">Draft</span>
+            {% elif o.state == 'sent' %}<span class="badge badge-warning">Sent</span>
+            {% else %}<span class="badge badge-secondary">{{ o.state }}</span>{% endif %}
+          </td>
+          <td>
+            {% if o.invoice_status == 'invoiced' %}<span class="badge badge-success">Invoiced</span>
+            {% elif o.invoice_status == 'to invoice' %}<span class="badge badge-warning">To Invoice</span>
+            {% elif o.invoice_status == 'nothing' %}<span class="badge badge-secondary">Nothing</span>
+            {% else %}<span class="badge badge-secondary">{{ o.invoice_status or '—' }}</span>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6"><div class="empty-state"><i class="fa-solid fa-cart-shopping"></i><p>No orders found</p></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% include '_pagination.html' %}
+  </div>
+
+  <div class="card">
+    <div class="card-header"><i class="fa-solid fa-chart-bar" style="color:var(--primary)"></i><h5>Monthly Revenue</h5></div>
+    <div class="card-body" style="padding:.75rem">
+      <canvas id="monthlyChart" style="max-height:260px"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ============================== PIPELINE ============================== -->
+{% elif tab == 'pipeline' %}
+
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.count }}</div>
+    <div class="stat-label">Opportunities</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--primary)">{{ stats.total_revenue | fmt_currency }}</div>
+    <div class="stat-label">Expected Revenue</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ stages | length }}</div>
+    <div class="stat-label">Stages</div>
+  </div>
+</div>
+
+<form method="GET" action="{{ url_for('sales') }}" class="filter-bar">
+  <input type="hidden" name="tab" value="pipeline">
+  <div class="filter-group">
+    <label>Search</label>
+    <input type="text" name="search" class="form-control form-control-sm" placeholder="Opportunity or customer…" value="{{ search }}">
+  </div>
+  <div class="filter-group" style="justify-content:flex-end">
+    <label>&nbsp;</label>
+    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> Filter</button>
+  </div>
+</form>
+
+<div style="display:grid;grid-template-columns:1fr 300px;gap:1rem;align-items:start">
+  <div class="card table-card">
+    <table class="data-table">
+      <thead>
+        <tr><th>Opportunity</th><th>Customer</th><th>Stage</th><th>Expected Rev.</th><th>Probability</th><th>Deadline</th><th>⭐</th></tr>
+      </thead>
+      <tbody>
+        {% for lead in records %}
+        <tr>
+          <td><strong>{{ lead.name }}</strong></td>
+          <td>{{ lead.partner_id[1] if lead.partner_id else '—' }}</td>
+          <td>
+            <span class="badge badge-primary">{{ lead.stage_id[1] if lead.stage_id else 'No Stage' }}</span>
+          </td>
+          <td>{{ (lead.expected_revenue or 0) | fmt_currency }}</td>
+          <td>
+            {% set prob = lead.probability or 0 %}
+            <div style="display:flex;align-items:center;gap:.5rem">
+              <div style="flex:1;background:#e2e8f0;border-radius:10px;height:6px;min-width:60px">
+                <div style="width:{{ prob }}%;background:{% if prob >= 70 %}var(--success){% elif prob >= 40 %}var(--warning){% else %}var(--danger){% endif %};height:6px;border-radius:10px"></div>
+              </div>
+              <span style="font-size:.72rem;font-weight:600">{{ prob | round | int }}%</span>
+            </div>
+          </td>
+          <td style="font-size:.78rem">{{ lead.date_deadline or '—' }}</td>
+          <td style="font-size:.9rem">
+            {% for _ in range(lead.priority | int if lead.priority else 0) %}⭐{% endfor %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7"><div class="empty-state"><i class="fa-solid fa-funnel-dollar"></i><p>No opportunities found</p></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% include '_pagination.html' %}
+  </div>
+
+  <div class="card">
+    <div class="card-header"><i class="fa-solid fa-chart-pie" style="color:var(--primary)"></i><h5>Revenue by Stage</h5></div>
+    <div class="card-body" style="padding:.75rem">
+      <canvas id="stagesChart" style="max-height:240px"></canvas>
+    </div>
+    {% if stages %}
+    <div style="padding:.75rem 1rem;border-top:1px solid var(--border)">
+      {% for s in stages %}
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:.3rem 0;font-size:.78rem">
+        <span>{{ s.stage_id[1] if s.stage_id else 'No Stage' }}</span>
+        <span style="font-weight:600">{{ (s.expected_revenue or 0) | fmt_currency }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+{% if tab == 'orders' and charts.monthly %}
+buildBar('monthlyChart', {{ charts.monthly | safe }}, 'Revenue', true);
+{% endif %}
+{% if tab == 'pipeline' and charts.stages %}
+buildDonut('stagesChart', {{ charts.stages | safe }});
+{% endif %}
+</script>
+{% endblock %}

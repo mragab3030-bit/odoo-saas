@@ -1,0 +1,36 @@
+{% if total_pages and total_pages > 1 %}
+<div class="pagination">
+  <a class="page-btn {% if page <= 1 %}disabled{% endif %}"
+     href="?{% for k, v in request.args.items() %}{% if k != 'page' %}{{ k }}={{ v }}&{% endif %}{% endfor %}page={{ [page - 1, 1] | max }}">
+    <i class="fa-solid fa-chevron-left" style="font-size:.7rem"></i>
+  </a>
+
+  {% set start_p = [1, page - 2] | max %}
+  {% set end_p = [total_pages, page + 2] | min %}
+
+  {% if start_p > 1 %}
+    <a class="page-btn" href="?{% for k, v in request.args.items() %}{% if k != 'page' %}{{ k }}={{ v }}&{% endif %}{% endfor %}page=1">1</a>
+    {% if start_p > 2 %}<span class="page-info">…</span>{% endif %}
+  {% endif %}
+
+  {% for p in range(start_p, end_p + 1) %}
+    <a class="page-btn {% if p == page %}active{% endif %}"
+       href="?{% for k, v in request.args.items() %}{% if k != 'page' %}{{ k }}={{ v }}&{% endif %}{% endfor %}page={{ p }}">{{ p }}</a>
+  {% endfor %}
+
+  {% if end_p < total_pages %}
+    {% if end_p < total_pages - 1 %}<span class="page-info">…</span>{% endif %}
+    <a class="page-btn" href="?{% for k, v in request.args.items() %}{% if k != 'page' %}{{ k }}={{ v }}&{% endif %}{% endfor %}page={{ total_pages }}">{{ total_pages }}</a>
+  {% endif %}
+
+  <a class="page-btn {% if page >= total_pages %}disabled{% endif %}"
+     href="?{% for k, v in request.args.items() %}{% if k != 'page' %}{{ k }}={{ v }}&{% endif %}{% endfor %}page={{ [page + 1, total_pages] | min }}">
+    <i class="fa-solid fa-chevron-right" style="font-size:.7rem"></i>
+  </a>
+</div>
+{% if total_count is defined %}
+<p style="text-align:center;font-size:.72rem;color:var(--text-muted);margin:.25rem 0 .75rem">
+  Page {{ page }} of {{ total_pages }} &bull; {{ total_count }} records
+</p>
+{% endif %}
+{% endif %}

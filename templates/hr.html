@@ -1,0 +1,210 @@
+{% extends 'base.html' %}
+{% block title %}HR — Odoo Dashboard{% endblock %}
+{% block page_title %}Human Resources{% endblock %}
+
+{% block topbar_actions %}
+<div class="export-group">
+  <a href="{{ url_for('export', key='hr_' + tab, fmt='pdf') }}?date_from={{ date_from }}&date_to={{ date_to }}&search={{ search }}"
+     class="btn btn-outline btn-sm" data-export>
+    <i class="fa-solid fa-file-pdf"></i> PDF
+  </a>
+  <a href="{{ url_for('export', key='hr_' + tab, fmt='excel') }}?date_from={{ date_from }}&date_to={{ date_to }}&search={{ search }}"
+     class="btn btn-outline btn-sm" data-export>
+    <i class="fa-solid fa-file-excel"></i> Excel
+  </a>
+</div>
+{% endblock %}
+
+{% block content %}
+
+<div class="tab-bar">
+  <a href="{{ url_for('hr', tab='attendance') }}" class="tab-item {% if tab == 'attendance' %}active{% endif %}">
+    <i class="fa-solid fa-clock"></i> Attendance
+  </a>
+  <a href="{{ url_for('hr', tab='leave') }}" class="tab-item {% if tab == 'leave' %}active{% endif %}">
+    <i class="fa-solid fa-calendar-xmark"></i> Leave
+  </a>
+</div>
+
+<!-- ============================== ATTENDANCE ============================== -->
+{% if tab == 'attendance' %}
+
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.count }}</div>
+    <div class="stat-label">Total Records</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--primary)">{{ (stats.total_hours or 0) | round(1) }}h</div>
+    <div class="stat-label">Total Hours</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--success)">{{ stats.today_count }}</div>
+    <div class="stat-label">Present Today</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ (stats.avg_hours or 0) | round(1) }}h</div>
+    <div class="stat-label">Avg Hours / Session</div>
+  </div>
+</div>
+
+<form method="GET" action="{{ url_for('hr') }}" class="filter-bar">
+  <input type="hidden" name="tab" value="attendance">
+  <div class="filter-group">
+    <label>Search Employee</label>
+    <input type="text" name="search" class="form-control form-control-sm" placeholder="Employee name…" value="{{ search }}">
+  </div>
+  <div class="filter-group">
+    <label>From</label>
+    <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
+  </div>
+  <div class="filter-group">
+    <label>To</label>
+    <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
+  </div>
+  <div class="filter-group" style="justify-content:flex-end">
+    <label>&nbsp;</label>
+    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> Filter</button>
+  </div>
+</form>
+
+<div class="card table-card">
+  <table class="data-table">
+    <thead>
+      <tr><th>Employee</th><th>Check In</th><th>Check Out</th><th>Duration</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+      {% for a in records %}
+      {% set hours = a.worked_hours or 0 %}
+      <tr>
+        <td><strong>{{ a.employee_id[1] if a.employee_id else '—' }}</strong></td>
+        <td style="font-size:.78rem">{{ a.check_in[:16] if a.check_in else '—' }}</td>
+        <td style="font-size:.78rem">{{ a.check_out[:16] if a.check_out else '<span style="color:var(--warning);font-weight:600">Still In</span>' | safe }}</td>
+        <td>
+          {% if hours %}
+          <span class="{{ 'num-positive' if hours >= 6 else ('num-neutral' if hours >= 4 else 'num-negative') }}">
+            {{ '%d:%02d' % (hours | int, ((hours % 1) * 60) | int) }}h
+          </span>
+          {% else %}—{% endif %}
+        </td>
+        <td>
+          {% if not a.check_out %}
+            <span class="badge badge-warning">Active</span>
+          {% elif hours >= 8 %}
+            <span class="badge badge-success">Full Day</span>
+          {% elif hours >= 4 %}
+            <span class="badge badge-info">Half Day</span>
+          {% else %}
+            <span class="badge badge-danger">Short</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5"><div class="empty-state"><i class="fa-solid fa-clock"></i><p>No attendance records found</p></div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% include '_pagination.html' %}
+</div>
+
+<!-- ============================== LEAVE ============================== -->
+{% elif tab == 'leave' %}
+
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.count }}</div>
+    <div class="stat-label">Total Requests</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--warning)">{{ stats.pending }}</div>
+    <div class="stat-label">Pending Approval</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--success)">{{ stats.approved }}</div>
+    <div class="stat-label">Approved</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--primary)">{{ (stats.approved_days or 0) | round(1) }}</div>
+    <div class="stat-label">Approved Days</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--danger)">{{ stats.refused }}</div>
+    <div class="stat-label">Refused</div>
+  </div>
+</div>
+
+<form method="GET" action="{{ url_for('hr') }}" class="filter-bar">
+  <input type="hidden" name="tab" value="leave">
+  <div class="filter-group">
+    <label>Search</label>
+    <input type="text" name="search" class="form-control form-control-sm" placeholder="Employee or leave type…" value="{{ search }}">
+  </div>
+  <div class="filter-group">
+    <label>From</label>
+    <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
+  </div>
+  <div class="filter-group">
+    <label>To</label>
+    <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
+  </div>
+  <div class="filter-group" style="justify-content:flex-end">
+    <label>&nbsp;</label>
+    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> Filter</button>
+  </div>
+</form>
+
+<div style="display:grid;grid-template-columns:1fr 280px;gap:1rem;align-items:start">
+  <div class="card table-card">
+    <table class="data-table">
+      <thead>
+        <tr><th>Employee</th><th>Leave Type</th><th>From</th><th>To</th><th>Days</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        {% for leave in records %}
+        <tr>
+          <td><strong>{{ leave.employee_id[1] if leave.employee_id else '—' }}</strong></td>
+          <td>{{ leave.holiday_status_id[1] if leave.holiday_status_id else '—' }}</td>
+          <td style="font-size:.78rem">{{ leave.date_from[:10] if leave.date_from else '—' }}</td>
+          <td style="font-size:.78rem">{{ leave.date_to[:10] if leave.date_to else '—' }}</td>
+          <td><strong>{{ (leave.number_of_days or 0) | round(1) }}</strong></td>
+          <td>
+            {% if leave.state == 'draft' %}<span class="badge badge-secondary">Draft</span>
+            {% elif leave.state == 'confirm' %}<span class="badge badge-warning">Pending</span>
+            {% elif leave.state == 'validate1' %}<span class="badge badge-info">2nd Approval</span>
+            {% elif leave.state == 'validate' %}<span class="badge badge-success">Approved</span>
+            {% elif leave.state == 'refuse' %}<span class="badge badge-danger">Refused</span>
+            {% else %}<span class="badge badge-secondary">{{ leave.state }}</span>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6"><div class="empty-state"><i class="fa-solid fa-calendar-xmark"></i><p>No leave requests found</p></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% include '_pagination.html' %}
+  </div>
+
+  <div class="card">
+    <div class="card-header"><i class="fa-solid fa-chart-pie" style="color:var(--primary)"></i><h5>Leave Status</h5></div>
+    <div class="card-body" style="padding:.75rem">
+      <canvas id="leaveChart" style="max-height:220px"></canvas>
+    </div>
+  </div>
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if tab == 'leave' and charts.status %}
+<script>
+const leaveLabels = {
+  'draft': 'Draft', 'confirm': 'Pending', 'validate1': '2nd Approval',
+  'validate': 'Approved', 'refuse': 'Refused'
+};
+const rawData = {{ charts.status | safe }};
+rawData.labels = rawData.labels.map(l => leaveLabels[l] || l);
+buildDonut('leaveChart', rawData);
+</script>
+{% endif %}
+{% endblock %}
