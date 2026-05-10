@@ -22,6 +22,9 @@
   <a href="{{ url_for('financial', tab='invoices') }}" class="tab-item {% if tab == 'invoices' %}active{% endif %}">
     <i class="fa-solid fa-file-invoice-dollar"></i> Invoices
   </a>
+  <a href="{{ url_for('financial', tab='bills') }}" class="tab-item {% if tab == 'bills' %}active{% endif %}">
+    <i class="fa-solid fa-file-invoice"></i> Bills
+  </a>
   <a href="{{ url_for('financial', tab='banks') }}" class="tab-item {% if tab == 'banks' %}active{% endif %}">
     <i class="fa-solid fa-building-columns"></i> Banks
   </a>
@@ -37,13 +40,17 @@
 <div class="alert alert-warning"><i class="fa-solid fa-triangle-exclamation"></i> {{ error }}</div>
 {% endif %}
 
-<!-- ============================== INVOICES ============================== -->
-{% if tab == 'invoices' %}
+<!-- ============================== INVOICES & BILLS ============================== -->
+{% if tab in ('invoices', 'bills') %}
+
+{% set is_bills = (tab == 'bills') %}
+{% set partner_label = 'Vendor' if is_bills else 'Customer' %}
+{% set doc_label    = 'Bill'   if is_bills else 'Invoice' %}
 
 <div class="stat-grid">
   <div class="stat-card">
     <div class="stat-value">{{ stats.count }}</div>
-    <div class="stat-label">Total Invoices</div>
+    <div class="stat-label">Total {{ doc_label }}s</div>
   </div>
   <div class="stat-card">
     <div class="stat-value" style="color:var(--text)">{{ stats.total | fmt_currency }}</div>
@@ -51,7 +58,7 @@
   </div>
   <div class="stat-card">
     <div class="stat-value" style="color:var(--success)">{{ stats.paid | fmt_currency }}</div>
-    <div class="stat-label">Paid Amount</div>
+    <div class="stat-label">Paid</div>
   </div>
   <div class="stat-card">
     <div class="stat-value" style="color:var(--danger)">{{ stats.unpaid | fmt_currency }}</div>
@@ -59,20 +66,12 @@
   </div>
 </div>
 
-<!-- Filters -->
 <form method="GET" action="{{ url_for('financial') }}" class="filter-bar">
-  <input type="hidden" name="tab" value="invoices">
+  <input type="hidden" name="tab" value="{{ tab }}">
   <div class="filter-group">
     <label>Search</label>
-    <input type="text" name="search" class="form-control form-control-sm" placeholder="Invoice # or customer…" value="{{ search }}">
-  </div>
-  <div class="filter-group">
-    <label>Type</label>
-    <select name="type" class="form-select form-control-sm" style="min-width:130px">
-      <option value="all" {% if inv_type == 'all' %}selected{% endif %}>All</option>
-      <option value="customer" {% if inv_type == 'customer' %}selected{% endif %}>Customer</option>
-      <option value="vendor" {% if inv_type == 'vendor' %}selected{% endif %}>Vendor</option>
-    </select>
+    <input type="text" name="search" class="form-control form-control-sm"
+           placeholder="{{ doc_label }} # or {{ partner_label | lower }}…" value="{{ search }}">
   </div>
   <div class="filter-group">
     <label>From</label>
@@ -84,7 +83,9 @@
   </div>
   <div class="filter-group" style="justify-content:flex-end">
     <label>&nbsp;</label>
-    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> Filter</button>
+    <button type="submit" class="btn btn-primary btn-sm">
+      <i class="fa-solid fa-magnifying-glass"></i> Filter
+    </button>
   </div>
 </form>
 
@@ -93,7 +94,7 @@
     <table class="data-table">
       <thead>
         <tr>
-          <th>Number</th><th>Partner</th><th>Invoice Date</th><th>Due Date</th>
+          <th>Number</th><th>{{ partner_label }}</th><th>Date</th><th>Due Date</th>
           <th>Amount</th><th>Status</th><th>Payment</th>
         </tr>
       </thead>
@@ -126,7 +127,14 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="7"><div class="empty-state"><i class="fa-solid fa-file-invoice"></i><p>No invoices found</p></div></td></tr>
+        <tr>
+          <td colspan="7">
+            <div class="empty-state">
+              <i class="fa-solid {{ 'fa-file-invoice' if is_bills else 'fa-file-invoice-dollar' }}"></i>
+              <p>No {{ doc_label | lower }}s found</p>
+            </div>
+          </td>
+        </tr>
         {% endfor %}
       </tbody>
     </table>
@@ -134,7 +142,10 @@
   </div>
 
   <div class="card">
-    <div class="card-header"><i class="fa-solid fa-chart-pie" style="color:var(--primary)"></i><h5>Payment Status</h5></div>
+    <div class="card-header">
+      <i class="fa-solid fa-chart-pie" style="color:var(--primary)"></i>
+      <h5>Payment Status</h5>
+    </div>
     <div class="card-body">
       <canvas id="statusChart" style="max-height:200px"></canvas>
     </div>
@@ -361,7 +372,7 @@
 {% endblock %}
 
 {% block scripts %}
-{% if tab == 'invoices' and charts.status %}
+{% if tab in ('invoices', 'bills') and charts.status %}
 <script>
 const statusData = {{ charts.status | safe }};
 buildDonut('statusChart', statusData);

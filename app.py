@@ -268,19 +268,13 @@ def financial():
     search = request.args.get('search', '').strip()
     date_from = request.args.get('date_from', three_months_ago_str())
     date_to = request.args.get('date_to', today_str())
-    inv_type = request.args.get('type', 'all')
 
     ctx = dict(tab=tab, page=page, search=search, date_from=date_from,
                date_to=date_to, total_pages=1, records=[], stats={}, charts={})
 
-    if tab == 'invoices':
-        domain = [['state', '!=', 'cancel']]
-        if inv_type == 'customer':
-            domain.append(['move_type', '=', 'out_invoice'])
-        elif inv_type == 'vendor':
-            domain.append(['move_type', '=', 'in_invoice'])
-        else:
-            domain.append(['move_type', 'in', ['out_invoice', 'in_invoice']])
+    if tab in ('invoices', 'bills'):
+        move_type = 'out_invoice' if tab == 'invoices' else 'in_invoice'
+        domain = [['move_type', '=', move_type], ['state', '!=', 'cancel']]
         if date_from:
             domain.append(['invoice_date', '>=', date_from])
         if date_to:
@@ -291,8 +285,7 @@ def financial():
         total = c.safe_count('account.move', domain)
         records = c.safe_search_read('account.move', domain,
             ['name', 'partner_id', 'invoice_date', 'invoice_date_due',
-             'amount_total', 'amount_residual', 'currency_id', 'state',
-             'payment_state', 'move_type'],
+             'amount_total', 'amount_residual', 'currency_id', 'state', 'payment_state'],
             limit=PAGE_SIZE, offset=(page - 1) * PAGE_SIZE, order='invoice_date desc')
 
         grps = c.safe_read_group('account.move', domain,
@@ -308,7 +301,6 @@ def financial():
             'paid': totals.get('amount_total', 0) - totals.get('amount_residual', 0),
             'count': total,
         }
-        ctx['inv_type'] = inv_type
 
         status_grp = c.safe_read_group('account.move', domain,
             ['payment_state'], ['payment_state'])
@@ -734,12 +726,21 @@ def manufacturing():
 
 EXPORT_CONFIG = {
     'financial_invoices': {
-        'title': 'Invoice Report',
+        'title': 'Customer Invoices Report',
         'model': 'account.move',
-        'domain_key': 'invoices',
+        'domain': [['move_type', '=', 'out_invoice'], ['state', '!=', 'cancel']],
         'fields': ['name', 'partner_id', 'invoice_date', 'invoice_date_due',
                    'amount_total', 'currency_id', 'state', 'payment_state'],
-        'headers': ['Number', 'Partner', 'Invoice Date', 'Due Date',
+        'headers': ['Number', 'Customer', 'Invoice Date', 'Due Date',
+                    'Amount', 'Currency', 'Status', 'Payment Status'],
+    },
+    'financial_bills': {
+        'title': 'Vendor Bills Report',
+        'model': 'account.move',
+        'domain': [['move_type', '=', 'in_invoice'], ['state', '!=', 'cancel']],
+        'fields': ['name', 'partner_id', 'invoice_date', 'invoice_date_due',
+                   'amount_total', 'currency_id', 'state', 'payment_state'],
+        'headers': ['Number', 'Vendor', 'Bill Date', 'Due Date',
                     'Amount', 'Currency', 'Status', 'Payment Status'],
     },
     'financial_expenses': {

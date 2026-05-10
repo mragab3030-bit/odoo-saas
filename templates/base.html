@@ -40,43 +40,46 @@
       </a>
 
       <div class="sidebar-section-label" style="margin-top:.75rem">Finance</div>
-      <a href="{{ url_for('financial', tab='invoices') }}" class="nav-item {% if request.endpoint == 'financial' and tab == 'invoices' %}active{% endif %}">
+      <a href="{{ url_for('financial', tab='invoices') }}" class="nav-item {% if request.endpoint == 'financial' and request.args.get('tab') == 'invoices' %}active{% endif %}">
         <i class="fa-solid fa-file-invoice-dollar"></i> Invoices
       </a>
-      <a href="{{ url_for('financial', tab='banks') }}" class="nav-item {% if request.endpoint == 'financial' and tab == 'banks' %}active{% endif %}">
+      <a href="{{ url_for('financial', tab='bills') }}" class="nav-item {% if request.endpoint == 'financial' and request.args.get('tab') == 'bills' %}active{% endif %}">
+        <i class="fa-solid fa-file-invoice"></i> Bills
+      </a>
+      <a href="{{ url_for('financial', tab='banks') }}" class="nav-item {% if request.endpoint == 'financial' and request.args.get('tab') == 'banks' %}active{% endif %}">
         <i class="fa-solid fa-building-columns"></i> Banks
       </a>
-      <a href="{{ url_for('financial', tab='assets') }}" class="nav-item {% if request.endpoint == 'financial' and tab == 'assets' %}active{% endif %}">
+      <a href="{{ url_for('financial', tab='assets') }}" class="nav-item {% if request.endpoint == 'financial' and request.args.get('tab') == 'assets' %}active{% endif %}">
         <i class="fa-solid fa-boxes-packing"></i> Assets
       </a>
-      <a href="{{ url_for('financial', tab='expenses') }}" class="nav-item {% if request.endpoint == 'financial' and tab == 'expenses' %}active{% endif %}">
+      <a href="{{ url_for('financial', tab='expenses') }}" class="nav-item {% if request.endpoint == 'financial' and request.args.get('tab') == 'expenses' %}active{% endif %}">
         <i class="fa-solid fa-receipt"></i> Expenses
       </a>
 
       <div class="sidebar-section-label" style="margin-top:.75rem">Inventory</div>
-      <a href="{{ url_for('inventory', tab='stock') }}" class="nav-item {% if request.endpoint == 'inventory' and tab == 'stock' %}active{% endif %}">
+      <a href="{{ url_for('inventory', tab='stock') }}" class="nav-item {% if request.endpoint == 'inventory' and request.args.get('tab','stock') == 'stock' %}active{% endif %}">
         <i class="fa-solid fa-warehouse"></i> Stock
       </a>
-      <a href="{{ url_for('inventory', tab='movements') }}" class="nav-item {% if request.endpoint == 'inventory' and tab == 'movements' %}active{% endif %}">
+      <a href="{{ url_for('inventory', tab='movements') }}" class="nav-item {% if request.endpoint == 'inventory' and request.args.get('tab') == 'movements' %}active{% endif %}">
         <i class="fa-solid fa-arrows-rotate"></i> Movements
       </a>
-      <a href="{{ url_for('inventory', tab='valuation') }}" class="nav-item {% if request.endpoint == 'inventory' and tab == 'valuation' %}active{% endif %}">
+      <a href="{{ url_for('inventory', tab='valuation') }}" class="nav-item {% if request.endpoint == 'inventory' and request.args.get('tab') == 'valuation' %}active{% endif %}">
         <i class="fa-solid fa-scale-balanced"></i> Valuation
       </a>
 
       <div class="sidebar-section-label" style="margin-top:.75rem">Sales</div>
-      <a href="{{ url_for('sales', tab='pipeline') }}" class="nav-item {% if request.endpoint == 'sales' and tab == 'pipeline' %}active{% endif %}">
+      <a href="{{ url_for('sales', tab='pipeline') }}" class="nav-item {% if request.endpoint == 'sales' and request.args.get('tab') == 'pipeline' %}active{% endif %}">
         <i class="fa-solid fa-funnel-dollar"></i> Pipeline
       </a>
-      <a href="{{ url_for('sales', tab='orders') }}" class="nav-item {% if request.endpoint == 'sales' and tab == 'orders' %}active{% endif %}">
+      <a href="{{ url_for('sales', tab='orders') }}" class="nav-item {% if request.endpoint == 'sales' and request.args.get('tab','orders') == 'orders' %}active{% endif %}">
         <i class="fa-solid fa-cart-shopping"></i> Orders
       </a>
 
       <div class="sidebar-section-label" style="margin-top:.75rem">Human Resources</div>
-      <a href="{{ url_for('hr', tab='attendance') }}" class="nav-item {% if request.endpoint == 'hr' and tab == 'attendance' %}active{% endif %}">
+      <a href="{{ url_for('hr', tab='attendance') }}" class="nav-item {% if request.endpoint == 'hr' and request.args.get('tab','attendance') == 'attendance' %}active{% endif %}">
         <i class="fa-solid fa-clock"></i> Attendance
       </a>
-      <a href="{{ url_for('hr', tab='leave') }}" class="nav-item {% if request.endpoint == 'hr' and tab == 'leave' %}active{% endif %}">
+      <a href="{{ url_for('hr', tab='leave') }}" class="nav-item {% if request.endpoint == 'hr' and request.args.get('tab') == 'leave' %}active{% endif %}">
         <i class="fa-solid fa-calendar-xmark"></i> Leave
       </a>
 
