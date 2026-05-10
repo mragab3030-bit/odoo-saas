@@ -105,3 +105,29 @@ class OdooClient:
         except Exception as e:
             logger.warning("safe_search_read failed — model=%s order=%r: %s", model, order, e)
             return []
+
+    def paginated_search_read(self, model: str, domain=None, fields=None,
+                              batch_size: int = 1000, order=None,
+                              max_total: int = None):
+        if domain is None:
+            domain = []
+        results = []
+        offset = 0
+        while True:
+            try:
+                batch = self.search_read(model, domain, fields,
+                                         limit=batch_size, offset=offset, order=order)
+            except Exception as e:
+                logger.warning("paginated_search_read failed at offset=%d "
+                               "(model=%s): %s", offset, model, e)
+                break
+            if not batch:
+                break
+            results.extend(batch)
+            if len(batch) < batch_size:
+                break
+            if max_total is not None and len(results) >= max_total:
+                results = results[:max_total]
+                break
+            offset += batch_size
+        return results

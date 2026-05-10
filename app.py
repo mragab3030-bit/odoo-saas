@@ -379,9 +379,9 @@ def financial():
             ['state', '=', 'posted'],
             ['payment_state', 'in', ['not_paid', 'partial']],
         ]
-        aging_records = c.safe_search_read('account.move', aging_dom,
-            ['invoice_date_due', 'invoice_date', 'amount_residual'],
-            limit=10000, order='invoice_date_due asc')
+        aging_records = c.paginated_search_read('account.move', aging_dom,
+            fields=['invoice_date_due', 'invoice_date', 'amount_residual'],
+            order='invoice_date_due asc')
 
         n = period_days
         buckets = [
@@ -998,8 +998,8 @@ def export(key: str, fmt: str):
         if search:
             title_extras.append(f'Search: "{search}"')
 
-    records = c.safe_search_read(cfg['model'], domain, cfg['fields'],
-                                  limit=5000, order=None)
+    records = c.paginated_search_read(cfg['model'], domain,
+                                      fields=cfg['fields'], order=None)
 
     def cell_val(rec, field):
         v = rec.get(field)
