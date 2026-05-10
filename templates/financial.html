@@ -74,7 +74,22 @@
   </div>
 </div>
 
-<form method="GET" action="{{ url_for('financial') }}" class="filter-bar">
+{% set period_options = [
+  ('today',         'Today'),
+  ('yesterday',     'Yesterday'),
+  ('last_7',        'Last 7 Days'),
+  ('this_month',    'This Month'),
+  ('last_month',    'Last Month'),
+  ('last_30',       'Last 30 Days'),
+  ('this_quarter',  'This Quarter'),
+  ('last_quarter',  'Last Quarter'),
+  ('last_90',       'Last 90 Days'),
+  ('ytd',           'Year to Date (YTD)'),
+  ('last_year',     'Last Year'),
+  ('last_365',      'Last 365 Days'),
+  ('custom',        'Custom'),
+] %}
+<form method="GET" action="{{ url_for('financial') }}" class="filter-bar" id="finFilterForm">
   <input type="hidden" name="tab" value="{{ tab }}">
   <div class="filter-group">
     <label>Search</label>
@@ -82,12 +97,25 @@
            placeholder="{{ doc_label }} # or {{ partner_label | lower }}…" value="{{ search }}">
   </div>
   <div class="filter-group">
-    <label>From</label>
-    <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
+    <label>Period</label>
+    <select name="range" class="form-control form-control-sm" id="periodSelect"
+            onchange="onPeriodChange(this)">
+      {% for key, label in period_options %}
+      <option value="{{ key }}" {% if range_key == key %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
   </div>
-  <div class="filter-group">
+  <div class="filter-group js-custom-range"
+       style="display:{{ 'flex' if range_key == 'custom' else 'none' }}">
+    <label>From</label>
+    <input type="date" name="date_from" class="form-control form-control-sm"
+           value="{{ date_from }}">
+  </div>
+  <div class="filter-group js-custom-range"
+       style="display:{{ 'flex' if range_key == 'custom' else 'none' }}">
     <label>To</label>
-    <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
+    <input type="date" name="date_to" class="form-control form-control-sm"
+           value="{{ date_to }}">
   </div>
   <div class="filter-group" style="justify-content:flex-end">
     <label>&nbsp;</label>
@@ -96,6 +124,15 @@
     </button>
   </div>
 </form>
+<script>
+  function onPeriodChange(sel) {
+    var custom = sel.value === 'custom';
+    document.querySelectorAll('.js-custom-range').forEach(function (el) {
+      el.style.display = custom ? 'flex' : 'none';
+    });
+    if (!custom) sel.form.submit();
+  }
+</script>
 
 <div class="cards-row">
 

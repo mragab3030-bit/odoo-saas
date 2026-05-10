@@ -83,16 +83,55 @@ def safe_int_param(name: str, default: int = 1) -> int:
         return default
 
 
-def _oldest_invoice_date(c, move_type: str):
-    recs = c.safe_search_read(
-        'account.move',
-        [['move_type', '=', move_type], ['state', '!=', 'cancel'],
-         ['invoice_date', '!=', False]],
-        ['invoice_date'], limit=1, order='invoice_date asc',
-    )
-    if recs and recs[0].get('invoice_date'):
-        return recs[0]['invoice_date']
-    return None
+DATE_RANGE_KEYS = (
+    'today', 'yesterday', 'last_7', 'this_month', 'last_month',
+    'last_30', 'this_quarter', 'last_quarter', 'last_90', 'ytd',
+    'last_year', 'last_365', 'custom',
+)
+
+
+def _resolve_date_range(range_key: str, request_date_from: str,
+                        request_date_to: str):
+    today_d = date.today()
+    today_iso = today_d.isoformat()
+
+    if range_key == 'today':
+        return today_iso, today_iso, 'today'
+    if range_key == 'yesterday':
+        y = (today_d - timedelta(days=1)).isoformat()
+        return y, y, 'yesterday'
+    if range_key == 'last_7':
+        return (today_d - timedelta(days=6)).isoformat(), today_iso, 'last_7'
+    if range_key == 'last_month':
+        first_this = today_d.replace(day=1)
+        last_prev = first_this - timedelta(days=1)
+        first_prev = last_prev.replace(day=1)
+        return first_prev.isoformat(), last_prev.isoformat(), 'last_month'
+    if range_key == 'last_30':
+        return (today_d - timedelta(days=29)).isoformat(), today_iso, 'last_30'
+    if range_key == 'this_quarter':
+        qm = ((today_d.month - 1) // 3) * 3 + 1
+        return today_d.replace(month=qm, day=1).isoformat(), today_iso, 'this_quarter'
+    if range_key == 'last_quarter':
+        qm = ((today_d.month - 1) // 3) * 3 + 1
+        first_this_q = today_d.replace(month=qm, day=1)
+        last_prev_q = first_this_q - timedelta(days=1)
+        prev_qm = ((last_prev_q.month - 1) // 3) * 3 + 1
+        first_prev_q = last_prev_q.replace(month=prev_qm, day=1)
+        return first_prev_q.isoformat(), last_prev_q.isoformat(), 'last_quarter'
+    if range_key == 'last_90':
+        return (today_d - timedelta(days=89)).isoformat(), today_iso, 'last_90'
+    if range_key == 'ytd':
+        return today_d.replace(month=1, day=1).isoformat(), today_iso, 'ytd'
+    if range_key == 'last_year':
+        ly = today_d.year - 1
+        return date(ly, 1, 1).isoformat(), date(ly, 12, 31).isoformat(), 'last_year'
+    if range_key == 'last_365':
+        return (today_d - timedelta(days=364)).isoformat(), today_iso, 'last_365'
+    if range_key == 'custom':
+        return request_date_from or '', request_date_to or '', 'custom'
+    # Default
+    return today_d.replace(day=1).isoformat(), today_iso, 'this_month'
 
 
 app.jinja_env.filters['fmt_currency'] = fmt_currency
@@ -286,18 +325,23 @@ def financial():
     tab = request.args.get('tab', 'invoices')
     page = safe_int_param('page')
     search = request.args.get('search', '').strip()
-    date_from = request.args.get('date_from')
-    date_to = request.args.get('date_to', today_str())
+    raw_date_from = request.args.get('date_from', '')
+    raw_date_to = request.args.get('date_to', '')
+    range_key = request.args.get('range', '').strip()
 
-    if not date_from:
-        if tab in ('invoices', 'bills'):
-            mt = 'out_invoice' if tab == 'invoices' else 'in_invoice'
-            date_from = _oldest_invoice_date(c, mt) or three_months_ago_str()
-        else:
-            date_from = three_months_ago_str()
+    if tab in ('invoices', 'bills'):
+        if range_key not in DATE_RANGE_KEYS:
+            range_key = 'this_month'
+        date_from, date_to, range_key = _resolve_date_range(
+            range_key, raw_date_from, raw_date_to)
+    else:
+        date_from = raw_date_from or three_months_ago_str()
+        date_to = raw_date_to or today_str()
+        range_key = ''
 
     ctx = dict(tab=tab, page=page, search=search, date_from=date_from,
-               date_to=date_to, total_pages=1, records=[], stats={}, charts={},
+               date_to=date_to, range_key=range_key,
+               total_pages=1, records=[], stats={}, charts={},
                status_filter='', aging_filter=None, period_days=30)
 
     if tab in ('invoices', 'bills'):
