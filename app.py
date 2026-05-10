@@ -330,7 +330,7 @@ def financial():
 
         total = c.safe_count('account.move', table_domain)
         records = c.safe_search_read('account.move', table_domain,
-            ['name', 'partner_id', 'invoice_date', 'invoice_date_due',
+            ['id', 'name', 'partner_id', 'invoice_date', 'invoice_date_due',
              'amount_total', 'amount_residual', 'currency_id', 'state', 'payment_state'],
             limit=PAGE_SIZE, offset=(page - 1) * PAGE_SIZE, order='invoice_date desc')
 

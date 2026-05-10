@@ -89,71 +89,95 @@
   </div>
 </form>
 
-<div class="section-title">
-  <i class="fa-solid fa-filter" style="color:var(--primary)"></i>
-  <h5>Payment Status &amp; Aging</h5>
-  <form method="GET" action="{{ url_for('financial') }}" style="display:flex;gap:.4rem;align-items:center;margin-left:auto">
-    <input type="hidden" name="tab" value="{{ tab }}">
-    <input type="hidden" name="search" value="{{ search }}">
-    <input type="hidden" name="date_from" value="{{ date_from }}">
-    <input type="hidden" name="date_to" value="{{ date_to }}">
-    {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
-    {% if aging_filter is not none %}<input type="hidden" name="aging" value="{{ aging_filter }}">{% endif %}
-    <label style="font-size:.78rem;color:var(--text-muted);margin:0">Period (days)</label>
-    <input type="number" name="period" min="1" max="365" value="{{ period_days }}"
-           class="form-control form-control-sm" style="width:75px">
-    <button type="submit" class="btn btn-primary btn-sm">Apply</button>
-  </form>
-  {% if status_filter or aging_filter is not none %}
-  <a href="{{ url_for('financial', tab=tab, search=search, date_from=date_from, date_to=date_to, period=period_days) }}"
-     class="btn btn-outline btn-sm" style="color:var(--danger);border-color:var(--danger)">
-    <i class="fa-solid fa-filter-circle-xmark"></i> Clear
-  </a>
-  {% endif %}
-</div>
-
 <div class="cards-row">
-  {% for s in payment_status %}
-  {% set is_active = (status_filter == s.key) %}
-  {% set color = {'not_paid':'var(--danger)', 'paid':'var(--success)',
-                  'partial':'var(--warning)', 'reversed':'var(--text-muted)'}[s.key] %}
-  <a href="{{ url_for('financial', tab=tab, search=search,
-                      date_from=date_from, date_to=date_to, period=period_days,
-                      status=(none if is_active else s.key),
-                      aging=(aging_filter if aging_filter is not none else none)) }}"
-     class="stat-card stat-card-link {% if is_active %}stat-card-active{% endif %}">
-    <div class="stat-label">{{ s.label }}</div>
-    <div class="stat-value" style="color:{{ color }}">{{ s.count }}</div>
-    <div style="font-weight:600;font-size:.9rem">{{ s.amount | fmt_currency_int }}</div>
-    {% if s.overdue and s.overdue > 0 %}
-    <div style="margin-top:.3rem;font-size:.7rem;color:var(--danger);font-weight:600">
-      <i class="fa-solid fa-triangle-exclamation"></i> {{ s.overdue }} overdue
-    </div>
-    {% else %}
-    <div style="margin-top:.3rem;font-size:.7rem;color:var(--text-muted)">
-      <i class="fa-regular fa-circle-check"></i> No overdue
-    </div>
-    {% endif %}
-  </a>
-  {% endfor %}
 
-  {% set bucket_colors = ['var(--success)', '#3b82f6', 'var(--warning)', '#f97316', 'var(--danger)'] %}
-  {% for b in aging_buckets %}
-  {% set is_active = (aging_filter == loop.index0) %}
-  <a href="{{ url_for('financial', tab=tab, search=search,
-                      date_from=date_from, date_to=date_to, period=period_days,
-                      status=(status_filter or none),
-                      aging=(none if is_active else loop.index0)) }}"
-     class="stat-card stat-card-link {% if is_active %}stat-card-active{% endif %}">
-    <div class="stat-label">{{ b.label }} days</div>
-    <div class="stat-value" style="color:{{ bucket_colors[loop.index0] }}">{{ b.count }}</div>
-    <div style="font-weight:600;font-size:.9rem">{{ b.amount | fmt_currency_int }}</div>
-    <div style="margin-top:.3rem;font-size:.7rem;color:var(--text-muted)">
-      <i class="fa-solid fa-hourglass-half"></i> Outstanding
+  <!-- Payment Status section -->
+  <div class="cards-section status">
+    <div class="cards-section-header">
+      <span class="cards-section-label">
+        <i class="fa-solid fa-circle-dot" style="color:var(--primary)"></i> Payment Status
+      </span>
+      {% if status_filter or aging_filter is not none %}
+      <a href="{{ url_for('financial', tab=tab, search=search,
+                          date_from=date_from, date_to=date_to, period=period_days) }}"
+         class="btn btn-outline btn-sm" style="margin-left:auto;color:var(--danger);border-color:var(--danger)">
+        <i class="fa-solid fa-filter-circle-xmark"></i> Clear
+      </a>
+      {% endif %}
     </div>
-  </a>
-  {% endfor %}
+    <div class="cards-section-grid">
+      {% for s in payment_status %}
+      {% set is_active = (status_filter == s.key) %}
+      {% set color = {'not_paid':'var(--danger)', 'paid':'var(--success)',
+                      'partial':'var(--warning)', 'reversed':'var(--text-muted)'}[s.key] %}
+      <a href="{{ url_for('financial', tab=tab, search=search,
+                          date_from=date_from, date_to=date_to, period=period_days,
+                          status=(none if is_active else s.key),
+                          aging=(aging_filter if aging_filter is not none else none)) }}"
+         class="stat-card stat-card-link {% if is_active %}stat-card-active{% endif %}">
+        <div class="stat-label">{{ s.label }}</div>
+        <div class="stat-value" style="color:{{ color }}">{{ s.count }}</div>
+        <div style="font-weight:600;font-size:.9rem">{{ s.amount | fmt_currency_int }}</div>
+        {% if s.overdue and s.overdue > 0 %}
+        <div style="margin-top:.3rem;font-size:.7rem;color:var(--danger);font-weight:600">
+          <i class="fa-solid fa-triangle-exclamation"></i> {{ s.overdue }} overdue
+        </div>
+        {% else %}
+        <div style="margin-top:.3rem;font-size:.7rem;color:var(--text-muted)">
+          <i class="fa-regular fa-circle-check"></i> No overdue
+        </div>
+        {% endif %}
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="cards-separator"></div>
+
+  <!-- Aging section -->
+  <div class="cards-section aging">
+    <div class="cards-section-header">
+      <span class="cards-section-label">
+        <i class="fa-solid fa-hourglass-half" style="color:var(--primary)"></i> {{ doc_label }} Aging
+      </span>
+      <form method="GET" action="{{ url_for('financial') }}"
+            style="display:flex;gap:.4rem;align-items:center;margin-left:.75rem">
+        <input type="hidden" name="tab" value="{{ tab }}">
+        <input type="hidden" name="search" value="{{ search }}">
+        <input type="hidden" name="date_from" value="{{ date_from }}">
+        <input type="hidden" name="date_to" value="{{ date_to }}">
+        {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
+        {% if aging_filter is not none %}<input type="hidden" name="aging" value="{{ aging_filter }}">{% endif %}
+        <label style="font-size:.72rem;color:var(--text-muted);margin:0">Period (days)</label>
+        <input type="number" name="period" min="1" max="365" value="{{ period_days }}"
+               class="form-control form-control-sm" style="width:70px">
+        <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+      </form>
+    </div>
+    <div class="cards-section-grid">
+      {% set bucket_colors = ['var(--success)', '#3b82f6', 'var(--warning)', '#f97316', 'var(--danger)'] %}
+      {% for b in aging_buckets %}
+      {% set is_active = (aging_filter == loop.index0) %}
+      <a href="{{ url_for('financial', tab=tab, search=search,
+                          date_from=date_from, date_to=date_to, period=period_days,
+                          status=(status_filter or none),
+                          aging=(none if is_active else loop.index0)) }}"
+         class="stat-card stat-card-link {% if is_active %}stat-card-active{% endif %}">
+        <div class="stat-label">{{ b.label }} days</div>
+        <div class="stat-value" style="color:{{ bucket_colors[loop.index0] }}">{{ b.count }}</div>
+        <div style="font-weight:600;font-size:.9rem">{{ b.amount | fmt_currency_int }}</div>
+        <div style="margin-top:.3rem;font-size:.7rem;color:var(--text-muted)">
+          <i class="fa-solid fa-hourglass-half"></i> Outstanding
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+
 </div>
+
+{% set odoo_base = (session.get('odoo_url') or '').rstrip('/') %}
+{% set record_path = '/odoo/accounting/vendor-bills/' if is_bills else '/odoo/accounting/customer-invoices/' %}
 
 <div class="card table-card" style="margin-top:1rem">
   <table class="data-table">
@@ -165,7 +189,9 @@
     </thead>
     <tbody>
       {% for inv in records %}
-      <tr>
+      <tr class="row-clickable"
+          onclick="window.open('{{ odoo_base }}{{ record_path }}{{ inv.id }}', '_blank', 'noopener,noreferrer')"
+          title="Open in Odoo">
         <td><code style="font-size:.78rem;color:var(--primary)">{{ inv.name or 'Draft' }}</code></td>
         <td>{{ inv.partner_id[1] if inv.partner_id else '—' }}</td>
         <td>{{ inv.invoice_date or '—' }}</td>
