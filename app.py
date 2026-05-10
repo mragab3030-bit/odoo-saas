@@ -83,6 +83,18 @@ def safe_int_param(name: str, default: int = 1) -> int:
         return default
 
 
+def _oldest_invoice_date(c, move_type: str):
+    recs = c.safe_search_read(
+        'account.move',
+        [['move_type', '=', move_type], ['state', '!=', 'cancel'],
+         ['invoice_date', '!=', False]],
+        ['invoice_date'], limit=1, order='invoice_date asc',
+    )
+    if recs and recs[0].get('invoice_date'):
+        return recs[0]['invoice_date']
+    return None
+
+
 app.jinja_env.filters['fmt_currency'] = fmt_currency
 app.jinja_env.filters['fmt_currency_int'] = fmt_currency_int
 
@@ -274,8 +286,15 @@ def financial():
     tab = request.args.get('tab', 'invoices')
     page = safe_int_param('page')
     search = request.args.get('search', '').strip()
-    date_from = request.args.get('date_from', three_months_ago_str())
+    date_from = request.args.get('date_from')
     date_to = request.args.get('date_to', today_str())
+
+    if not date_from:
+        if tab in ('invoices', 'bills'):
+            mt = 'out_invoice' if tab == 'invoices' else 'in_invoice'
+            date_from = _oldest_invoice_date(c, mt) or three_months_ago_str()
+        else:
+            date_from = three_months_ago_str()
 
     ctx = dict(tab=tab, page=page, search=search, date_from=date_from,
                date_to=date_to, total_pages=1, records=[], stats={}, charts={},
