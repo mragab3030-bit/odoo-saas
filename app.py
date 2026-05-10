@@ -55,6 +55,13 @@ def fmt_currency(value, symbol=''):
         return str(value)
 
 
+def fmt_currency_int(value, symbol=''):
+    try:
+        return f"{symbol}{round(value or 0):,}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
 def today_str():
     return date.today().isoformat()
 
@@ -77,6 +84,7 @@ def safe_int_param(name: str, default: int = 1) -> int:
 
 
 app.jinja_env.filters['fmt_currency'] = fmt_currency
+app.jinja_env.filters['fmt_currency_int'] = fmt_currency_int
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +282,7 @@ def financial():
 
     if tab in ('invoices', 'bills'):
         move_type = 'out_invoice' if tab == 'invoices' else 'in_invoice'
+        period_days = max(1, safe_int_param('period', 30))
         domain = [['move_type', '=', move_type], ['state', '!=', 'cancel']]
         if date_from:
             domain.append(['invoice_date', '>=', date_from])
@@ -302,14 +311,70 @@ def financial():
             'count': total,
         }
 
+        status_keys = ['not_paid', 'paid', 'partial', 'reversed']
+        status_labels = {'not_paid': 'Unpaid', 'paid': 'Paid',
+                         'partial': 'Partial', 'reversed': 'Reversed'}
+        status_data = {k: {'key': k, 'label': status_labels[k],
+                           'count': 0, 'amount': 0, 'overdue': 0}
+                       for k in status_keys}
         status_grp = c.safe_read_group('account.move', domain,
-            ['payment_state'], ['payment_state'])
-        labels_map = {'not_paid': 'Unpaid', 'in_payment': 'In Payment',
-                      'paid': 'Paid', 'partial': 'Partial', 'reversed': 'Reversed'}
-        ctx['charts']['status'] = json.dumps({
-            'labels': [labels_map.get(g['payment_state'], g['payment_state']) for g in status_grp],
-            'values': [g.get('__count', 0) for g in status_grp],
-        })
+            ['amount_total:sum'], ['payment_state'])
+        for grp in status_grp:
+            ps = grp.get('payment_state')
+            if ps in status_data:
+                status_data[ps]['count'] = grp.get('__count', 0)
+                status_data[ps]['amount'] = grp.get('amount_total', 0) or 0
+
+        today_iso = today_str()
+        for ps in ('not_paid', 'partial'):
+            overdue_dom = list(domain) + [
+                ['payment_state', '=', ps],
+                ['invoice_date_due', '<', today_iso],
+            ]
+            status_data[ps]['overdue'] = c.safe_count('account.move', overdue_dom)
+        ctx['payment_status'] = [status_data[k] for k in status_keys]
+
+        aging_dom = list(domain) + [
+            ['state', '=', 'posted'],
+            ['payment_state', 'in', ['not_paid', 'partial']],
+        ]
+        aging_records = c.safe_search_read('account.move', aging_dom,
+            ['invoice_date_due', 'invoice_date', 'amount_residual'],
+            limit=10000, order='invoice_date_due asc')
+
+        n = period_days
+        buckets = [
+            {'label': f'0-{n}',           'lo': 0,       'hi': n,    'count': 0, 'amount': 0},
+            {'label': f'{n+1}-{2*n}',     'lo': n+1,     'hi': 2*n,  'count': 0, 'amount': 0},
+            {'label': f'{2*n+1}-{3*n}',   'lo': 2*n+1,   'hi': 3*n,  'count': 0, 'amount': 0},
+            {'label': f'{3*n+1}-{4*n}',   'lo': 3*n+1,   'hi': 4*n,  'count': 0, 'amount': 0},
+            {'label': f'{4*n}+',          'lo': 4*n+1,   'hi': None, 'count': 0, 'amount': 0},
+        ]
+        today_d = date.today()
+        for r in aging_records:
+            due = r.get('invoice_date_due') or r.get('invoice_date')
+            if not due:
+                continue
+            try:
+                due_d = date.fromisoformat(str(due)[:10])
+            except (ValueError, TypeError):
+                continue
+            days_overdue = (today_d - due_d).days
+            if days_overdue < 0:
+                continue
+            amt = r.get('amount_residual') or 0
+            for b in buckets:
+                if b['hi'] is None:
+                    if days_overdue >= b['lo']:
+                        b['count'] += 1
+                        b['amount'] += amt
+                        break
+                elif b['lo'] <= days_overdue <= b['hi']:
+                    b['count'] += 1
+                    b['amount'] += amt
+                    break
+        ctx['aging_buckets'] = buckets
+        ctx['period_days'] = period_days
 
     elif tab == 'banks':
         journals = c.safe_search_read('account.journal',

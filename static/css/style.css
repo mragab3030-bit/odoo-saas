@@ -356,6 +356,21 @@ a:hover { text-decoration: none; }
 .stat-value { font-size: 1.35rem; font-weight: 700; color: var(--text); }
 .stat-label { font-size: .72rem; color: var(--text-muted); margin-top: .2rem; font-weight: 500; text-transform: uppercase; letter-spacing: .03em; }
 
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  margin: 0 0 .6rem;
+}
+.section-title h5 {
+  font-size: .85rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
 /* ===== Tables ===== */
 .table-card { overflow-x: auto; }
 

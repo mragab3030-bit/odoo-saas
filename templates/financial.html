@@ -89,67 +89,105 @@
   </div>
 </form>
 
-<div style="display:grid;grid-template-columns:1fr 300px;gap:1rem;align-items:start">
-  <div class="card table-card">
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th>Number</th><th>{{ partner_label }}</th><th>Date</th><th>Due Date</th>
-          <th>Amount</th><th>Status</th><th>Payment</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for inv in records %}
-        <tr>
-          <td><code style="font-size:.78rem;color:var(--primary)">{{ inv.name or 'Draft' }}</code></td>
-          <td>{{ inv.partner_id[1] if inv.partner_id else '—' }}</td>
-          <td>{{ inv.invoice_date or '—' }}</td>
-          <td>{{ inv.invoice_date_due or '—' }}</td>
-          <td>
-            <strong>{{ inv.amount_total | fmt_currency }}</strong>
-            {% if inv.amount_residual and inv.amount_residual > 0 %}
-              <br><small style="color:var(--danger)">Due: {{ inv.amount_residual | fmt_currency }}</small>
-            {% endif %}
-          </td>
-          <td>
-            {% if inv.state == 'posted' %}<span class="badge badge-success">Posted</span>
-            {% elif inv.state == 'draft' %}<span class="badge badge-secondary">Draft</span>
-            {% elif inv.state == 'cancel' %}<span class="badge badge-danger">Cancelled</span>
-            {% else %}<span class="badge badge-secondary">{{ inv.state }}</span>{% endif %}
-          </td>
-          <td>
-            {% if inv.payment_state == 'paid' %}<span class="badge badge-success">Paid</span>
-            {% elif inv.payment_state == 'partial' %}<span class="badge badge-warning">Partial</span>
-            {% elif inv.payment_state == 'not_paid' %}<span class="badge badge-danger">Unpaid</span>
-            {% elif inv.payment_state == 'in_payment' %}<span class="badge badge-info">In Payment</span>
-            {% elif inv.payment_state == 'reversed' %}<span class="badge badge-secondary">Reversed</span>
-            {% else %}<span class="badge badge-secondary">{{ inv.payment_state or '—' }}</span>{% endif %}
-          </td>
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="7">
-            <div class="empty-state">
-              <i class="fa-solid {{ 'fa-file-invoice' if is_bills else 'fa-file-invoice-dollar' }}"></i>
-              <p>No {{ doc_label | lower }}s found</p>
-            </div>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% include '_pagination.html' %}
+<div class="section-title">
+  <i class="fa-solid fa-circle-dot" style="color:var(--primary)"></i>
+  <h5>Payment Status</h5>
+</div>
+<div class="stat-grid">
+  {% for s in payment_status %}
+  {% set color = {'not_paid':'var(--danger)', 'paid':'var(--success)',
+                  'partial':'var(--warning)', 'reversed':'var(--text-muted)'}[s.key] %}
+  <div class="stat-card">
+    <div class="stat-label">{{ s.label }}</div>
+    <div class="stat-value" style="color:{{ color }}">{{ s.count }}</div>
+    <div style="font-weight:600;font-size:.95rem">{{ s.amount | fmt_currency_int }}</div>
+    {% if s.overdue and s.overdue > 0 %}
+    <div style="margin-top:.4rem;font-size:.72rem;color:var(--danger);font-weight:600">
+      <i class="fa-solid fa-triangle-exclamation"></i> {{ s.overdue }} overdue
+    </div>
+    {% else %}
+    <div style="margin-top:.4rem;font-size:.72rem;color:var(--text-muted)">
+      <i class="fa-regular fa-circle-check"></i> No overdue
+    </div>
+    {% endif %}
   </div>
+  {% endfor %}
+</div>
 
-  <div class="card">
-    <div class="card-header">
-      <i class="fa-solid fa-chart-pie" style="color:var(--primary)"></i>
-      <h5>Payment Status</h5>
-    </div>
-    <div class="card-body">
-      <canvas id="statusChart" style="max-height:200px"></canvas>
-    </div>
+<div class="section-title" style="margin-top:1rem">
+  <i class="fa-solid fa-hourglass-half" style="color:var(--primary)"></i>
+  <h5>{{ doc_label }} Aging</h5>
+  <form method="GET" action="{{ url_for('financial') }}" style="display:flex;gap:.5rem;align-items:center;margin-left:auto">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <input type="hidden" name="search" value="{{ search }}">
+    <input type="hidden" name="date_from" value="{{ date_from }}">
+    <input type="hidden" name="date_to" value="{{ date_to }}">
+    <label style="font-size:.78rem;color:var(--text-muted);margin:0">Period (days)</label>
+    <input type="number" name="period" min="1" max="365" value="{{ period_days }}"
+           class="form-control form-control-sm" style="width:80px">
+    <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+  </form>
+</div>
+<div class="stat-grid">
+  {% for b in aging_buckets %}
+  {% set bucket_colors = ['var(--success)', '#3b82f6', 'var(--warning)', '#f97316', 'var(--danger)'] %}
+  <div class="stat-card">
+    <div class="stat-label">{{ b.label }} days</div>
+    <div class="stat-value" style="color:{{ bucket_colors[loop.index0] }}">{{ b.count }}</div>
+    <div style="font-weight:600;font-size:.95rem">{{ b.amount | fmt_currency_int }}</div>
   </div>
+  {% endfor %}
+</div>
+
+<div class="card table-card" style="margin-top:1rem">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Number</th><th>{{ partner_label }}</th><th>Date</th><th>Due Date</th>
+        <th>Amount</th><th>Status</th><th>Payment</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for inv in records %}
+      <tr>
+        <td><code style="font-size:.78rem;color:var(--primary)">{{ inv.name or 'Draft' }}</code></td>
+        <td>{{ inv.partner_id[1] if inv.partner_id else '—' }}</td>
+        <td>{{ inv.invoice_date or '—' }}</td>
+        <td>{{ inv.invoice_date_due or '—' }}</td>
+        <td>
+          <strong>{{ inv.amount_total | fmt_currency }}</strong>
+          {% if inv.amount_residual and inv.amount_residual > 0 %}
+            <br><small style="color:var(--danger)">Due: {{ inv.amount_residual | fmt_currency }}</small>
+          {% endif %}
+        </td>
+        <td>
+          {% if inv.state == 'posted' %}<span class="badge badge-success">Posted</span>
+          {% elif inv.state == 'draft' %}<span class="badge badge-secondary">Draft</span>
+          {% elif inv.state == 'cancel' %}<span class="badge badge-danger">Cancelled</span>
+          {% else %}<span class="badge badge-secondary">{{ inv.state }}</span>{% endif %}
+        </td>
+        <td>
+          {% if inv.payment_state == 'paid' %}<span class="badge badge-success">Paid</span>
+          {% elif inv.payment_state == 'partial' %}<span class="badge badge-warning">Partial</span>
+          {% elif inv.payment_state == 'not_paid' %}<span class="badge badge-danger">Unpaid</span>
+          {% elif inv.payment_state == 'in_payment' %}<span class="badge badge-info">In Payment</span>
+          {% elif inv.payment_state == 'reversed' %}<span class="badge badge-secondary">Reversed</span>
+          {% else %}<span class="badge badge-secondary">{{ inv.payment_state or '—' }}</span>{% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="7">
+          <div class="empty-state">
+            <i class="fa-solid {{ 'fa-file-invoice' if is_bills else 'fa-file-invoice-dollar' }}"></i>
+            <p>No {{ doc_label | lower }}s found</p>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% include '_pagination.html' %}
 </div>
 
 {% elif tab == 'banks' %}
@@ -371,11 +409,4 @@
 
 {% endblock %}
 
-{% block scripts %}
-{% if tab in ('invoices', 'bills') and charts.status %}
-<script>
-const statusData = {{ charts.status | safe }};
-buildDonut('statusChart', statusData);
-</script>
-{% endif %}
-{% endblock %}
+{% block scripts %}{% endblock %}
