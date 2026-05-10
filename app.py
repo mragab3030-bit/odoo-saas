@@ -425,9 +425,9 @@ def inventory():
         total = c.safe_count('stock.quant', domain)
         records = c.safe_search_read('stock.quant', domain,
             ['product_id', 'location_id', 'quantity', 'reserved_quantity',
-             'product_uom_id', 'value'],
+             'product_uom_id'],
             limit=PAGE_SIZE, offset=(page - 1) * PAGE_SIZE,
-            order='value desc')
+            order='product_id asc')
 
         grps = c.safe_read_group('stock.quant', domain, ['value:sum', 'quantity:sum'], [])
         totals = grps[0] if grps else {}

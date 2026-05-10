@@ -67,7 +67,7 @@
   <div class="card table-card">
     <table class="data-table">
       <thead>
-        <tr><th>Product</th><th>Location</th><th>Quantity</th><th>Reserved</th><th>Available</th><th>Value</th></tr>
+        <tr><th>Product</th><th>Location</th><th>Quantity</th><th>Reserved</th><th>Available</th></tr>
       </thead>
       <tbody>
         {% for q in records %}
@@ -80,10 +80,9 @@
             {% set avail = (q.quantity or 0) - (q.reserved_quantity or 0) %}
             <span class="{{ 'num-positive' if avail > 0 else 'num-negative' }}">{{ avail | round(2) }}</span>
           </td>
-          <td>{{ (q.value or 0) | fmt_currency }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="6"><div class="empty-state"><i class="fa-solid fa-warehouse"></i><p>No stock records found</p></div></td></tr>
+        <tr><td colspan="5"><div class="empty-state"><i class="fa-solid fa-warehouse"></i><p>No stock records found</p></div></td></tr>
         {% endfor %}
       </tbody>
     </table>

@@ -102,5 +102,6 @@ class OdooClient:
                           limit=None, offset=0, order=None):
         try:
             return self.search_read(model, domain, fields, limit, offset, order)
-        except Exception:
+        except Exception as e:
+            logger.warning("safe_search_read failed — model=%s order=%r: %s", model, order, e)
             return []
