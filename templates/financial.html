@@ -118,14 +118,18 @@
         <div class="stat-label">{{ s.label }}</div>
         <div class="stat-value" style="color:{{ color }}">{{ s.count }}</div>
         <div style="font-weight:600;font-size:.9rem">{{ s.amount | fmt_currency_int }}</div>
-        {% if s.overdue and s.overdue > 0 %}
-        <div style="margin-top:.3rem;font-size:.7rem;color:var(--danger);font-weight:600">
-          <i class="fa-solid fa-triangle-exclamation"></i> {{ s.overdue }} overdue
-        </div>
+        {% if s.key in ('not_paid', 'partial') %}
+          {% if s.overdue and s.overdue > 0 %}
+          <div style="margin-top:.3rem;font-size:.7rem;color:var(--danger);font-weight:600">
+            <i class="fa-solid fa-triangle-exclamation"></i> {{ s.overdue }} overdue
+          </div>
+          {% else %}
+          <div style="margin-top:.3rem;font-size:.7rem;color:var(--text-muted)">
+            <i class="fa-regular fa-circle-check"></i> No overdue
+          </div>
+          {% endif %}
         {% else %}
-        <div style="margin-top:.3rem;font-size:.7rem;color:var(--text-muted)">
-          <i class="fa-regular fa-circle-check"></i> No overdue
-        </div>
+          <div style="margin-top:.3rem;font-size:.7rem;color:transparent" aria-hidden="true">&nbsp;</div>
         {% endif %}
       </a>
       {% endfor %}
@@ -223,7 +227,11 @@
             <span style="color:var(--success);font-weight:600">
               <i class="fa-solid fa-circle-check"></i> Paid
             </span>
-          {% elif inv.invoice_date_due < today_iso %}
+          {% elif inv.payment_state == 'reversed' %}
+            <span style="color:var(--text-muted);font-weight:600">
+              <i class="fa-solid fa-rotate-left"></i> Reversed
+            </span>
+          {% elif inv.payment_state in ('not_paid', 'partial') and inv.invoice_date_due < today_iso %}
             <span style="color:var(--danger);font-weight:600">
               <i class="fa-solid fa-circle-exclamation"></i> Overdue
             </span>
