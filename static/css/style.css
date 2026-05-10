@@ -511,12 +511,39 @@ a:hover { text-decoration: none; }
   display: flex;
   gap: .75rem;
   flex-wrap: wrap;
-  align-items: flex-end;
+  align-items: end;
   margin-bottom: 1.25rem;
 }
 
-.filter-group { display: flex; flex-direction: column; gap: .25rem; }
-.filter-group label { font-size: .72rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+.filter-group { display: flex; flex-direction: column; gap: .3rem; min-width: 0; }
+.filter-group label {
+  font-size: .68rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  line-height: 1;
+  margin: 0;
+}
+
+.filter-bar .form-control,
+.filter-bar .form-control-sm,
+.filter-bar .form-select,
+.filter-bar .btn,
+.filter-bar .btn-sm {
+  height: 34px;
+  box-sizing: border-box;
+  padding-top: 0;
+  padding-bottom: 0;
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}
+.filter-bar select.form-control { padding-right: 1.75rem; }
+.filter-bar .fg-grow   { flex: 1 1 220px; }
+.filter-bar .fg-period { flex: 0 0 180px; }
+.filter-bar .fg-date   { flex: 0 0 150px; }
+.filter-bar .fg-action { flex: 0 0 auto; }
 
 .form-control, .form-select {
   border: 1px solid var(--border);

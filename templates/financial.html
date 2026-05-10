@@ -91,12 +91,12 @@
 ] %}
 <form method="GET" action="{{ url_for('financial') }}" class="filter-bar" id="finFilterForm">
   <input type="hidden" name="tab" value="{{ tab }}">
-  <div class="filter-group">
+  <div class="filter-group fg-grow">
     <label>Search</label>
     <input type="text" name="search" class="form-control form-control-sm"
            placeholder="{{ doc_label }} # or {{ partner_label | lower }}…" value="{{ search }}">
   </div>
-  <div class="filter-group">
+  <div class="filter-group fg-period">
     <label>Period</label>
     <select name="range" class="form-control form-control-sm" id="periodSelect"
             onchange="onPeriodChange(this)">
@@ -105,20 +105,19 @@
       {% endfor %}
     </select>
   </div>
-  <div class="filter-group js-custom-range"
+  <div class="filter-group fg-date js-custom-range"
        style="display:{{ 'flex' if range_key == 'custom' else 'none' }}">
     <label>From</label>
     <input type="date" name="date_from" class="form-control form-control-sm"
            value="{{ date_from }}">
   </div>
-  <div class="filter-group js-custom-range"
+  <div class="filter-group fg-date js-custom-range"
        style="display:{{ 'flex' if range_key == 'custom' else 'none' }}">
     <label>To</label>
     <input type="date" name="date_to" class="form-control form-control-sm"
            value="{{ date_to }}">
   </div>
-  <div class="filter-group" style="justify-content:flex-end">
-    <label>&nbsp;</label>
+  <div class="filter-group fg-action">
     <button type="submit" class="btn btn-primary btn-sm">
       <i class="fa-solid fa-magnifying-glass"></i> Filter
     </button>
