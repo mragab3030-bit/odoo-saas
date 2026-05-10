@@ -1,4 +1,6 @@
 import io
+import logging
+import os
 from datetime import datetime
 
 from reportlab.lib import colors
@@ -6,11 +8,18 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-from reportlab.lib.enums import TA_LEFT, TA_CENTER
+from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
+import arabic_reshaper
+from bidi.algorithm import get_display
 
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
+
+logger = logging.getLogger(__name__)
 
 BRAND_BLUE = colors.HexColor('#2563eb')
 BRAND_DARK = colors.HexColor('#1e293b')
@@ -18,27 +27,118 @@ LIGHT_GREY = colors.HexColor('#f8fafc')
 MID_GREY = colors.HexColor('#e2e8f0')
 
 
-def export_pdf(title: str, headers: list, rows: list, subtitle: str = '') -> io.BytesIO:
+# ---------------------------------------------------------------------------
+# Unicode / Arabic font registration
+# ---------------------------------------------------------------------------
+
+# Order matters — first existing path wins. Bundled font (if present) takes
+# priority so deployments can opt-in by dropping a TTF into static/fonts/.
+_FONT_CANDIDATES = [
+    (os.path.join(os.path.dirname(__file__), 'static', 'fonts', 'NotoSans-Regular.ttf'),
+     os.path.join(os.path.dirname(__file__), 'static', 'fonts', 'NotoSans-Bold.ttf')),
+    (os.path.join(os.path.dirname(__file__), 'static', 'fonts', 'DejaVuSans.ttf'),
+     os.path.join(os.path.dirname(__file__), 'static', 'fonts', 'DejaVuSans-Bold.ttf')),
+    ('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+     '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'),
+    ('/usr/share/fonts/dejavu/DejaVuSans.ttf',
+     '/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf'),
+    ('/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf',
+     '/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf'),
+    ('/Library/Fonts/Arial Unicode.ttf',
+     '/Library/Fonts/Arial Unicode.ttf'),
+]
+
+UNICODE_FONT = 'Helvetica'
+UNICODE_FONT_BOLD = 'Helvetica-Bold'
+
+
+def _register_unicode_font():
+    global UNICODE_FONT, UNICODE_FONT_BOLD
+    for regular, bold in _FONT_CANDIDATES:
+        if not os.path.exists(regular):
+            continue
+        try:
+            pdfmetrics.registerFont(TTFont('AppFont', regular))
+            UNICODE_FONT = 'AppFont'
+            if os.path.exists(bold):
+                pdfmetrics.registerFont(TTFont('AppFont-Bold', bold))
+                UNICODE_FONT_BOLD = 'AppFont-Bold'
+            else:
+                UNICODE_FONT_BOLD = UNICODE_FONT
+            logger.info("PDF Unicode font registered: %s", regular)
+            return
+        except Exception as e:
+            logger.warning("Failed to register font %s: %s", regular, e)
+    logger.warning("No Unicode font found — Arabic text will not render in PDF.")
+
+
+_register_unicode_font()
+
+
+def _has_arabic(text: str) -> bool:
+    return any('؀' <= ch <= 'ۿ' or 'ݐ' <= ch <= 'ݿ'
+               or 'ﭐ' <= ch <= '﷿' or 'ﹰ' <= ch <= '﻿'
+               for ch in text)
+
+
+def _shape_arabic(text: str) -> str:
+    try:
+        return get_display(arabic_reshaper.reshape(text))
+    except Exception:
+        return text
+
+
+def _esc(text: str) -> str:
+    return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+
+def export_pdf(title: str, headers: list, rows: list,
+               subtitle: str = '', col_widths: list = None) -> io.BytesIO:
     buf = io.BytesIO()
     page_size = landscape(A4) if len(headers) > 6 else A4
     doc = SimpleDocTemplate(
         buf,
         pagesize=page_size,
-        rightMargin=1.5 * cm,
-        leftMargin=1.5 * cm,
-        topMargin=2 * cm,
-        bottomMargin=1.5 * cm,
+        rightMargin=1.2 * cm,
+        leftMargin=1.2 * cm,
+        topMargin=1.5 * cm,
+        bottomMargin=1.2 * cm,
     )
 
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle(
         'Title', parent=styles['Title'],
-        fontSize=16, textColor=BRAND_DARK, spaceAfter=4
+        fontName=UNICODE_FONT_BOLD, fontSize=16,
+        textColor=BRAND_DARK, spaceAfter=4
     )
     sub_style = ParagraphStyle(
         'Sub', parent=styles['Normal'],
-        fontSize=9, textColor=colors.HexColor('#64748b'), spaceAfter=12
+        fontName=UNICODE_FONT, fontSize=9,
+        textColor=colors.HexColor('#64748b'), spaceAfter=12
     )
+    cell_style_ltr = ParagraphStyle(
+        'Cell', parent=styles['Normal'],
+        fontName=UNICODE_FONT, fontSize=8,
+        textColor=BRAND_DARK, alignment=TA_LEFT,
+        leading=10,
+    )
+    cell_style_rtl = ParagraphStyle(
+        'CellRTL', parent=cell_style_ltr,
+        alignment=TA_RIGHT,
+    )
+    header_style = ParagraphStyle(
+        'Header', parent=styles['Normal'],
+        fontName=UNICODE_FONT_BOLD, fontSize=9,
+        textColor=colors.white, alignment=TA_CENTER,
+        leading=11,
+    )
+
+    def make_cell(value, header_cell=False):
+        text = '' if value is None else str(value)
+        if _has_arabic(text):
+            text = _shape_arabic(text)
+            return Paragraph(_esc(text), cell_style_rtl)
+        return Paragraph(_esc(text), header_style if header_cell else cell_style_ltr)
 
     elements = [
         Paragraph(title, title_style),
@@ -49,29 +149,39 @@ def export_pdf(title: str, headers: list, rows: list, subtitle: str = '') -> io.
         Spacer(1, 0.3 * cm),
     ]
 
-    table_data = [headers] + [[str(cell) if cell is not None else '' for cell in row] for row in rows]
+    table_data = (
+        [[make_cell(h, header_cell=True) for h in headers]]
+        + [[make_cell(c) for c in row] for row in rows]
+    )
 
     col_count = len(headers)
-    available_width = (landscape(A4)[0] if len(headers) > 6 else A4[0]) - 3 * cm
-    col_width = available_width / col_count
+    page_width = page_size[0]
+    available_width = page_width - 2.4 * cm  # matches left+right margins above
 
-    table = Table(table_data, colWidths=[col_width] * col_count, repeatRows=1)
+    if col_widths and len(col_widths) == col_count:
+        total = float(sum(col_widths)) or 1.0
+        widths = [w / total * available_width for w in col_widths]
+    else:
+        widths = [available_width / col_count] * col_count
+
+    table = Table(table_data, colWidths=widths, repeatRows=1)
     table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), BRAND_BLUE),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTNAME', (0, 0), (-1, 0), UNICODE_FONT_BOLD),
         ('FONTSIZE', (0, 0), (-1, 0), 9),
         ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
         ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
         ('TOPPADDING', (0, 0), (-1, 0), 8),
         ('BACKGROUND', (0, 1), (-1, -1), colors.white),
         ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, LIGHT_GREY]),
-        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+        ('FONTNAME', (0, 1), (-1, -1), UNICODE_FONT),
         ('FONTSIZE', (0, 1), (-1, -1), 8),
-        ('ALIGN', (0, 1), (-1, -1), 'LEFT'),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ('TOPPADDING', (0, 1), (-1, -1), 5),
         ('BOTTOMPADDING', (0, 1), (-1, -1), 5),
+        ('LEFTPADDING', (0, 0), (-1, -1), 4),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 4),
         ('GRID', (0, 0), (-1, -1), 0.5, MID_GREY),
         ('LINEBELOW', (0, 0), (-1, 0), 1, BRAND_BLUE),
     ]))

@@ -834,19 +834,21 @@ EXPORT_CONFIG = {
         'title': 'Customer Invoices Report',
         'model': 'account.move',
         'domain': [['move_type', '=', 'out_invoice'], ['state', '!=', 'cancel']],
-        'fields': ['name', 'partner_id', 'invoice_date', 'invoice_date_due',
-                   'amount_total', 'currency_id', 'state', 'payment_state'],
+        'fields': ['id', 'name', 'partner_id', 'invoice_date', 'invoice_date_due',
+                   'amount_total', 'state', 'payment_state'],
         'headers': ['Number', 'Customer', 'Invoice Date', 'Due Date',
-                    'Amount', 'Currency', 'Status', 'Payment Status'],
+                    'Amount', 'Status', 'Payment', 'Overdue'],
+        'col_widths': [1.2, 2.6, 1.3, 1.3, 1.3, 1.0, 1.2, 1.1],
     },
     'financial_bills': {
         'title': 'Vendor Bills Report',
         'model': 'account.move',
         'domain': [['move_type', '=', 'in_invoice'], ['state', '!=', 'cancel']],
-        'fields': ['name', 'partner_id', 'invoice_date', 'invoice_date_due',
-                   'amount_total', 'currency_id', 'state', 'payment_state'],
+        'fields': ['id', 'name', 'partner_id', 'invoice_date', 'invoice_date_due',
+                   'amount_total', 'state', 'payment_state'],
         'headers': ['Number', 'Vendor', 'Bill Date', 'Due Date',
-                    'Amount', 'Currency', 'Status', 'Payment Status'],
+                    'Amount', 'Status', 'Payment', 'Overdue'],
+        'col_widths': [1.2, 2.6, 1.3, 1.3, 1.3, 1.0, 1.2, 1.1],
     },
     'financial_expenses': {
         'title': 'Expense Report',
@@ -928,6 +930,7 @@ def export(key: str, fmt: str):
 
     date_field_map = {
         'financial_invoices': 'invoice_date',
+        'financial_bills': 'invoice_date',
         'financial_expenses': 'date',
         'inventory_movements': 'date',
         'sales_orders': 'date_order',
@@ -954,11 +957,15 @@ def export(key: str, fmt: str):
             return ''
         return v
 
-    rows = [[cell_val(r, f) for f in cfg['fields']] for r in records]
+    if key in ('financial_invoices', 'financial_bills'):
+        rows = _build_invoice_export_rows(records)
+    else:
+        rows = [[cell_val(r, f) for f in cfg['fields']] for r in records]
     title = cfg['title']
 
     if fmt == 'pdf':
-        buf = export_pdf(title, cfg['headers'], rows)
+        buf = export_pdf(title, cfg['headers'], rows,
+                         col_widths=cfg.get('col_widths'))
         return send_file(buf, mimetype='application/pdf',
                          download_name=f'{key}.pdf', as_attachment=True)
     else:
@@ -968,6 +975,55 @@ def export(key: str, fmt: str):
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             download_name=f'{key}.xlsx', as_attachment=True,
         )
+
+
+PAYMENT_STATE_LABELS = {
+    'paid': 'Paid',
+    'not_paid': 'Unpaid',
+    'partial': 'Partial',
+    'reversed': 'Reversed',
+    'in_payment': 'In Payment',
+}
+
+MOVE_STATE_LABELS = {
+    'posted': 'Posted',
+    'draft': 'Draft',
+    'cancel': 'Cancelled',
+}
+
+
+def _build_invoice_export_rows(records: list) -> list:
+    today_iso = today_str()
+    out = []
+    for r in records:
+        partner = r.get('partner_id')
+        partner_name = partner[1] if isinstance(partner, list) and len(partner) > 1 else ''
+        ps = r.get('payment_state') or ''
+        st = r.get('state') or ''
+        due = r.get('invoice_date_due') or ''
+
+        if not due:
+            overdue = '—'
+        elif ps == 'paid':
+            overdue = 'Paid'
+        elif ps == 'reversed':
+            overdue = 'Reversed'
+        elif ps in ('not_paid', 'partial') and str(due) < today_iso:
+            overdue = 'Overdue'
+        else:
+            overdue = 'On Time'
+
+        out.append([
+            r.get('name') or '',
+            partner_name,
+            r.get('invoice_date') or '',
+            due,
+            r.get('amount_total') or 0,
+            MOVE_STATE_LABELS.get(st, st),
+            PAYMENT_STATE_LABELS.get(ps, ps or '—'),
+            overdue,
+        ])
+    return out
 
 
 # ---------------------------------------------------------------------------
