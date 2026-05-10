@@ -31,48 +31,61 @@ MID_GREY = colors.HexColor('#e2e8f0')
 # Unicode / Arabic font registration
 # ---------------------------------------------------------------------------
 
-# Order matters — first existing path wins. Bundled font (if present) takes
-# priority so deployments can opt-in by dropping a TTF into static/fonts/.
-_FONT_CANDIDATES = [
-    (os.path.join(os.path.dirname(__file__), 'static', 'fonts', 'NotoSans-Regular.ttf'),
-     os.path.join(os.path.dirname(__file__), 'static', 'fonts', 'NotoSans-Bold.ttf')),
-    (os.path.join(os.path.dirname(__file__), 'static', 'fonts', 'DejaVuSans.ttf'),
-     os.path.join(os.path.dirname(__file__), 'static', 'fonts', 'DejaVuSans-Bold.ttf')),
+_FONTS_DIR = os.path.join(os.path.dirname(__file__), 'static', 'fonts')
+
+# Latin / general font — used for non-Arabic cells and the body text.
+_LATIN_CANDIDATES = [
+    (os.path.join(_FONTS_DIR, 'DejaVuSans.ttf'),
+     os.path.join(_FONTS_DIR, 'DejaVuSans-Bold.ttf')),
     ('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
      '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'),
     ('/usr/share/fonts/dejavu/DejaVuSans.ttf',
      '/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf'),
-    ('/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf',
-     '/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf'),
-    ('/Library/Fonts/Arial Unicode.ttf',
-     '/Library/Fonts/Arial Unicode.ttf'),
+]
+
+# Dedicated Arabic font — applied to cells that contain Arabic glyphs.
+_ARABIC_CANDIDATES = [
+    (os.path.join(_FONTS_DIR, 'Amiri-Regular.ttf'),
+     os.path.join(_FONTS_DIR, 'Amiri-Bold.ttf')),
+    ('/usr/share/fonts/truetype/amiri/Amiri-Regular.ttf',
+     '/usr/share/fonts/truetype/amiri/Amiri-Bold.ttf'),
 ]
 
 UNICODE_FONT = 'Helvetica'
 UNICODE_FONT_BOLD = 'Helvetica-Bold'
+ARABIC_FONT = UNICODE_FONT
+ARABIC_FONT_BOLD = UNICODE_FONT_BOLD
 
 
-def _register_unicode_font():
-    global UNICODE_FONT, UNICODE_FONT_BOLD
-    for regular, bold in _FONT_CANDIDATES:
+def _register_pair(candidates, regular_name, bold_name, fallback):
+    for regular, bold in candidates:
         if not os.path.exists(regular):
             continue
         try:
-            pdfmetrics.registerFont(TTFont('AppFont', regular))
-            UNICODE_FONT = 'AppFont'
+            pdfmetrics.registerFont(TTFont(regular_name, regular))
+            reg = regular_name
             if os.path.exists(bold):
-                pdfmetrics.registerFont(TTFont('AppFont-Bold', bold))
-                UNICODE_FONT_BOLD = 'AppFont-Bold'
+                pdfmetrics.registerFont(TTFont(bold_name, bold))
+                bld = bold_name
             else:
-                UNICODE_FONT_BOLD = UNICODE_FONT
-            logger.info("PDF Unicode font registered: %s", regular)
-            return
+                bld = reg
+            logger.info("PDF font registered (%s): %s", regular_name, regular)
+            return reg, bld
         except Exception as e:
             logger.warning("Failed to register font %s: %s", regular, e)
-    logger.warning("No Unicode font found — Arabic text will not render in PDF.")
+    logger.warning("No font found for %s — using %s.", regular_name, fallback)
+    return fallback, fallback
 
 
-_register_unicode_font()
+def _register_fonts():
+    global UNICODE_FONT, UNICODE_FONT_BOLD, ARABIC_FONT, ARABIC_FONT_BOLD
+    UNICODE_FONT, UNICODE_FONT_BOLD = _register_pair(
+        _LATIN_CANDIDATES, 'AppFont', 'AppFont-Bold', 'Helvetica')
+    ARABIC_FONT, ARABIC_FONT_BOLD = _register_pair(
+        _ARABIC_CANDIDATES, 'AppArabic', 'AppArabic-Bold', UNICODE_FONT)
+
+
+_register_fonts()
 
 
 def _has_arabic(text: str) -> bool:
@@ -124,7 +137,8 @@ def export_pdf(title: str, headers: list, rows: list,
     )
     cell_style_rtl = ParagraphStyle(
         'CellRTL', parent=cell_style_ltr,
-        alignment=TA_RIGHT,
+        fontName=ARABIC_FONT, fontSize=10,
+        alignment=TA_RIGHT, leading=13,
     )
     header_style = ParagraphStyle(
         'Header', parent=styles['Normal'],

@@ -278,7 +278,8 @@ def financial():
     date_to = request.args.get('date_to', today_str())
 
     ctx = dict(tab=tab, page=page, search=search, date_from=date_from,
-               date_to=date_to, total_pages=1, records=[], stats={}, charts={})
+               date_to=date_to, total_pages=1, records=[], stats={}, charts={},
+               status_filter='', aging_filter=None, period_days=30)
 
     if tab in ('invoices', 'bills'):
         move_type = 'out_invoice' if tab == 'invoices' else 'in_invoice'
@@ -922,11 +923,11 @@ def export(key: str, fmt: str):
 
     cfg = EXPORT_CONFIG[key]
     c = get_client()
-    domain = cfg.get('domain', [])
+    domain = list(cfg.get('domain', []))
 
     date_from = request.args.get('date_from', '')
     date_to = request.args.get('date_to', '')
-    search = request.args.get('search', '')
+    search = request.args.get('search', '').strip()
 
     date_field_map = {
         'financial_invoices': 'invoice_date',
@@ -940,9 +941,62 @@ def export(key: str, fmt: str):
     }
     df = date_field_map.get(key)
     if df and date_from:
-        domain = domain + [[df, '>=', date_from]]
+        domain += [[df, '>=', date_from]]
     if df and date_to:
-        domain = domain + [[df, '<=', date_to]]
+        domain += [[df, '<=', date_to]]
+
+    title = cfg['title']
+    title_extras = []
+
+    if key in ('financial_invoices', 'financial_bills'):
+        if search:
+            domain += ['|', ['name', 'ilike', search],
+                       ['partner_id.name', 'ilike', search]]
+
+        status = request.args.get('status', '').strip()
+        if status not in ('not_paid', 'paid', 'partial', 'reversed'):
+            status = ''
+
+        aging_raw = request.args.get('aging', '').strip()
+        aging = None
+        if aging_raw:
+            try:
+                ai = int(aging_raw)
+                if 0 <= ai <= 4:
+                    aging = ai
+            except (ValueError, TypeError):
+                pass
+
+        period_days = max(1, safe_int_param('period', 30))
+
+        if status:
+            domain += [['payment_state', '=', status]]
+            title_extras.append(PAYMENT_STATE_LABELS.get(status, status))
+
+        if aging is not None:
+            n = period_days
+            ranges = [
+                (0,         n,        f'0-{n} Days'),
+                (n + 1,     2 * n,    f'{n + 1}-{2 * n} Days'),
+                (2 * n + 1, 3 * n,    f'{2 * n + 1}-{3 * n} Days'),
+                (3 * n + 1, 4 * n,    f'{3 * n + 1}-{4 * n} Days'),
+                (4 * n + 1, None,     f'{4 * n}+ Days'),
+            ]
+            lo, hi, label = ranges[aging]
+            today_d = date.today()
+            domain += [
+                ['state', '=', 'posted'],
+                ['payment_state', 'in', ['not_paid', 'partial']],
+                ['invoice_date_due', '<=',
+                 (today_d - timedelta(days=lo)).isoformat()],
+            ]
+            if hi is not None:
+                domain += [['invoice_date_due', '>=',
+                            (today_d - timedelta(days=hi)).isoformat()]]
+            title_extras.append(label)
+
+        if search:
+            title_extras.append(f'Search: "{search}"')
 
     records = c.safe_search_read(cfg['model'], domain, cfg['fields'],
                                   limit=5000, order=None)
@@ -961,7 +1015,9 @@ def export(key: str, fmt: str):
         rows = _build_invoice_export_rows(records)
     else:
         rows = [[cell_val(r, f) for f in cfg['fields']] for r in records]
-    title = cfg['title']
+
+    if title_extras:
+        title = f'{title} - {", ".join(title_extras)}'
 
     if fmt == 'pdf':
         buf = export_pdf(title, cfg['headers'], rows,
