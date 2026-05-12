@@ -1,3 +1,4 @@
+import concurrent.futures
 import json
 import os
 from datetime import datetime, date, timedelta
@@ -162,6 +163,94 @@ def _resolve_date_range(range_key: str, request_date_from: str,
         return today_d.replace(day=1).isoformat(), today_iso, 'this_month'
     # Default: Year to Date
     return today_d.replace(month=1, day=1).isoformat(), today_iso, 'ytd'
+
+
+def _shift_year(d: date, years: int) -> date:
+    """Shift a date back by N years, snapping Feb 29 to Feb 28 in non-leap years."""
+    try:
+        return d.replace(year=d.year - years)
+    except ValueError:
+        return d.replace(year=d.year - years, day=28)
+
+
+def _previous_date_range(range_key: str, date_from: str, date_to: str,
+                         year_over_year: bool = False):
+    """Return (prev_from_iso, prev_to_iso, human_label) for the comparison
+    window that pairs with the current (range_key, date_from, date_to).
+
+    When year_over_year is True, the same window is shifted back exactly one
+    year; otherwise each preset maps to its contextual predecessor
+    (this_month → last_month, this_quarter → last_quarter, YTD → previous YTD)."""
+    if not date_from or not date_to:
+        return '', '', 'Previous Period'
+    try:
+        df = date.fromisoformat(date_from)
+        dt = date.fromisoformat(date_to)
+    except (ValueError, TypeError):
+        return '', '', 'Previous Period'
+
+    if year_over_year:
+        pf, pt = _shift_year(df, 1), _shift_year(dt, 1)
+        if pf.year == pt.year and pf.month == pt.month:
+            label = pf.strftime('%b %Y')
+        elif pf.year == pt.year:
+            label = str(pf.year)
+        else:
+            label = f"{pf.year}–{pt.year}"
+        return pf.isoformat(), pt.isoformat(), label
+
+    if range_key == 'this_month':
+        first_this = df.replace(day=1)
+        last_prev = first_this - timedelta(days=1)
+        first_prev = last_prev.replace(day=1)
+        return first_prev.isoformat(), last_prev.isoformat(), 'Last Month'
+
+    if range_key == 'last_month':
+        first_this = df.replace(day=1)
+        last_two_ago = first_this - timedelta(days=1)
+        first_two_ago = last_two_ago.replace(day=1)
+        return first_two_ago.isoformat(), last_two_ago.isoformat(), last_two_ago.strftime('%b %Y')
+
+    if range_key == 'this_quarter':
+        qm = ((df.month - 1) // 3) * 3 + 1
+        first_this_q = df.replace(month=qm, day=1)
+        last_prev_q = first_this_q - timedelta(days=1)
+        prev_qm = ((last_prev_q.month - 1) // 3) * 3 + 1
+        first_prev_q = last_prev_q.replace(month=prev_qm, day=1)
+        return first_prev_q.isoformat(), last_prev_q.isoformat(), 'Last Quarter'
+
+    if range_key == 'last_quarter':
+        last_prev_q = df - timedelta(days=1)
+        prev_qm = ((last_prev_q.month - 1) // 3) * 3 + 1
+        first_prev_q = last_prev_q.replace(month=prev_qm, day=1)
+        return first_prev_q.isoformat(), last_prev_q.isoformat(), 'Earlier Quarter'
+
+    if range_key == 'ytd':
+        prev_from = date(df.year - 1, 1, 1)
+        prev_to = _shift_year(dt, 1)
+        return prev_from.isoformat(), prev_to.isoformat(), f'YTD {df.year - 1}'
+
+    if range_key == 'last_year':
+        ly = df.year - 1
+        return f'{ly}-01-01', f'{ly}-12-31', str(ly)
+
+    # Generic fallback: shift back by the window length
+    delta_days = (dt - df).days + 1
+    prev_to = df - timedelta(days=1)
+    prev_from = prev_to - timedelta(days=delta_days - 1)
+    return prev_from.isoformat(), prev_to.isoformat(), 'Previous Period'
+
+
+def _pct_change(current, previous):
+    """Return percent change or None when there's no baseline to compare against."""
+    try:
+        cur = float(current or 0)
+        prev = float(previous or 0)
+    except (TypeError, ValueError):
+        return None
+    if prev == 0:
+        return None
+    return ((cur - prev) / prev) * 100
 
 
 app.jinja_env.filters['fmt_currency'] = fmt_currency
@@ -493,6 +582,52 @@ def financial():
                 table_domain.append(['invoice_date_due', '>=',
                                      (today_d - timedelta(days=hi)).isoformat()])
 
+        # ---- Previous-period comparison (fired in background while current
+        # period queries run on the main thread) ----
+        compare_yoy = request.args.get('compare_yoy') == '1'
+        prev_from, prev_to, prev_label = _previous_date_range(
+            range_key, date_from, date_to, year_over_year=compare_yoy)
+
+        prev_domain = [['move_type', '=', move_type], ['state', '!=', 'cancel']]
+        if prev_from:
+            prev_domain.append(['invoice_date', '>=', prev_from])
+        if prev_to:
+            prev_domain.append(['invoice_date', '<=', prev_to])
+        if search:
+            prev_domain += ['|', ['name', 'ilike', search],
+                             ['partner_id.name', 'ilike', search]]
+        prev_table_domain = list(prev_domain)
+        if status_filter:
+            prev_table_domain.append(['payment_state', '=', status_filter])
+        if aging_filter is not None:
+            lo, hi = bucket_ranges[aging_filter]
+            today_d = date.today()
+            prev_table_domain.append(['state', '=', 'posted'])
+            prev_table_domain.append(['payment_state', 'in', ['not_paid', 'partial']])
+            prev_table_domain.append(['invoice_date_due', '<=',
+                                      (today_d - timedelta(days=lo)).isoformat()])
+            if hi is not None:
+                prev_table_domain.append(['invoice_date_due', '>=',
+                                          (today_d - timedelta(days=hi)).isoformat()])
+
+        def _fresh_client():
+            # xmlrpc.client.ServerProxy is not thread-safe; give each background
+            # call its own client bound to the same session credentials.
+            return OdooClient(c.url, c.db, c.uid, c.password,
+                              context=dict(c.context))
+
+        def _prev_count_job():
+            return _fresh_client().safe_count('account.move', prev_table_domain)
+
+        def _prev_totals_job():
+            return _fresh_client().safe_read_group(
+                'account.move', prev_domain,
+                ['amount_total:sum', 'amount_residual:sum'], [])
+
+        _prev_pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+        prev_count_fut = _prev_pool.submit(_prev_count_job)
+        prev_totals_fut = _prev_pool.submit(_prev_totals_job)
+
         total = c.safe_count('account.move', table_domain)
         records = c.safe_search_read('account.move', table_domain,
             ['id', 'name', 'partner_id', 'invoice_date', 'invoice_date_due',
@@ -600,6 +735,35 @@ def financial():
             'counts': [b['count'] for b in buckets],
             'amounts': [b['amount'] for b in buckets],
             'colors': aging_palette,
+        }
+
+        # ---- Collect previous-period results and compute comparison stats ----
+        try:
+            prev_count = prev_count_fut.result(timeout=30)
+        except Exception:
+            prev_count = 0
+        try:
+            prev_grps = prev_totals_fut.result(timeout=30) or []
+        except Exception:
+            prev_grps = []
+        finally:
+            _prev_pool.shutdown(wait=False)
+        prev_totals = prev_grps[0] if prev_grps else {}
+        prev_stats = {
+            'count': prev_count,
+            'total': prev_totals.get('amount_total', 0),
+            'unpaid': prev_totals.get('amount_residual', 0),
+            'paid': (prev_totals.get('amount_total', 0)
+                     - prev_totals.get('amount_residual', 0)),
+        }
+        ctx['compare_stats'] = prev_stats
+        ctx['compare_label'] = f'vs {prev_label}'
+        ctx['compare_yoy'] = compare_yoy
+        ctx['compare_pct'] = {
+            'count':   _pct_change(ctx['stats']['count'],   prev_stats['count']),
+            'total':   _pct_change(ctx['stats']['total'],   prev_stats['total']),
+            'paid':    _pct_change(ctx['stats']['paid'],    prev_stats['paid']),
+            'unpaid':  _pct_change(ctx['stats']['unpaid'],  prev_stats['unpaid']),
         }
 
     elif tab == 'banks':

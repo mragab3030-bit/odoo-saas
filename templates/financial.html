@@ -65,6 +65,18 @@
   </div>
 </div>
 
+{% macro compare_pill(pct) -%}
+  {% if pct is none %}
+    <span class="compare-pill neutral"><i class="fa-solid fa-minus"></i> —</span>
+  {% elif pct > 0.05 %}
+    <span class="compare-pill up"><i class="fa-solid fa-arrow-up"></i> {{ '%.1f' % pct }}%</span>
+  {% elif pct < -0.05 %}
+    <span class="compare-pill down"><i class="fa-solid fa-arrow-down"></i> {{ '%.1f' % (pct | abs) }}%</span>
+  {% else %}
+    <span class="compare-pill neutral"><i class="fa-solid fa-equals"></i> 0%</span>
+  {% endif %}
+{%- endmacro %}
+
 <div class="stat-grid">
   <div class="stat-card">
     <div class="stat-value stat-value-num">{{ stats.count }}</div>
@@ -96,6 +108,75 @@
   </div>
 </div>
 
+{% if compare_stats is defined %}
+<div class="compare-divider">
+  <span class="compare-divider-label">Comparison</span>
+  <label class="compare-yoy">
+    <input type="checkbox" id="compareYoyToggle" {% if compare_yoy %}checked{% endif %}>
+    <span>Compare with same period last year</span>
+  </label>
+</div>
+
+<div class="stat-grid compare-grid">
+  <div class="stat-card compare-card">
+    <div class="stat-value stat-value-num compare-value">{{ compare_stats.count }}</div>
+    <div class="compare-meta">
+      {{ compare_pill(compare_pct.count) }}
+      <span class="compare-vs">{{ compare_label }}</span>
+    </div>
+    <div class="stat-label">Total {{ doc_label }}s</div>
+  </div>
+  <div class="stat-card compare-card">
+    <div class="stat-value stat-value-num compare-value">
+      <span class="amount-display" data-amount="{{ compare_stats.total or 0 }}" data-currency="{{ ccy }}">
+        {{ ccy }} {{ compare_stats.total | fmt_currency_int }}
+      </span>
+    </div>
+    <div class="compare-meta">
+      {{ compare_pill(compare_pct.total) }}
+      <span class="compare-vs">{{ compare_label }}</span>
+    </div>
+    <div class="stat-label">Total Amount</div>
+  </div>
+  <div class="stat-card compare-card">
+    <div class="stat-value stat-value-num compare-value">
+      <span class="amount-display" data-amount="{{ compare_stats.paid or 0 }}" data-currency="{{ ccy }}">
+        {{ ccy }} {{ compare_stats.paid | fmt_currency_int }}
+      </span>
+    </div>
+    <div class="compare-meta">
+      {{ compare_pill(compare_pct.paid) }}
+      <span class="compare-vs">{{ compare_label }}</span>
+    </div>
+    <div class="stat-label">Paid</div>
+  </div>
+  <div class="stat-card compare-card">
+    <div class="stat-value stat-value-num compare-value">
+      <span class="amount-display" data-amount="{{ compare_stats.unpaid or 0 }}" data-currency="{{ ccy }}">
+        {{ ccy }} {{ compare_stats.unpaid | fmt_currency_int }}
+      </span>
+    </div>
+    <div class="compare-meta">
+      {{ compare_pill(compare_pct.unpaid) }}
+      <span class="compare-vs">{{ compare_label }}</span>
+    </div>
+    <div class="stat-label">Outstanding</div>
+  </div>
+</div>
+<script>
+  (function () {
+    var cb = document.getElementById('compareYoyToggle');
+    if (!cb) return;
+    cb.addEventListener('change', function () {
+      var u = new URL(window.location.href);
+      if (cb.checked) u.searchParams.set('compare_yoy', '1');
+      else u.searchParams.delete('compare_yoy');
+      window.location.href = u.toString();
+    });
+  })();
+</script>
+{% endif %}
+
 {% set period_options = [
   ('today',         'Today'),
   ('yesterday',     'Yesterday'),
@@ -117,6 +198,7 @@
   {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
   {% if aging_filter is not none %}<input type="hidden" name="aging" value="{{ aging_filter }}">{% endif %}
   <input type="hidden" name="period" value="{{ period_days }}">
+  {% if compare_yoy %}<input type="hidden" name="compare_yoy" value="1">{% endif %}
   <div class="filter-group fg-grow">
     <label>Search</label>
     <input type="text" name="search" class="form-control form-control-sm"
@@ -169,7 +251,8 @@
       </span>
       {% if status_filter or aging_filter is not none %}
       <a href="{{ url_for('financial', tab=tab, search=search, range=range_key,
-                          date_from=date_from, date_to=date_to, period=period_days) }}"
+                          date_from=date_from, date_to=date_to, period=period_days,
+                          compare_yoy=(1 if compare_yoy else none)) }}"
          class="btn btn-outline btn-sm" style="margin-left:auto;color:var(--danger);border-color:var(--danger)">
         <i class="fa-solid fa-filter-circle-xmark"></i> Clear All
       </a>
@@ -183,7 +266,8 @@
       <a href="{{ url_for('financial', tab=tab, search=search, range=range_key,
                           date_from=date_from, date_to=date_to, period=period_days,
                           status=(none if is_active else s.key),
-                          aging=(aging_filter if aging_filter is not none else none)) }}"
+                          aging=(aging_filter if aging_filter is not none else none),
+                          compare_yoy=(1 if compare_yoy else none)) }}"
          class="stat-card stat-card-link {% if is_active %}stat-card-active{% endif %}">
         <div class="stat-label">{{ s.label }}</div>
         <div class="stat-value stat-value-num" style="color:{{ color }}">{{ s.count }}</div>
@@ -225,6 +309,7 @@
         <input type="hidden" name="date_to" value="{{ date_to }}">
         {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
         {% if aging_filter is not none %}<input type="hidden" name="aging" value="{{ aging_filter }}">{% endif %}
+        {% if compare_yoy %}<input type="hidden" name="compare_yoy" value="1">{% endif %}
         <label style="font-size:.72rem;color:var(--text-muted);margin:0">Period (days)</label>
         <input type="number" name="period" min="1" max="365" value="{{ period_days }}"
                class="form-control form-control-sm" style="width:70px">
@@ -238,7 +323,8 @@
       <a href="{{ url_for('financial', tab=tab, search=search, range=range_key,
                           date_from=date_from, date_to=date_to, period=period_days,
                           status=(status_filter or none),
-                          aging=(none if is_active else loop.index0)) }}"
+                          aging=(none if is_active else loop.index0),
+                          compare_yoy=(1 if compare_yoy else none)) }}"
          class="stat-card stat-card-link {% if is_active %}stat-card-active{% endif %}">
         <div class="stat-label">{{ b.label }} days</div>
         <div class="stat-value stat-value-num" style="color:{{ bucket_colors[loop.index0] }}">{{ b.count }}</div>
