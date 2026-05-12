@@ -51,6 +51,18 @@ def get_client() -> OdooClient:
     return g.odoo_client
 
 
+@app.after_request
+def _no_store_for_authed_pages(response):
+    """Prevent browser caching of authenticated data pages so Refresh always
+    fetches a fresh response from Odoo. Static assets and the login page are
+    left to default cache rules."""
+    if session.get('odoo_uid') and response.mimetype == 'text/html':
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    return response
+
+
 @app.context_processor
 def inject_company_context():
     """Expose company list + selected company to every template."""

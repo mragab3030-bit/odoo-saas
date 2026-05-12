@@ -884,6 +884,39 @@ a:hover { text-decoration: none; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ===== Global refresh control ===== */
+.refresh-group {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+}
+.refresh-interval {
+  height: 30px;
+  font-size: .75rem;
+  padding: 0 .4rem;
+  width: auto;
+  min-width: 90px;
+  background: #fff;
+  color: var(--text);
+}
+.refresh-stamp {
+  font-size: .7rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+#refreshBtn .refresh-icon { transition: transform .2s ease; }
+#refreshBtn.is-spinning { pointer-events: none; opacity: .7; }
+#refreshBtn.is-spinning .refresh-icon {
+  animation: spin .8s linear infinite;
+}
+@media (max-width: 768px) {
+  .refresh-stamp { display: none; }
+  .refresh-interval { min-width: 72px; }
+}
+@media (max-width: 480px) {
+  .refresh-interval { display: none; }
+}
+
 /* ===== Number formatting ===== */
 .num-positive { color: #16a34a; font-weight: 600; }
 .num-negative { color: var(--danger); font-weight: 600; }

@@ -177,3 +177,59 @@ document.querySelectorAll('.alert[data-dismiss]').forEach(el => {
 document.querySelectorAll('input[type="date"][data-default-today]').forEach(el => {
   if (!el.value) el.value = new Date().toISOString().split('T')[0];
 });
+
+/* ===== Global refresh + auto-refresh ===== */
+(function () {
+  const INTERVAL_KEY = 'odooDash.refreshInterval';
+  const VALID = ['0', '5', '15', '30'];
+
+  const btn = document.getElementById('refreshBtn');
+  const sel = document.getElementById('refreshInterval');
+  const stamp = document.getElementById('refreshStamp');
+  if (!btn) return;
+
+  let autoTimer = null;
+
+  function fmtTime(d) {
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function showStamp() {
+    if (stamp) stamp.textContent = 'Last updated: ' + fmtTime(new Date());
+  }
+
+  function reloadNow() {
+    btn.classList.add('is-spinning');
+    btn.disabled = true;
+    const url = new URL(window.location.href);
+    url.searchParams.set('_t', Date.now().toString());
+    window.location.href = url.toString();
+  }
+
+  function scheduleAuto(minutes) {
+    if (autoTimer) {
+      clearTimeout(autoTimer);
+      autoTimer = null;
+    }
+    const m = parseInt(minutes, 10);
+    if (!m) return;
+    autoTimer = setTimeout(reloadNow, m * 60 * 1000);
+  }
+
+  let saved = '0';
+  try { saved = localStorage.getItem(INTERVAL_KEY) || '0'; } catch (e) {}
+  if (VALID.indexOf(saved) < 0) saved = '0';
+  if (sel) sel.value = saved;
+  scheduleAuto(saved);
+
+  btn.addEventListener('click', reloadNow);
+  if (sel) {
+    sel.addEventListener('change', function () {
+      const v = VALID.indexOf(this.value) >= 0 ? this.value : '0';
+      try { localStorage.setItem(INTERVAL_KEY, v); } catch (e) {}
+      scheduleAuto(v);
+    });
+  }
+
+  showStamp();
+})();

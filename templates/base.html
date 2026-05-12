@@ -138,6 +138,21 @@
           <span class="topbar-company-name">{{ selected_company.name }}</span>
         </span>
         {% endif %}
+        <div class="refresh-group" id="refreshGroup">
+          <button type="button" class="btn btn-outline btn-sm" id="refreshBtn"
+                  title="Refresh data" aria-label="Refresh data">
+            <i class="fa-solid fa-rotate refresh-icon"></i>
+            <span class="d-none d-sm-inline">Refresh</span>
+          </button>
+          <select class="form-control form-control-sm refresh-interval"
+                  id="refreshInterval" aria-label="Auto-refresh interval">
+            <option value="0">Manual</option>
+            <option value="5">5 min</option>
+            <option value="15">15 min</option>
+            <option value="30">30 min</option>
+          </select>
+          <span class="refresh-stamp" id="refreshStamp" aria-live="polite"></span>
+        </div>
         {% block topbar_actions %}{% endblock %}
         <a href="{{ url_for('logout') }}" class="btn btn-outline btn-sm">
           <i class="fa-solid fa-right-from-bracket"></i>
