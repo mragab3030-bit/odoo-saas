@@ -130,8 +130,10 @@ def _resolve_date_range(range_key: str, request_date_from: str,
         return (today_d - timedelta(days=364)).isoformat(), today_iso, 'last_365'
     if range_key == 'custom':
         return request_date_from or '', request_date_to or '', 'custom'
-    # Default
-    return today_d.replace(day=1).isoformat(), today_iso, 'this_month'
+    if range_key == 'this_month':
+        return today_d.replace(day=1).isoformat(), today_iso, 'this_month'
+    # Default: Year to Date
+    return today_d.replace(month=1, day=1).isoformat(), today_iso, 'ytd'
 
 
 app.jinja_env.filters['fmt_currency'] = fmt_currency
@@ -331,7 +333,7 @@ def financial():
 
     if tab in ('invoices', 'bills'):
         if range_key not in DATE_RANGE_KEYS:
-            range_key = 'this_month'
+            range_key = 'ytd'
         date_from, date_to, range_key = _resolve_date_range(
             range_key, raw_date_from, raw_date_to)
     else:

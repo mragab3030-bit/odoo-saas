@@ -91,6 +91,10 @@
 ] %}
 <form method="GET" action="{{ url_for('financial') }}" class="filter-bar" id="finFilterForm">
   <input type="hidden" name="tab" value="{{ tab }}">
+  {# Keep card-filter state alive when period or search changes #}
+  {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
+  {% if aging_filter is not none %}<input type="hidden" name="aging" value="{{ aging_filter }}">{% endif %}
+  <input type="hidden" name="period" value="{{ period_days }}">
   <div class="filter-group fg-grow">
     <label>Search</label>
     <input type="text" name="search" class="form-control form-control-sm"
@@ -142,10 +146,10 @@
         <i class="fa-solid fa-circle-dot" style="color:var(--primary)"></i> Payment Status
       </span>
       {% if status_filter or aging_filter is not none %}
-      <a href="{{ url_for('financial', tab=tab, search=search,
+      <a href="{{ url_for('financial', tab=tab, search=search, range=range_key,
                           date_from=date_from, date_to=date_to, period=period_days) }}"
          class="btn btn-outline btn-sm" style="margin-left:auto;color:var(--danger);border-color:var(--danger)">
-        <i class="fa-solid fa-filter-circle-xmark"></i> Clear
+        <i class="fa-solid fa-filter-circle-xmark"></i> Clear All
       </a>
       {% endif %}
     </div>
@@ -154,7 +158,7 @@
       {% set is_active = (status_filter == s.key) %}
       {% set color = {'not_paid':'var(--danger)', 'paid':'var(--success)',
                       'partial':'var(--warning)', 'reversed':'var(--text-muted)'}[s.key] %}
-      <a href="{{ url_for('financial', tab=tab, search=search,
+      <a href="{{ url_for('financial', tab=tab, search=search, range=range_key,
                           date_from=date_from, date_to=date_to, period=period_days,
                           status=(none if is_active else s.key),
                           aging=(aging_filter if aging_filter is not none else none)) }}"
@@ -192,6 +196,7 @@
             style="display:flex;gap:.4rem;align-items:center;margin-left:.75rem">
         <input type="hidden" name="tab" value="{{ tab }}">
         <input type="hidden" name="search" value="{{ search }}">
+        <input type="hidden" name="range" value="{{ range_key }}">
         <input type="hidden" name="date_from" value="{{ date_from }}">
         <input type="hidden" name="date_to" value="{{ date_to }}">
         {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
@@ -206,7 +211,7 @@
       {% set bucket_colors = ['var(--success)', '#3b82f6', 'var(--warning)', '#f97316', 'var(--danger)'] %}
       {% for b in aging_buckets %}
       {% set is_active = (aging_filter == loop.index0) %}
-      <a href="{{ url_for('financial', tab=tab, search=search,
+      <a href="{{ url_for('financial', tab=tab, search=search, range=range_key,
                           date_from=date_from, date_to=date_to, period=period_days,
                           status=(status_filter or none),
                           aging=(none if is_active else loop.index0)) }}"
