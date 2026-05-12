@@ -210,16 +210,43 @@ def login():
             if allowed_ids:
                 companies = client.execute_kw(
                     'res.company', 'read', [allowed_ids],
-                    {'fields': ['id', 'name']}
+                    {'fields': ['id', 'name', 'currency_id']}
                 )
             else:
                 companies = []
+            # Resolve currency symbol/name for each company in one batch
+            cur_ids = list({
+                co['currency_id'][0]
+                for co in (companies or [])
+                if isinstance(co.get('currency_id'), list) and co['currency_id']
+            })
+            cur_map = {}
+            if cur_ids:
+                cur_rows = client.execute_kw(
+                    'res.currency', 'read', [cur_ids],
+                    {'fields': ['id', 'symbol', 'name']}
+                )
+                cur_map = {cu['id']: cu for cu in (cur_rows or [])}
         except Exception:
             companies = []
             default_cid = None
+            cur_map = {}
 
         session['companies'] = [
-            {'id': co['id'], 'name': co.get('name', '')}
+            {
+                'id': co['id'],
+                'name': co.get('name', ''),
+                'currency_id': (co.get('currency_id') or [None])[0]
+                    if isinstance(co.get('currency_id'), list) else None,
+                'currency_name': (
+                    cur_map.get((co.get('currency_id') or [0])[0], {}).get('name', '')
+                    if isinstance(co.get('currency_id'), list) else ''
+                ),
+                'currency_symbol': (
+                    cur_map.get((co.get('currency_id') or [0])[0], {}).get('symbol', '')
+                    if isinstance(co.get('currency_id'), list) else ''
+                ),
+            }
             for co in (companies or [])
         ]
         session['company_id'] = default_cid or (

@@ -54,22 +54,44 @@
 {% set is_bills = (tab == 'bills') %}
 {% set partner_label = 'Vendor' if is_bills else 'Customer' %}
 {% set doc_label    = 'Bill'   if is_bills else 'Invoice' %}
+{% set ccy = (selected_company.currency_name if selected_company else '') or '' %}
+
+<div class="amount-format-toolbar" data-amount-toolbar>
+  <span class="amount-format-label">Show amounts in</span>
+  <div class="amount-format-group" role="group" aria-label="Amount format">
+    <button type="button" class="amount-format-btn" data-format="units">Units</button>
+    <button type="button" class="amount-format-btn" data-format="k">K</button>
+    <button type="button" class="amount-format-btn" data-format="m">M</button>
+  </div>
+</div>
 
 <div class="stat-grid">
   <div class="stat-card">
-    <div class="stat-value">{{ stats.count }}</div>
+    <div class="stat-value stat-value-num">{{ stats.count }}</div>
     <div class="stat-label">Total {{ doc_label }}s</div>
   </div>
   <div class="stat-card">
-    <div class="stat-value" style="color:var(--text)">{{ stats.total | fmt_currency }}</div>
+    <div class="stat-value stat-value-num" style="color:var(--text)">
+      <span class="amount-display" data-amount="{{ stats.total or 0 }}" data-currency="{{ ccy }}">
+        {{ ccy }} {{ stats.total | fmt_currency_int }}
+      </span>
+    </div>
     <div class="stat-label">Total Amount</div>
   </div>
   <div class="stat-card">
-    <div class="stat-value" style="color:var(--success)">{{ stats.paid | fmt_currency }}</div>
+    <div class="stat-value stat-value-num" style="color:var(--success)">
+      <span class="amount-display" data-amount="{{ stats.paid or 0 }}" data-currency="{{ ccy }}">
+        {{ ccy }} {{ stats.paid | fmt_currency_int }}
+      </span>
+    </div>
     <div class="stat-label">Paid</div>
   </div>
   <div class="stat-card">
-    <div class="stat-value" style="color:var(--danger)">{{ stats.unpaid | fmt_currency }}</div>
+    <div class="stat-value stat-value-num" style="color:var(--danger)">
+      <span class="amount-display" data-amount="{{ stats.unpaid or 0 }}" data-currency="{{ ccy }}">
+        {{ ccy }} {{ stats.unpaid | fmt_currency_int }}
+      </span>
+    </div>
     <div class="stat-label">Outstanding</div>
   </div>
 </div>
@@ -164,8 +186,10 @@
                           aging=(aging_filter if aging_filter is not none else none)) }}"
          class="stat-card stat-card-link {% if is_active %}stat-card-active{% endif %}">
         <div class="stat-label">{{ s.label }}</div>
-        <div class="stat-value" style="color:{{ color }}">{{ s.count }}</div>
-        <div style="font-weight:600;font-size:.9rem">{{ s.amount | fmt_currency_int }}</div>
+        <div class="stat-value stat-value-num" style="color:{{ color }}">{{ s.count }}</div>
+        <div class="amount-display amount-sub" data-amount="{{ s.amount or 0 }}" data-currency="{{ ccy }}">
+          {{ ccy }} {{ s.amount | fmt_currency_int }}
+        </div>
         {% if s.key in ('not_paid', 'partial') %}
           {% if s.overdue and s.overdue > 0 %}
           <div style="margin-top:.3rem;font-size:.7rem;color:var(--danger);font-weight:600">
@@ -217,8 +241,10 @@
                           aging=(none if is_active else loop.index0)) }}"
          class="stat-card stat-card-link {% if is_active %}stat-card-active{% endif %}">
         <div class="stat-label">{{ b.label }} days</div>
-        <div class="stat-value" style="color:{{ bucket_colors[loop.index0] }}">{{ b.count }}</div>
-        <div style="font-weight:600;font-size:.9rem">{{ b.amount | fmt_currency_int }}</div>
+        <div class="stat-value stat-value-num" style="color:{{ bucket_colors[loop.index0] }}">{{ b.count }}</div>
+        <div class="amount-display amount-sub" data-amount="{{ b.amount or 0 }}" data-currency="{{ ccy }}">
+          {{ ccy }} {{ b.amount | fmt_currency_int }}
+        </div>
         <div style="margin-top:.3rem;font-size:.7rem;color:var(--text-muted)">
           <i class="fa-solid fa-hourglass-half"></i> Outstanding
         </div>
@@ -525,4 +551,70 @@
 
 {% endblock %}
 
-{% block scripts %}{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  var STORAGE_KEY = 'odooDash.amountFormat';
+  var validModes = ['units', 'k', 'm'];
+
+  function getMode() {
+    var m;
+    try { m = localStorage.getItem(STORAGE_KEY); } catch (e) {}
+    return validModes.indexOf(m) >= 0 ? m : 'units';
+  }
+  function setMode(m) {
+    try { localStorage.setItem(STORAGE_KEY, m); } catch (e) {}
+  }
+
+  function formatNumber(raw, mode) {
+    var n = Number(raw);
+    if (!isFinite(n)) n = 0;
+    var sign = n < 0 ? '-' : '';
+    var abs = Math.abs(n);
+    if (mode === 'm') {
+      return sign + (abs / 1e6).toLocaleString(undefined, {
+        minimumFractionDigits: 2, maximumFractionDigits: 2
+      }) + ' M';
+    }
+    if (mode === 'k') {
+      return sign + Math.round(abs / 1e3).toLocaleString() + ' K';
+    }
+    return sign + Math.round(abs).toLocaleString();
+  }
+
+  function applyShrink(el) {
+    el.classList.remove('amt-shrink-1', 'amt-shrink-2', 'amt-shrink-3');
+    var len = (el.textContent || '').trim().length;
+    if (len > 17) el.classList.add('amt-shrink-3');
+    else if (len > 14) el.classList.add('amt-shrink-2');
+    else if (len > 11) el.classList.add('amt-shrink-1');
+  }
+
+  function renderAll(mode) {
+    document.querySelectorAll('.amount-display').forEach(function (el) {
+      var raw = el.getAttribute('data-amount');
+      var ccy = el.getAttribute('data-currency') || '';
+      var formatted = formatNumber(raw, mode);
+      el.textContent = ccy ? (ccy + ' ' + formatted) : formatted;
+      applyShrink(el);
+    });
+    document.querySelectorAll('.amount-format-btn').forEach(function (b) {
+      b.classList.toggle('active', b.getAttribute('data-format') === mode);
+    });
+  }
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('.amount-format-btn');
+    if (!btn) return;
+    var mode = btn.getAttribute('data-format');
+    if (validModes.indexOf(mode) < 0) return;
+    setMode(mode);
+    renderAll(mode);
+  });
+
+  document.addEventListener('DOMContentLoaded', function () {
+    renderAll(getMode());
+  });
+})();
+</script>
+{% endblock %}

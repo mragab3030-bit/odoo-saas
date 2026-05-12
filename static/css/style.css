@@ -414,6 +414,65 @@ a:hover { text-decoration: none; }
 .stat-value { font-size: 1.35rem; font-weight: 700; color: var(--text); }
 .stat-label { font-size: .72rem; color: var(--text-muted); margin-top: .2rem; font-weight: 500; text-transform: uppercase; letter-spacing: .03em; }
 
+.stat-value-num,
+.amount-display {
+  white-space: nowrap;
+  overflow: hidden;
+  display: block;
+  max-width: 100%;
+}
+.amount-display.amt-shrink-1 { font-size: .92em; }
+.amount-display.amt-shrink-2 { font-size: .78em; letter-spacing: -.01em; }
+.amount-display.amt-shrink-3 { font-size: .64em; letter-spacing: -.02em; }
+.amount-sub {
+  font-weight: 600;
+  font-size: .9rem;
+  color: var(--text);
+}
+
+/* Amount format toolbar */
+.amount-format-toolbar {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  margin: 0 0 .65rem;
+  flex-wrap: wrap;
+}
+.amount-format-label {
+  font-size: .68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--text-muted);
+}
+.amount-format-group {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+.amount-format-btn {
+  appearance: none;
+  border: 0;
+  background: #fff;
+  color: var(--text-muted);
+  font-size: .72rem;
+  font-weight: 600;
+  letter-spacing: .03em;
+  padding: .3rem .7rem;
+  cursor: pointer;
+  border-right: 1px solid var(--border);
+  transition: background .12s ease, color .12s ease;
+  min-width: 44px;
+}
+.amount-format-btn:last-child { border-right: 0; }
+.amount-format-btn:hover { background: #f1f5f9; color: var(--text); }
+.amount-format-btn.active {
+  background: var(--primary);
+  color: #fff;
+}
+
 .section-title {
   display: flex;
   align-items: center;
