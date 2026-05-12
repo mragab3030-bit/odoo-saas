@@ -590,11 +590,13 @@ def financial():
         ctx['payment_chart'] = {
             'labels': [s['label'] for s in ctx['payment_status']],
             'counts': [s['count'] for s in ctx['payment_status']],
+            'amounts': [s['amount'] for s in ctx['payment_status']],
             'colors': [status_colors[s['key']] for s in ctx['payment_status']],
         }
         aging_palette = ['#22c55e', '#eab308', '#f97316', '#ef4444', '#991b1b']
         ctx['aging_chart'] = {
             'labels': [f"{b['label']} days" for b in buckets],
+            'counts': [b['count'] for b in buckets],
             'amounts': [b['amount'] for b in buckets],
             'colors': aging_palette,
         }

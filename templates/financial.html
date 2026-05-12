@@ -592,6 +592,75 @@
   function numFmt(n) {
     return Math.round(Number(n) || 0).toLocaleString();
   }
+  function withCcy(n) {
+    return (ccy ? (ccy + ' ') : '') + numFmt(n);
+  }
+
+  // Tooltip lines: Count, Amount, Percentage. `sliceTotal` is the metric
+  // driving the slice geometry, used for the percentage so the displayed
+  // share matches the visual proportion.
+  function tooltipLines(metric, chart, ctx) {
+    var i = ctx.dataIndex;
+    var count = (metric.counts || [])[i] || 0;
+    var amount = (metric.amounts || [])[i] || 0;
+    var sliceTotal = ctx.dataset.data.reduce(function (a, b) { return a + b; }, 0);
+    return [
+      'Count: ' + numFmt(count),
+      'Amount: ' + withCcy(amount),
+      'Share: ' + pct(ctx.raw, sliceTotal) + '%',
+    ];
+  }
+
+  // Shared options factory: dramatic pop-out on hover with smooth easing.
+  function donutOptions(metric) {
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '62%',
+      layout: { padding: 18 },
+      animation: { duration: 700, easing: 'easeOutQuart' },
+      animations: {
+        // Smoothly animate the slice offset on hover in / out.
+        offset:   { duration: 220, easing: 'easeOutCubic' },
+        radius:   { duration: 260, easing: 'easeOutCubic' },
+        numbers:  { duration: 220 },
+      },
+      interaction: { mode: 'nearest', intersect: true },
+      plugins: {
+        legend: { position: 'bottom', labels: { boxWidth: 12, padding: 12 } },
+        tooltip: {
+          backgroundColor: 'rgba(15, 23, 42, .92)',
+          padding: 10,
+          cornerRadius: 8,
+          displayColors: true,
+          boxPadding: 4,
+          titleFont: { weight: '700' },
+          callbacks: {
+            title: function (items) {
+              return items.length ? items[0].label : '';
+            },
+            label: function (ctx) { return ''; },
+            afterBody: function (items) {
+              if (!items.length) return [];
+              return tooltipLines(metric, items[0].chart, items[0]);
+            },
+          },
+        },
+      },
+    };
+  }
+
+  function makeDataset(values, colors) {
+    return [{
+      data: values,
+      backgroundColor: colors,
+      borderColor: '#fff',
+      borderWidth: 2,
+      hoverOffset: 22,         // pop the hovered slice well out of the ring
+      hoverBorderWidth: 3,
+      hoverBorderColor: '#fff',
+    }];
+  }
 
   var pCanvas = document.getElementById('paymentStatusChart');
   if (pCanvas && paymentData.counts && paymentData.counts.some(function (v) { return v > 0; })) {
@@ -599,31 +668,9 @@
       type: 'doughnut',
       data: {
         labels: paymentData.labels,
-        datasets: [{
-          data: paymentData.counts,
-          backgroundColor: paymentData.colors,
-          borderColor: '#fff',
-          borderWidth: 2,
-          hoverOffset: 6,
-        }],
+        datasets: makeDataset(paymentData.counts, paymentData.colors),
       },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        cutout: '60%',
-        plugins: {
-          legend: { position: 'bottom', labels: { boxWidth: 12, padding: 12 } },
-          tooltip: {
-            callbacks: {
-              label: function (ctx) {
-                var total = ctx.dataset.data.reduce(function (a, b) { return a + b; }, 0);
-                return ' ' + ctx.label + ': ' + numFmt(ctx.raw) +
-                       ' (' + pct(ctx.raw, total) + '%)';
-              },
-            },
-          },
-        },
-      },
+      options: donutOptions(paymentData),
     });
   }
 
@@ -633,32 +680,9 @@
       type: 'doughnut',
       data: {
         labels: agingData.labels,
-        datasets: [{
-          data: agingData.amounts,
-          backgroundColor: agingData.colors,
-          borderColor: '#fff',
-          borderWidth: 2,
-          hoverOffset: 6,
-        }],
+        datasets: makeDataset(agingData.amounts, agingData.colors),
       },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        cutout: '60%',
-        plugins: {
-          legend: { position: 'bottom', labels: { boxWidth: 12, padding: 12 } },
-          tooltip: {
-            callbacks: {
-              label: function (ctx) {
-                var total = ctx.dataset.data.reduce(function (a, b) { return a + b; }, 0);
-                var prefix = ccy ? (ccy + ' ') : '';
-                return ' ' + ctx.label + ': ' + prefix + numFmt(ctx.raw) +
-                       ' (' + pct(ctx.raw, total) + '%)';
-              },
-            },
-          },
-        },
-      },
+      options: donutOptions(agingData),
     });
   }
 })();
