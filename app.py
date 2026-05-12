@@ -253,6 +253,74 @@ def _pct_change(current, previous):
     return ((cur - prev) / prev) * 100
 
 
+def _apply_aging_filter(domain, aging_indices, bucket_ranges, today_d):
+    """Append multi-select aging clauses to `domain` in place.
+
+    Multiple selected buckets are OR'd together using Odoo's polish-notation
+    operators; the resulting OR expression is AND'd with the always-required
+    `state = posted` and `payment_state in (not_paid, partial)` predicates."""
+    if not aging_indices:
+        return
+    domain.append(['state', '=', 'posted'])
+    domain.append(['payment_state', 'in', ['not_paid', 'partial']])
+
+    # Each selected bucket becomes either a single leaf (open-ended last
+    # bucket) or an AND group of two leaves (date_due <= upper AND >= lower).
+    bucket_clauses = []
+    for idx in aging_indices:
+        lo, hi = bucket_ranges[idx]
+        lo_clause = ['invoice_date_due', '<=',
+                     (today_d - timedelta(days=lo)).isoformat()]
+        if hi is not None:
+            hi_clause = ['invoice_date_due', '>=',
+                         (today_d - timedelta(days=hi)).isoformat()]
+            bucket_clauses.append(['&', lo_clause, hi_clause])
+        else:
+            bucket_clauses.append([lo_clause])
+
+    if len(bucket_clauses) == 1:
+        # Single bucket — append its tokens directly; the implicit AND with
+        # the preceding leaves keeps the semantics correct.
+        for tok in bucket_clauses[0]:
+            domain.append(tok)
+        return
+
+    # N buckets → prefix (N-1) '|' operators, then flatten the AND groups.
+    polish = ['|'] * (len(bucket_clauses) - 1)
+    for grp in bucket_clauses:
+        if len(grp) == 1:
+            polish.append(grp[0])
+        else:
+            polish.extend(grp)  # '&', lo, hi
+    domain.extend(polish)
+
+
+def _parse_status_filters(args):
+    """Return validated, de-duplicated list of payment_state filters."""
+    allowed = ('not_paid', 'paid', 'partial', 'reversed')
+    out, seen = [], set()
+    for s in args.getlist('status'):
+        s = (s or '').strip()
+        if s in allowed and s not in seen:
+            out.append(s)
+            seen.add(s)
+    return out
+
+
+def _parse_aging_filters(args):
+    """Return validated, de-duplicated, sorted list of aging bucket indices (0..4)."""
+    out = []
+    for raw in args.getlist('aging'):
+        try:
+            i = int(raw)
+        except (ValueError, TypeError):
+            continue
+        if 0 <= i <= 4 and i not in out:
+            out.append(i)
+    out.sort()
+    return out
+
+
 app.jinja_env.filters['fmt_currency'] = fmt_currency
 app.jinja_env.filters['fmt_currency_int'] = fmt_currency_int
 
@@ -538,18 +606,8 @@ def financial():
         move_type = 'out_invoice' if tab == 'invoices' else 'in_invoice'
         period_days = max(1, safe_int_param('period', 30))
 
-        status_filter = request.args.get('status', '').strip()
-        if status_filter not in ('not_paid', 'paid', 'partial', 'reversed'):
-            status_filter = ''
-        aging_raw = request.args.get('aging', '').strip()
-        aging_filter = None
-        if aging_raw:
-            try:
-                ai = int(aging_raw)
-                if 0 <= ai <= 4:
-                    aging_filter = ai
-            except (ValueError, TypeError):
-                pass
+        status_filter = _parse_status_filters(request.args)
+        aging_filter = _parse_aging_filters(request.args)
 
         domain = [['move_type', '=', move_type], ['state', '!=', 'cancel']]
         if date_from:
@@ -568,19 +626,13 @@ def financial():
             (4 * n + 1, None),
         ]
 
+        today_d = date.today()
         table_domain = list(domain)
-        if status_filter:
-            table_domain.append(['payment_state', '=', status_filter])
-        if aging_filter is not None:
-            lo, hi = bucket_ranges[aging_filter]
-            today_d = date.today()
-            table_domain.append(['state', '=', 'posted'])
-            table_domain.append(['payment_state', 'in', ['not_paid', 'partial']])
-            table_domain.append(['invoice_date_due', '<=',
-                                 (today_d - timedelta(days=lo)).isoformat()])
-            if hi is not None:
-                table_domain.append(['invoice_date_due', '>=',
-                                     (today_d - timedelta(days=hi)).isoformat()])
+        if len(status_filter) == 1:
+            table_domain.append(['payment_state', '=', status_filter[0]])
+        elif status_filter:
+            table_domain.append(['payment_state', 'in', status_filter])
+        _apply_aging_filter(table_domain, aging_filter, bucket_ranges, today_d)
 
         # ---- Previous-period comparison (fired in background while current
         # period queries run on the main thread) ----
@@ -597,18 +649,11 @@ def financial():
             prev_domain += ['|', ['name', 'ilike', search],
                              ['partner_id.name', 'ilike', search]]
         prev_table_domain = list(prev_domain)
-        if status_filter:
-            prev_table_domain.append(['payment_state', '=', status_filter])
-        if aging_filter is not None:
-            lo, hi = bucket_ranges[aging_filter]
-            today_d = date.today()
-            prev_table_domain.append(['state', '=', 'posted'])
-            prev_table_domain.append(['payment_state', 'in', ['not_paid', 'partial']])
-            prev_table_domain.append(['invoice_date_due', '<=',
-                                      (today_d - timedelta(days=lo)).isoformat()])
-            if hi is not None:
-                prev_table_domain.append(['invoice_date_due', '>=',
-                                          (today_d - timedelta(days=hi)).isoformat()])
+        if len(status_filter) == 1:
+            prev_table_domain.append(['payment_state', '=', status_filter[0]])
+        elif status_filter:
+            prev_table_domain.append(['payment_state', 'in', status_filter])
+        _apply_aging_filter(prev_table_domain, aging_filter, bucket_ranges, today_d)
 
         def _fresh_client():
             # xmlrpc.client.ServerProxy is not thread-safe; give each background
@@ -723,11 +768,16 @@ def financial():
             'partial': '#f59e0b',
             'reversed': '#94a3b8',
         }
+        selected_status_indices = [
+            i for i, s in enumerate(ctx['payment_status'])
+            if s['key'] in status_filter
+        ]
         ctx['payment_chart'] = {
             'labels': [s['label'] for s in ctx['payment_status']],
             'counts': [s['count'] for s in ctx['payment_status']],
             'amounts': [s['amount'] for s in ctx['payment_status']],
             'colors': [status_colors[s['key']] for s in ctx['payment_status']],
+            'selected': selected_status_indices,
         }
         aging_palette = ['#22c55e', '#eab308', '#f97316', '#ef4444', '#991b1b']
         ctx['aging_chart'] = {
@@ -735,6 +785,7 @@ def financial():
             'counts': [b['count'] for b in buckets],
             'amounts': [b['amount'] for b in buckets],
             'colors': aging_palette,
+            'selected': list(aging_filter),
         }
 
         # ---- Collect previous-period results and compute comparison stats ----
@@ -1304,47 +1355,36 @@ def export(key: str, fmt: str):
             domain += ['|', ['name', 'ilike', search],
                        ['partner_id.name', 'ilike', search]]
 
-        status = request.args.get('status', '').strip()
-        if status not in ('not_paid', 'paid', 'partial', 'reversed'):
-            status = ''
-
-        aging_raw = request.args.get('aging', '').strip()
-        aging = None
-        if aging_raw:
-            try:
-                ai = int(aging_raw)
-                if 0 <= ai <= 4:
-                    aging = ai
-            except (ValueError, TypeError):
-                pass
-
+        statuses = _parse_status_filters(request.args)
+        agings = _parse_aging_filters(request.args)
         period_days = max(1, safe_int_param('period', 30))
 
-        if status:
-            domain += [['payment_state', '=', status]]
-            title_extras.append(PAYMENT_STATE_LABELS.get(status, status))
+        if len(statuses) == 1:
+            domain.append(['payment_state', '=', statuses[0]])
+        elif statuses:
+            domain.append(['payment_state', 'in', statuses])
+        if statuses:
+            title_extras.append(', '.join(
+                PAYMENT_STATE_LABELS.get(s, s) for s in statuses))
 
-        if aging is not None:
-            n = period_days
-            ranges = [
-                (0,         n,        f'0-{n} Days'),
-                (n + 1,     2 * n,    f'{n + 1}-{2 * n} Days'),
-                (2 * n + 1, 3 * n,    f'{2 * n + 1}-{3 * n} Days'),
-                (3 * n + 1, 4 * n,    f'{3 * n + 1}-{4 * n} Days'),
-                (4 * n + 1, None,     f'{4 * n}+ Days'),
-            ]
-            lo, hi, label = ranges[aging]
-            today_d = date.today()
-            domain += [
-                ['state', '=', 'posted'],
-                ['payment_state', 'in', ['not_paid', 'partial']],
-                ['invoice_date_due', '<=',
-                 (today_d - timedelta(days=lo)).isoformat()],
-            ]
-            if hi is not None:
-                domain += [['invoice_date_due', '>=',
-                            (today_d - timedelta(days=hi)).isoformat()]]
-            title_extras.append(label)
+        n = period_days
+        bucket_ranges = [
+            (0,       n),
+            (n + 1,   2 * n),
+            (2 * n + 1, 3 * n),
+            (3 * n + 1, 4 * n),
+            (4 * n + 1, None),
+        ]
+        bucket_labels = [
+            f'0-{n} Days',
+            f'{n + 1}-{2 * n} Days',
+            f'{2 * n + 1}-{3 * n} Days',
+            f'{3 * n + 1}-{4 * n} Days',
+            f'{4 * n}+ Days',
+        ]
+        if agings:
+            _apply_aging_filter(domain, agings, bucket_ranges, date.today())
+            title_extras.append(', '.join(bucket_labels[i] for i in agings))
 
         if search:
             title_extras.append(f'Search: "{search}"')

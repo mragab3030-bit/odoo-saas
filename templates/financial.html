@@ -6,16 +6,14 @@
 <div class="export-group">
   <a href="{{ url_for('export', key='financial_' + tab, fmt='pdf',
                       date_from=date_from, date_to=date_to, search=(search or none),
-                      status=(status_filter or none),
-                      aging=(aging_filter if aging_filter is not none else none),
+                      status=status_filter, aging=aging_filter,
                       period=period_days) }}"
      class="btn btn-outline btn-sm" data-export>
     <i class="fa-solid fa-file-pdf"></i> PDF
   </a>
   <a href="{{ url_for('export', key='financial_' + tab, fmt='excel',
                       date_from=date_from, date_to=date_to, search=(search or none),
-                      status=(status_filter or none),
-                      aging=(aging_filter if aging_filter is not none else none),
+                      status=status_filter, aging=aging_filter,
                       period=period_days) }}"
      class="btn btn-outline btn-sm" data-export>
     <i class="fa-solid fa-file-excel"></i> Excel
@@ -199,8 +197,8 @@
 <form method="GET" action="{{ url_for('financial') }}" class="filter-bar" id="finFilterForm">
   <input type="hidden" name="tab" value="{{ tab }}">
   {# Keep card-filter state alive when period or search changes #}
-  {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
-  {% if aging_filter is not none %}<input type="hidden" name="aging" value="{{ aging_filter }}">{% endif %}
+  {% for s in status_filter %}<input type="hidden" name="status" value="{{ s }}">{% endfor %}
+  {% for a in aging_filter %}<input type="hidden" name="aging" value="{{ a }}">{% endfor %}
   <input type="hidden" name="period" value="{{ period_days }}">
   {% if compare_yoy %}<input type="hidden" name="compare_yoy" value="1">{% endif %}
   <div class="filter-group fg-grow">
@@ -253,7 +251,7 @@
       <span class="cards-section-label">
         <i class="fa-solid fa-circle-dot" style="color:var(--primary)"></i> Payment Status
       </span>
-      {% if status_filter or aging_filter is not none %}
+      {% if status_filter or aging_filter %}
       <a href="{{ url_for('financial', tab=tab, search=search, range=range_key,
                           date_from=date_from, date_to=date_to, period=period_days,
                           compare_yoy=(1 if compare_yoy else none)) }}"
@@ -264,13 +262,13 @@
     </div>
     <div class="cards-section-grid">
       {% for s in payment_status %}
-      {% set is_active = (status_filter == s.key) %}
+      {% set is_active = s.key in status_filter %}
       {% set color = {'not_paid':'var(--danger)', 'paid':'var(--success)',
                       'partial':'var(--warning)', 'reversed':'var(--text-muted)'}[s.key] %}
+      {% set new_status = status_filter | reject('equalto', s.key) | list if is_active else status_filter + [s.key] %}
       <a href="{{ url_for('financial', tab=tab, search=search, range=range_key,
                           date_from=date_from, date_to=date_to, period=period_days,
-                          status=(none if is_active else s.key),
-                          aging=(aging_filter if aging_filter is not none else none),
+                          status=new_status, aging=aging_filter,
                           compare_yoy=(1 if compare_yoy else none)) }}"
          class="stat-card stat-card-link {% if is_active %}stat-card-active{% endif %}">
         <div class="stat-label">{{ s.label }}</div>
@@ -311,8 +309,8 @@
         <input type="hidden" name="range" value="{{ range_key }}">
         <input type="hidden" name="date_from" value="{{ date_from }}">
         <input type="hidden" name="date_to" value="{{ date_to }}">
-        {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
-        {% if aging_filter is not none %}<input type="hidden" name="aging" value="{{ aging_filter }}">{% endif %}
+        {% for s in status_filter %}<input type="hidden" name="status" value="{{ s }}">{% endfor %}
+        {% for a in aging_filter %}<input type="hidden" name="aging" value="{{ a }}">{% endfor %}
         {% if compare_yoy %}<input type="hidden" name="compare_yoy" value="1">{% endif %}
         <label style="font-size:.72rem;color:var(--text-muted);margin:0">Period (days)</label>
         <input type="number" name="period" min="1" max="365" value="{{ period_days }}"
@@ -323,11 +321,12 @@
     <div class="cards-section-grid">
       {% set bucket_colors = ['#22c55e', '#eab308', '#f97316', '#ef4444', '#991b1b'] %}
       {% for b in aging_buckets %}
-      {% set is_active = (aging_filter == loop.index0) %}
+      {% set idx = loop.index0 %}
+      {% set is_active = idx in aging_filter %}
+      {% set new_aging = aging_filter | reject('equalto', idx) | list if is_active else aging_filter + [idx] %}
       <a href="{{ url_for('financial', tab=tab, search=search, range=range_key,
                           date_from=date_from, date_to=date_to, period=period_days,
-                          status=(status_filter or none),
-                          aging=(none if is_active else loop.index0),
+                          status=status_filter, aging=new_aging,
                           compare_yoy=(1 if compare_yoy else none)) }}"
          class="stat-card stat-card-link {% if is_active %}stat-card-active{% endif %}">
         <div class="stat-label">{{ b.label }} days</div>
@@ -745,13 +744,34 @@
     };
   }
 
-  function makeDataset(values, colors) {
+  // Convert a #rrggbb color to rgba() with the given alpha.
+  function hexToRgba(hex, alpha) {
+    var h = String(hex || '').replace('#', '');
+    if (h.length === 3) h = h.split('').map(function (c) { return c + c; }).join('');
+    if (h.length !== 6) return hex;
+    var r = parseInt(h.substr(0, 2), 16);
+    var g = parseInt(h.substr(2, 2), 16);
+    var b = parseInt(h.substr(4, 2), 16);
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+  }
+
+  // Build per-slice background colors: full opacity for selected indices,
+  // 0.3 alpha for non-selected slices. When nothing is selected, leave the
+  // base palette untouched so the chart renders normally.
+  function applySelection(colors, selected) {
+    if (!selected || !selected.length) return colors.slice();
+    return colors.map(function (c, i) {
+      return selected.indexOf(i) >= 0 ? c : hexToRgba(c, 0.3);
+    });
+  }
+
+  function makeDataset(values, colors, selected) {
     return [{
       data: values,
-      backgroundColor: colors,
+      backgroundColor: applySelection(colors, selected),
       borderColor: '#fff',
       borderWidth: 2,
-      hoverOffset: 22,         // pop the hovered slice well out of the ring
+      hoverOffset: 22,
       hoverBorderWidth: 3,
       hoverBorderColor: '#fff',
     }];
@@ -763,7 +783,8 @@
       type: 'doughnut',
       data: {
         labels: paymentData.labels,
-        datasets: makeDataset(paymentData.counts, paymentData.colors),
+        datasets: makeDataset(paymentData.counts, paymentData.colors,
+                              paymentData.selected),
       },
       options: donutOptions(paymentData),
     });
@@ -775,7 +796,8 @@
       type: 'doughnut',
       data: {
         labels: agingData.labels,
-        datasets: makeDataset(agingData.amounts, agingData.colors),
+        datasets: makeDataset(agingData.amounts, agingData.colors,
+                              agingData.selected),
       },
       options: donutOptions(agingData),
     });
