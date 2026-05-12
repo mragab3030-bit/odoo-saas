@@ -143,6 +143,64 @@ a:hover { text-decoration: none; }
 .user-info .user-name { font-size: .8rem; color: #e2e8f0; font-weight: 600; }
 .user-info .user-db { font-size: .7rem; color: var(--sidebar-text); }
 
+.sidebar-company {
+  padding: .625rem 1rem .75rem;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+  margin: 0 0 .5rem;
+}
+.sidebar-company-label {
+  display: block;
+  font-size: .62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: #64748b;
+  margin-bottom: .35rem;
+}
+.sidebar-company-label i { margin-right: .25rem; }
+.sidebar-company-select {
+  width: 100%;
+  background: rgba(255,255,255,.05);
+  color: #e2e8f0;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 6px;
+  font-size: .78rem;
+  height: 30px;
+  padding: 0 .5rem;
+}
+.sidebar-company-select option { color: #1e293b; background: #fff; }
+.sidebar-company-static {
+  font-size: .82rem;
+  color: #e2e8f0;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar-company {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .3rem .6rem;
+  background: #eef2ff;
+  color: #3730a3;
+  border: 1px solid #c7d2fe;
+  border-radius: 999px;
+  font-size: .75rem;
+  font-weight: 600;
+  max-width: 220px;
+}
+.topbar-company-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 600px) {
+  .topbar-company-name { display: none; }
+  .topbar-company { padding: .3rem .45rem; }
+}
+
 .sidebar-section-label {
   font-size: .65rem;
   font-weight: 700;

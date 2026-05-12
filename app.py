@@ -45,7 +45,23 @@ def get_client() -> OdooClient:
             uid=session['odoo_uid'],
             password=session['odoo_api_key'],
         )
+        cid = session.get('company_id')
+        if cid:
+            g.odoo_client.set_company(cid)
     return g.odoo_client
+
+
+@app.context_processor
+def inject_company_context():
+    """Expose company list + selected company to every template."""
+    companies = session.get('companies') or []
+    selected_id = session.get('company_id')
+    selected = next((c for c in companies if c['id'] == selected_id), None)
+    return {
+        'companies': companies,
+        'selected_company': selected,
+        'has_multi_company': len(companies) > 1,
+    }
 
 
 def fmt_currency(value, symbol=''):
@@ -178,6 +194,37 @@ def login():
         session['odoo_username'] = username
         session['odoo_uid'] = client.uid
         session['odoo_api_key'] = api_key
+
+        # Fetch companies the user has access to (multi-company support)
+        try:
+            user_data = client.execute_kw(
+                'res.users', 'read', [[client.uid]],
+                {'fields': ['company_id', 'company_ids']}
+            )
+            user_data = user_data[0] if user_data else {}
+            default_cid = user_data.get('company_id')
+            default_cid = default_cid[0] if isinstance(default_cid, list) else None
+            allowed_ids = user_data.get('company_ids') or []
+            if not isinstance(allowed_ids, list):
+                allowed_ids = []
+            if allowed_ids:
+                companies = client.execute_kw(
+                    'res.company', 'read', [allowed_ids],
+                    {'fields': ['id', 'name']}
+                )
+            else:
+                companies = []
+        except Exception:
+            companies = []
+            default_cid = None
+
+        session['companies'] = [
+            {'id': co['id'], 'name': co.get('name', '')}
+            for co in (companies or [])
+        ]
+        session['company_id'] = default_cid or (
+            session['companies'][0]['id'] if session['companies'] else None
+        )
         return redirect(url_for('dashboard'))
 
     return render_template('login.html')
@@ -188,6 +235,19 @@ def logout():
     session.clear()
     flash('You have been logged out.', 'info')
     return redirect(url_for('login'))
+
+
+@app.route('/select-company', methods=['POST'])
+@login_required
+def select_company():
+    try:
+        cid = int(request.form.get('company_id', '0'))
+    except (TypeError, ValueError):
+        cid = 0
+    allowed_ids = {c['id'] for c in (session.get('companies') or [])}
+    if cid in allowed_ids:
+        session['company_id'] = cid
+    return redirect(request.referrer or url_for('dashboard'))
 
 
 # ---------------------------------------------------------------------------

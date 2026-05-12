@@ -14,12 +14,23 @@ class OdooConnectionError(Exception):
 
 
 class OdooClient:
-    def __init__(self, url: str, db: str, uid: int, password: str):
+    def __init__(self, url: str, db: str, uid: int, password: str,
+                 context: dict = None):
         self.url = url.rstrip('/')
         self.db = db
         self.uid = uid
         self.password = password
+        self.context = dict(context or {})
         self._object = None
+
+    def set_company(self, company_id: int):
+        """Limit subsequent queries to a single company via Odoo's standard context."""
+        if company_id:
+            self.context['allowed_company_ids'] = [int(company_id)]
+            self.context['company_id'] = int(company_id)
+        else:
+            self.context.pop('allowed_company_ids', None)
+            self.context.pop('company_id', None)
 
     @property
     def _obj(self):
@@ -51,6 +62,10 @@ class OdooClient:
             args = []
         if kwargs is None:
             kwargs = {}
+        if self.context:
+            merged_ctx = dict(self.context)
+            merged_ctx.update(kwargs.get('context') or {})
+            kwargs = dict(kwargs, context=merged_ctx)
         try:
             return self._obj.execute_kw(
                 self.db, self.uid, self.password,
