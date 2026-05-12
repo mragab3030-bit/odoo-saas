@@ -63,6 +63,12 @@
     <button type="button" class="amount-format-btn" data-format="k">K</button>
     <button type="button" class="amount-format-btn" data-format="m">M</button>
   </div>
+  {% if compare_stats is defined %}
+  <label class="compare-yoy">
+    <input type="checkbox" id="compareYoyToggle" {% if compare_yoy %}checked{% endif %}>
+    <span>Compare with same period last year</span>
+  </label>
+  {% endif %}
 </div>
 
 {% macro compare_pill(pct) -%}
@@ -77,92 +83,90 @@
   {% endif %}
 {%- endmacro %}
 
-<div class="stat-grid">
-  <div class="stat-card">
-    <div class="stat-value stat-value-num">{{ stats.count }}</div>
-    <div class="stat-label">Total {{ doc_label }}s</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-value stat-value-num" style="color:var(--text)">
-      <span class="amount-display" data-amount="{{ stats.total or 0 }}" data-currency="{{ ccy }}">
-        {{ ccy }} {{ stats.total | fmt_currency_int }}
-      </span>
+<div class="kpi-row">
+  <div class="kpi-group">
+    <div class="stat-card">
+      <div class="stat-value stat-value-num">{{ stats.count }}</div>
+      <div class="stat-label">Total {{ doc_label }}s</div>
     </div>
-    <div class="stat-label">Total Amount</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-value stat-value-num" style="color:var(--success)">
-      <span class="amount-display" data-amount="{{ stats.paid or 0 }}" data-currency="{{ ccy }}">
-        {{ ccy }} {{ stats.paid | fmt_currency_int }}
-      </span>
+    <div class="stat-card">
+      <div class="stat-value stat-value-num" style="color:var(--text)">
+        <span class="amount-display" data-amount="{{ stats.total or 0 }}" data-currency="{{ ccy }}">
+          {{ ccy }} {{ stats.total | fmt_currency_int }}
+        </span>
+      </div>
+      <div class="stat-label">Total Amount</div>
     </div>
-    <div class="stat-label">Paid</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-value stat-value-num" style="color:var(--danger)">
-      <span class="amount-display" data-amount="{{ stats.unpaid or 0 }}" data-currency="{{ ccy }}">
-        {{ ccy }} {{ stats.unpaid | fmt_currency_int }}
-      </span>
+    <div class="stat-card">
+      <div class="stat-value stat-value-num" style="color:var(--success)">
+        <span class="amount-display" data-amount="{{ stats.paid or 0 }}" data-currency="{{ ccy }}">
+          {{ ccy }} {{ stats.paid | fmt_currency_int }}
+        </span>
+      </div>
+      <div class="stat-label">Paid</div>
     </div>
-    <div class="stat-label">Outstanding</div>
+    <div class="stat-card">
+      <div class="stat-value stat-value-num" style="color:var(--danger)">
+        <span class="amount-display" data-amount="{{ stats.unpaid or 0 }}" data-currency="{{ ccy }}">
+          {{ ccy }} {{ stats.unpaid | fmt_currency_int }}
+        </span>
+      </div>
+      <div class="stat-label">Outstanding</div>
+    </div>
   </div>
+
+  {% if compare_stats is defined %}
+  <div class="cards-separator"></div>
+  <div class="kpi-group">
+    <div class="stat-card compare-card">
+      <div class="stat-value stat-value-num compare-value">{{ compare_stats.count }}</div>
+      <div class="compare-meta">
+        {{ compare_pill(compare_pct.count) }}
+        <span class="compare-vs">{{ compare_label }}</span>
+      </div>
+      <div class="stat-label">Total {{ doc_label }}s</div>
+    </div>
+    <div class="stat-card compare-card">
+      <div class="stat-value stat-value-num compare-value">
+        <span class="amount-display" data-amount="{{ compare_stats.total or 0 }}" data-currency="{{ ccy }}">
+          {{ ccy }} {{ compare_stats.total | fmt_currency_int }}
+        </span>
+      </div>
+      <div class="compare-meta">
+        {{ compare_pill(compare_pct.total) }}
+        <span class="compare-vs">{{ compare_label }}</span>
+      </div>
+      <div class="stat-label">Total Amount</div>
+    </div>
+    <div class="stat-card compare-card">
+      <div class="stat-value stat-value-num compare-value">
+        <span class="amount-display" data-amount="{{ compare_stats.paid or 0 }}" data-currency="{{ ccy }}">
+          {{ ccy }} {{ compare_stats.paid | fmt_currency_int }}
+        </span>
+      </div>
+      <div class="compare-meta">
+        {{ compare_pill(compare_pct.paid) }}
+        <span class="compare-vs">{{ compare_label }}</span>
+      </div>
+      <div class="stat-label">Paid</div>
+    </div>
+    <div class="stat-card compare-card">
+      <div class="stat-value stat-value-num compare-value">
+        <span class="amount-display" data-amount="{{ compare_stats.unpaid or 0 }}" data-currency="{{ ccy }}">
+          {{ ccy }} {{ compare_stats.unpaid | fmt_currency_int }}
+        </span>
+      </div>
+      <div class="compare-meta">
+        {{ compare_pill(compare_pct.unpaid) }}
+        <span class="compare-vs">{{ compare_label }}</span>
+      </div>
+      <div class="stat-label">Outstanding</div>
+    </div>
+  </div>
+  {% endif %}
 </div>
 
 {% if compare_stats is defined %}
-<div class="compare-divider">
-  <span class="compare-divider-label">Comparison</span>
-  <label class="compare-yoy">
-    <input type="checkbox" id="compareYoyToggle" {% if compare_yoy %}checked{% endif %}>
-    <span>Compare with same period last year</span>
-  </label>
-</div>
-
-<div class="stat-grid compare-grid">
-  <div class="stat-card compare-card">
-    <div class="stat-value stat-value-num compare-value">{{ compare_stats.count }}</div>
-    <div class="compare-meta">
-      {{ compare_pill(compare_pct.count) }}
-      <span class="compare-vs">{{ compare_label }}</span>
-    </div>
-    <div class="stat-label">Total {{ doc_label }}s</div>
-  </div>
-  <div class="stat-card compare-card">
-    <div class="stat-value stat-value-num compare-value">
-      <span class="amount-display" data-amount="{{ compare_stats.total or 0 }}" data-currency="{{ ccy }}">
-        {{ ccy }} {{ compare_stats.total | fmt_currency_int }}
-      </span>
-    </div>
-    <div class="compare-meta">
-      {{ compare_pill(compare_pct.total) }}
-      <span class="compare-vs">{{ compare_label }}</span>
-    </div>
-    <div class="stat-label">Total Amount</div>
-  </div>
-  <div class="stat-card compare-card">
-    <div class="stat-value stat-value-num compare-value">
-      <span class="amount-display" data-amount="{{ compare_stats.paid or 0 }}" data-currency="{{ ccy }}">
-        {{ ccy }} {{ compare_stats.paid | fmt_currency_int }}
-      </span>
-    </div>
-    <div class="compare-meta">
-      {{ compare_pill(compare_pct.paid) }}
-      <span class="compare-vs">{{ compare_label }}</span>
-    </div>
-    <div class="stat-label">Paid</div>
-  </div>
-  <div class="stat-card compare-card">
-    <div class="stat-value stat-value-num compare-value">
-      <span class="amount-display" data-amount="{{ compare_stats.unpaid or 0 }}" data-currency="{{ ccy }}">
-        {{ ccy }} {{ compare_stats.unpaid | fmt_currency_int }}
-      </span>
-    </div>
-    <div class="compare-meta">
-      {{ compare_pill(compare_pct.unpaid) }}
-      <span class="compare-vs">{{ compare_label }}</span>
-    </div>
-    <div class="stat-label">Outstanding</div>
-  </div>
-</div>
 <script>
   (function () {
     var cb = document.getElementById('compareYoyToggle');
