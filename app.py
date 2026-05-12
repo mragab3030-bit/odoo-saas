@@ -581,6 +581,24 @@ def financial():
         ctx['aging_buckets'] = buckets
         ctx['period_days'] = period_days
 
+        status_colors = {
+            'not_paid': '#ef4444',
+            'paid': '#22c55e',
+            'partial': '#f59e0b',
+            'reversed': '#94a3b8',
+        }
+        ctx['payment_chart'] = {
+            'labels': [s['label'] for s in ctx['payment_status']],
+            'counts': [s['count'] for s in ctx['payment_status']],
+            'colors': [status_colors[s['key']] for s in ctx['payment_status']],
+        }
+        aging_palette = ['#22c55e', '#eab308', '#f97316', '#ef4444', '#991b1b']
+        ctx['aging_chart'] = {
+            'labels': [f"{b['label']} days" for b in buckets],
+            'amounts': [b['amount'] for b in buckets],
+            'colors': aging_palette,
+        }
+
     elif tab == 'banks':
         journals = c.safe_search_read('account.journal',
             [['type', 'in', ['bank', 'cash']]],

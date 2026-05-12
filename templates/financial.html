@@ -232,7 +232,7 @@
       </form>
     </div>
     <div class="cards-section-grid">
-      {% set bucket_colors = ['var(--success)', '#3b82f6', 'var(--warning)', '#f97316', 'var(--danger)'] %}
+      {% set bucket_colors = ['#22c55e', '#eab308', '#f97316', '#ef4444', '#991b1b'] %}
       {% for b in aging_buckets %}
       {% set is_active = (aging_filter == loop.index0) %}
       <a href="{{ url_for('financial', tab=tab, search=search, range=range_key,
@@ -253,6 +253,30 @@
     </div>
   </div>
 
+</div>
+
+<div class="charts-row">
+  <div class="chart-section status">
+    <div class="cards-section-header">
+      <span class="cards-section-label">
+        <i class="fa-solid fa-chart-pie" style="color:var(--primary)"></i> Payment Status Distribution
+      </span>
+    </div>
+    <div class="chart-canvas-wrap">
+      <canvas id="paymentStatusChart"></canvas>
+    </div>
+  </div>
+  <div class="cards-separator"></div>
+  <div class="chart-section aging">
+    <div class="cards-section-header">
+      <span class="cards-section-label">
+        <i class="fa-solid fa-chart-pie" style="color:var(--primary)"></i> Aging Distribution
+      </span>
+    </div>
+    <div class="chart-canvas-wrap">
+      <canvas id="agingChart"></canvas>
+    </div>
+  </div>
 </div>
 
 {% set odoo_base = (session.get('odoo_url') or '').rstrip('/') %}
@@ -552,6 +576,94 @@
 {% endblock %}
 
 {% block scripts %}
+{% if tab in ('invoices', 'bills') and payment_chart and aging_chart %}
+<script>
+(function () {
+  if (!window.Chart) return;
+
+  var paymentData = {{ payment_chart | tojson }};
+  var agingData = {{ aging_chart | tojson }};
+  var ccy = {{ (ccy or '') | tojson }};
+
+  function pct(value, total) {
+    if (!total) return '0.0';
+    return ((value / total) * 100).toFixed(1);
+  }
+  function numFmt(n) {
+    return Math.round(Number(n) || 0).toLocaleString();
+  }
+
+  var pCanvas = document.getElementById('paymentStatusChart');
+  if (pCanvas && paymentData.counts && paymentData.counts.some(function (v) { return v > 0; })) {
+    new Chart(pCanvas.getContext('2d'), {
+      type: 'doughnut',
+      data: {
+        labels: paymentData.labels,
+        datasets: [{
+          data: paymentData.counts,
+          backgroundColor: paymentData.colors,
+          borderColor: '#fff',
+          borderWidth: 2,
+          hoverOffset: 6,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '60%',
+        plugins: {
+          legend: { position: 'bottom', labels: { boxWidth: 12, padding: 12 } },
+          tooltip: {
+            callbacks: {
+              label: function (ctx) {
+                var total = ctx.dataset.data.reduce(function (a, b) { return a + b; }, 0);
+                return ' ' + ctx.label + ': ' + numFmt(ctx.raw) +
+                       ' (' + pct(ctx.raw, total) + '%)';
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  var aCanvas = document.getElementById('agingChart');
+  if (aCanvas && agingData.amounts && agingData.amounts.some(function (v) { return v > 0; })) {
+    new Chart(aCanvas.getContext('2d'), {
+      type: 'doughnut',
+      data: {
+        labels: agingData.labels,
+        datasets: [{
+          data: agingData.amounts,
+          backgroundColor: agingData.colors,
+          borderColor: '#fff',
+          borderWidth: 2,
+          hoverOffset: 6,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '60%',
+        plugins: {
+          legend: { position: 'bottom', labels: { boxWidth: 12, padding: 12 } },
+          tooltip: {
+            callbacks: {
+              label: function (ctx) {
+                var total = ctx.dataset.data.reduce(function (a, b) { return a + b; }, 0);
+                var prefix = ccy ? (ccy + ' ') : '';
+                return ' ' + ctx.label + ': ' + prefix + numFmt(ctx.raw) +
+                       ' (' + pct(ctx.raw, total) + '%)';
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+})();
+</script>
+{% endif %}
 <script>
 (function () {
   var STORAGE_KEY = 'odooDash.amountFormat';
