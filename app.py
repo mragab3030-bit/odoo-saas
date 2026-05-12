@@ -496,6 +496,7 @@ def financial():
         total = c.safe_count('account.move', table_domain)
         records = c.safe_search_read('account.move', table_domain,
             ['id', 'name', 'partner_id', 'invoice_date', 'invoice_date_due',
+             'amount_untaxed', 'amount_tax',
              'amount_total', 'amount_residual', 'currency_id', 'state', 'payment_state'],
             limit=PAGE_SIZE, offset=(page - 1) * PAGE_SIZE, order='invoice_date desc')
 
@@ -1020,20 +1021,22 @@ EXPORT_CONFIG = {
         'model': 'account.move',
         'domain': [['move_type', '=', 'out_invoice'], ['state', '!=', 'cancel']],
         'fields': ['id', 'name', 'partner_id', 'invoice_date', 'invoice_date_due',
-                   'amount_total', 'state', 'payment_state'],
+                   'amount_untaxed', 'amount_tax', 'amount_total',
+                   'state', 'payment_state'],
         'headers': ['Number', 'Customer', 'Invoice Date', 'Due Date',
-                    'Amount', 'Status', 'Payment', 'Overdue'],
-        'col_widths': [1.2, 2.6, 1.3, 1.3, 1.3, 1.0, 1.2, 1.1],
+                    'Untaxed', 'Tax', 'Amount', 'Status', 'Payment', 'Overdue'],
+        'col_widths': [1.0, 2.4, 1.1, 1.1, 1.2, 1.0, 1.2, 0.9, 1.0, 1.0],
     },
     'financial_bills': {
         'title': 'Vendor Bills Report',
         'model': 'account.move',
         'domain': [['move_type', '=', 'in_invoice'], ['state', '!=', 'cancel']],
         'fields': ['id', 'name', 'partner_id', 'invoice_date', 'invoice_date_due',
-                   'amount_total', 'state', 'payment_state'],
+                   'amount_untaxed', 'amount_tax', 'amount_total',
+                   'state', 'payment_state'],
         'headers': ['Number', 'Vendor', 'Bill Date', 'Due Date',
-                    'Amount', 'Status', 'Payment', 'Overdue'],
-        'col_widths': [1.2, 2.6, 1.3, 1.3, 1.3, 1.0, 1.2, 1.1],
+                    'Untaxed', 'Tax', 'Amount', 'Status', 'Payment', 'Overdue'],
+        'col_widths': [1.0, 2.4, 1.1, 1.1, 1.2, 1.0, 1.2, 0.9, 1.0, 1.0],
     },
     'financial_expenses': {
         'title': 'Expense Report',
@@ -1253,12 +1256,19 @@ def _build_invoice_export_rows(records: list) -> list:
         else:
             overdue = 'On Time'
 
+        untaxed = r.get('amount_untaxed') or 0
+        total = r.get('amount_total') or 0
+        tax = r.get('amount_tax')
+        if tax in (None, False):
+            tax = total - untaxed
         out.append([
             r.get('name') or '',
             partner_name,
             r.get('invoice_date') or '',
             due,
-            r.get('amount_total') or 0,
+            untaxed,
+            tax,
+            total,
             MOVE_STATE_LABELS.get(st, st),
             PAYMENT_STATE_LABELS.get(ps, ps or '—'),
             overdue,

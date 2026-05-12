@@ -287,11 +287,14 @@
     <thead>
       <tr>
         <th>Number</th><th>{{ partner_label }}</th><th>Date</th><th>Due Date</th>
+        <th>Untaxed</th><th>Tax</th>
         <th>Amount</th><th>Status</th><th>Payment</th><th>Overdue</th>
       </tr>
     </thead>
     <tbody>
       {% for inv in records %}
+      {% set untaxed_val = inv.amount_untaxed or 0 %}
+      {% set tax_val = inv.amount_tax if inv.amount_tax not in (none, false) else ((inv.amount_total or 0) - untaxed_val) %}
       <tr class="row-clickable"
           onclick="window.open('{{ odoo_base }}{{ record_path }}{{ inv.id }}', '_blank', 'noopener,noreferrer')"
           title="Open in Odoo">
@@ -299,6 +302,8 @@
         <td>{{ inv.partner_id[1] if inv.partner_id else '—' }}</td>
         <td>{{ inv.invoice_date or '—' }}</td>
         <td>{{ inv.invoice_date_due or '—' }}</td>
+        <td>{{ untaxed_val | fmt_currency }}</td>
+        <td>{{ tax_val | fmt_currency }}</td>
         <td>
           <strong>{{ inv.amount_total | fmt_currency }}</strong>
           {% if inv.amount_residual and inv.amount_residual > 0 %}
@@ -343,7 +348,7 @@
       </tr>
       {% else %}
       <tr>
-        <td colspan="8">
+        <td colspan="10">
           <div class="empty-state">
             <i class="fa-solid {{ 'fa-file-invoice' if is_bills else 'fa-file-invoice-dollar' }}"></i>
             <p>No {{ doc_label | lower }}s found</p>
