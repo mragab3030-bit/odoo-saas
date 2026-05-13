@@ -40,6 +40,9 @@
   <a href="{{ url_for('financial', tab='expenses') }}" class="tab-item {% if tab == 'expenses' %}active{% endif %}">
     <i class="fa-solid fa-receipt"></i> Expenses
   </a>
+  <a href="{{ url_for('financial', tab='analytic') }}" class="tab-item {% if tab == 'analytic' %}active{% endif %}">
+    <i class="fa-solid fa-diagram-project"></i> Analytic
+  </a>
 </div>
 
 {% if error %}
@@ -1163,6 +1166,437 @@
   {% include '_pagination.html' %}
 </div>
 
+{% elif tab == 'analytic' %}
+
+<!-- ============================== ANALYTIC ============================== -->
+{% set ccy = (selected_company.currency_name if selected_company else '') or '' %}
+
+<style>
+  .analytic-section {
+    background: var(--card-bg, #fff);
+    border: 1px solid var(--border, #e5e7eb);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1rem;
+  }
+  .analytic-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: .75rem;
+    margin-bottom: .65rem;
+  }
+  .analytic-title {
+    font-size: .72rem;
+    letter-spacing: .08em;
+    color: var(--text-muted);
+    font-weight: 700;
+  }
+  .analytic-controls {
+    display: flex; align-items: center; gap: .5rem; font-size: .82rem;
+  }
+  .analytic-controls select,
+  .analytic-controls input[type=date] {
+    height: 30px; padding: 0 .5rem;
+    border: 1px solid var(--border, #e5e7eb);
+    border-radius: 6px; font-size: .82rem; background: #fff;
+  }
+  .analytic-period-label {
+    margin-top: .35rem; font-size: .8rem; color: var(--text-muted);
+    font-style: italic;
+  }
+  .analytic-canvas-wrap { position: relative; width: 100%; height: 320px; }
+  .analytic-charts-row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
+  }
+  .analytic-tables-row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
+  }
+  @media (max-width: 980px) {
+    .analytic-charts-row, .analytic-tables-row { grid-template-columns: 1fr; }
+  }
+  .analytic-filter-pill {
+    display: inline-flex; align-items: center; gap: .35rem;
+    padding: .15rem .55rem; border-radius: 999px;
+    background: #e0f2fe; color: #075985; font-size: .78rem;
+    margin-left: .5rem;
+  }
+  .analytic-filter-pill button {
+    border: 0; background: transparent; color: inherit;
+    cursor: pointer; font-size: .9rem; line-height: 1; padding: 0;
+  }
+  .analytic-table .net-pos { color: #16a34a; font-weight: 600; }
+  .analytic-table .net-neg { color: #dc2626; font-weight: 600; }
+  .analytic-table th.sortable { cursor: pointer; user-select: none; }
+  .analytic-table th.sortable:hover { background: #f8fafc; }
+  .analytic-table th.sortable .sort-ind { opacity: .35; margin-left: .25rem; }
+  .analytic-table th.sortable.sort-asc .sort-ind,
+  .analytic-table th.sortable.sort-desc .sort-ind { opacity: 1; }
+  .analytic-table tbody tr { cursor: pointer; }
+  .analytic-table tbody tr:hover { background: #f1f5f9; }
+  .analytic-table tbody tr.active-filter { background: #dbeafe; }
+</style>
+
+<div class="amount-format-toolbar" data-amount-toolbar>
+  <span class="amount-format-label">Show amounts in</span>
+  <div class="amount-format-group" role="group" aria-label="Amount format">
+    <button type="button" class="amount-format-btn" data-format="units">Units</button>
+    <button type="button" class="amount-format-btn" data-format="k">K</button>
+    <button type="button" class="amount-format-btn" data-format="m">M</button>
+  </div>
+</div>
+
+{% macro compare_pill(pct) -%}
+  {% if pct is none %}
+    <span class="compare-pill neutral"><i class="fa-solid fa-minus"></i> —</span>
+  {% elif pct > 0.05 %}
+    <span class="compare-pill up"><i class="fa-solid fa-arrow-up"></i> {{ '%.1f' % pct }}%</span>
+  {% elif pct < -0.05 %}
+    <span class="compare-pill down"><i class="fa-solid fa-arrow-down"></i> {{ '%.1f' % (pct | abs) }}%</span>
+  {% else %}
+    <span class="compare-pill neutral"><i class="fa-solid fa-equals"></i> 0%</span>
+  {% endif %}
+{%- endmacro %}
+
+<div class="kpi-row">
+  <div class="kpi-group">
+    <div class="stat-card">
+      <div class="stat-value stat-value-num">{{ stats.count }}</div>
+      <div class="stat-label">Cost Centers</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value stat-value-num" style="color:var(--success)">
+        <span class="amount-display" data-amount="{{ stats.revenue or 0 }}" data-currency="{{ ccy }}">
+          {{ ccy }} {{ stats.revenue | fmt_currency_int }}
+        </span>
+      </div>
+      <div class="stat-label">Total Revenue</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value stat-value-num" style="color:var(--danger)">
+        <span class="amount-display" data-amount="{{ stats.costs or 0 }}" data-currency="{{ ccy }}">
+          {{ ccy }} {{ stats.costs | fmt_currency_int }}
+        </span>
+      </div>
+      <div class="stat-label">Total Costs</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value stat-value-num"
+           style="color:{% if (stats.net or 0) >= 0 %}var(--success){% else %}var(--danger){% endif %}">
+        <span class="amount-display" data-amount="{{ stats.net or 0 }}" data-currency="{{ ccy }}">
+          {{ ccy }} {{ stats.net | fmt_currency_int }}
+        </span>
+      </div>
+      <div class="stat-label">Net Profit / Loss</div>
+    </div>
+  </div>
+
+  {% if compare_stats is defined %}
+  <div class="cards-separator"></div>
+  <div class="kpi-group">
+    <div class="stat-card compare-card">
+      <div class="stat-value stat-value-num compare-value">{{ compare_stats.count }}</div>
+      <div class="compare-meta">{{ compare_pill(compare_pct.count) }} <span class="compare-vs">{{ compare_label }}</span></div>
+      <div class="stat-label">Cost Centers</div>
+    </div>
+    <div class="stat-card compare-card">
+      <div class="stat-value stat-value-num compare-value">
+        <span class="amount-display" data-amount="{{ compare_stats.revenue or 0 }}" data-currency="{{ ccy }}">
+          {{ ccy }} {{ compare_stats.revenue | fmt_currency_int }}
+        </span>
+      </div>
+      <div class="compare-meta">{{ compare_pill(compare_pct.revenue) }} <span class="compare-vs">{{ compare_label }}</span></div>
+      <div class="stat-label">Revenue</div>
+    </div>
+    <div class="stat-card compare-card">
+      <div class="stat-value stat-value-num compare-value">
+        <span class="amount-display" data-amount="{{ compare_stats.costs or 0 }}" data-currency="{{ ccy }}">
+          {{ ccy }} {{ compare_stats.costs | fmt_currency_int }}
+        </span>
+      </div>
+      <div class="compare-meta">{{ compare_pill(compare_pct.costs) }} <span class="compare-vs">{{ compare_label }}</span></div>
+      <div class="stat-label">Costs</div>
+    </div>
+    <div class="stat-card compare-card">
+      <div class="stat-value stat-value-num compare-value">
+        <span class="amount-display" data-amount="{{ compare_stats.net or 0 }}" data-currency="{{ ccy }}">
+          {{ ccy }} {{ compare_stats.net | fmt_currency_int }}
+        </span>
+      </div>
+      <div class="compare-meta">{{ compare_pill(compare_pct.net) }} <span class="compare-vs">{{ compare_label }}</span></div>
+      <div class="stat-label">Net P/L</div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{% set period_options = [
+  ('today',         'Today'),
+  ('yesterday',     'Yesterday'),
+  ('last_7',        'Last 7 Days'),
+  ('this_month',    'This Month'),
+  ('last_month',    'Last Month'),
+  ('last_30',       'Last 30 Days'),
+  ('this_quarter',  'This Quarter'),
+  ('last_quarter',  'Last Quarter'),
+  ('last_90',       'Last 90 Days'),
+  ('ytd',           'Year to Date (YTD)'),
+  ('last_year',     'Last Year'),
+  ('last_365',      'Last 365 Days'),
+  ('custom',        'Custom'),
+] %}
+
+<form method="GET" action="{{ url_for('financial') }}" class="filter-bar">
+  <input type="hidden" name="tab" value="analytic">
+  <div class="filter-group fg-search">
+    <label>Search</label>
+    <input type="text" name="search" class="form-control form-control-sm"
+           placeholder="Cost center, plan, or code…" value="{{ search }}">
+  </div>
+  <div class="filter-group fg-period">
+    <label>Period</label>
+    <select name="range" class="form-control form-control-sm">
+      {% for key, label in period_options %}
+      <option value="{{ key }}" {% if key == range_key %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="filter-group">
+    <label>From</label>
+    <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
+  </div>
+  <div class="filter-group">
+    <label>To</label>
+    <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
+  </div>
+  <div class="filter-group" style="justify-content:flex-end">
+    <label>&nbsp;</label>
+    <button type="submit" class="btn btn-primary btn-sm">
+      <i class="fa-solid fa-magnifying-glass"></i> Filter
+    </button>
+  </div>
+</form>
+
+{% set analytic_chart_options = [
+  ('today','Today'), ('this_month','This Month'), ('last_month','Last Month'),
+  ('this_quarter','This Quarter'), ('last_quarter','Last Quarter'),
+  ('ytd','Year to Date (YTD)'), ('last_year','Last Year'),
+  ('last_365','Last 365 Days'), ('custom','Custom'),
+] %}
+
+{% macro chart_period_select(id, default_key) -%}
+  <select id="{{ id }}" class="analytic-chart-range" data-default="{{ default_key }}">
+    {% for key, label in analytic_chart_options %}
+    <option value="{{ key }}" {% if key == default_key %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+{%- endmacro %}
+
+<!-- Treemap -->
+<div class="analytic-section" id="treemapSection"
+     data-default-range="{{ range_key or 'ytd' }}"
+     data-default-from="{{ date_from }}"
+     data-default-to="{{ date_to }}"
+     data-currency="{{ ccy }}">
+  <div class="analytic-header">
+    <div class="analytic-title"><i class="fa-solid fa-table-cells-large"></i> COST CENTER DISTRIBUTION</div>
+    <div class="analytic-controls">
+      {{ chart_period_select('treemapRange', range_key or 'ytd') }}
+      <input type="date" id="treemapFrom" style="display:none">
+      <input type="date" id="treemapTo"   style="display:none">
+    </div>
+  </div>
+  <div class="analytic-canvas-wrap" style="height:380px">
+    <canvas id="treemapChart"></canvas>
+  </div>
+  <div class="analytic-period-label" id="treemapPeriodLabel">{{ period_label or '' }}</div>
+</div>
+
+<!-- Waterfall + Bubble side-by-side -->
+<div class="analytic-charts-row">
+  <div class="analytic-section" id="waterfallSection"
+       data-default-range="{{ range_key or 'ytd' }}"
+       data-default-from="{{ date_from }}"
+       data-default-to="{{ date_to }}"
+       data-currency="{{ ccy }}">
+    <div class="analytic-header">
+      <div class="analytic-title"><i class="fa-solid fa-chart-column"></i> REVENUE vs COST PER CENTER</div>
+      <div class="analytic-controls">
+        {{ chart_period_select('waterfallRange', range_key or 'ytd') }}
+        <input type="date" id="waterfallFrom" style="display:none">
+        <input type="date" id="waterfallTo"   style="display:none">
+      </div>
+    </div>
+    <div class="analytic-canvas-wrap"><canvas id="waterfallChart"></canvas></div>
+    <div class="analytic-period-label" id="waterfallPeriodLabel">{{ period_label or '' }}</div>
+  </div>
+
+  <div class="analytic-section" id="bubbleSection"
+       data-default-range="{{ range_key or 'ytd' }}"
+       data-default-from="{{ date_from }}"
+       data-default-to="{{ date_to }}"
+       data-currency="{{ ccy }}">
+    <div class="analytic-header">
+      <div class="analytic-title"><i class="fa-solid fa-circle-nodes"></i> PROFITABILITY MAP</div>
+      <div class="analytic-controls">
+        {{ chart_period_select('bubbleRange', range_key or 'ytd') }}
+        <input type="date" id="bubbleFrom" style="display:none">
+        <input type="date" id="bubbleTo"   style="display:none">
+      </div>
+    </div>
+    <div class="analytic-canvas-wrap"><canvas id="bubbleChart"></canvas></div>
+    <div class="analytic-period-label" id="bubblePeriodLabel">{{ period_label or '' }}</div>
+  </div>
+</div>
+
+<!-- Top 5 tables -->
+<div class="analytic-tables-row">
+  <div class="analytic-section">
+    <div class="analytic-header">
+      <div class="analytic-title"><i class="fa-solid fa-trophy" style="color:#16a34a"></i> TOP 5 MOST PROFITABLE</div>
+    </div>
+    <table class="data-table analytic-table">
+      <thead>
+        <tr><th>#</th><th>Cost Center</th><th style="text-align:right">Revenue</th>
+            <th style="text-align:right">Costs</th><th style="text-align:right">Net</th>
+            <th style="text-align:right">Margin %</th></tr>
+      </thead>
+      <tbody>
+        {% for r in top_profitable %}
+        <tr>
+          <td><strong>{{ loop.index }}</strong></td>
+          <td>{{ r.name }}</td>
+          <td style="text-align:right">
+            <span class="amount-display" data-amount="{{ r.revenue or 0 }}" data-currency="{{ ccy }}">
+              {{ ccy }} {{ r.revenue | fmt_currency_int }}
+            </span>
+          </td>
+          <td style="text-align:right">
+            <span class="amount-display" data-amount="{{ r.costs or 0 }}" data-currency="{{ ccy }}">
+              {{ ccy }} {{ r.costs | fmt_currency_int }}
+            </span>
+          </td>
+          <td class="net-pos" style="text-align:right">
+            <span class="amount-display" data-amount="{{ r.net or 0 }}" data-currency="{{ ccy }}">
+              {{ ccy }} {{ r.net | fmt_currency_int }}
+            </span>
+          </td>
+          <td style="text-align:right">{{ '%.1f' % (r.margin_pct or 0) }}%</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6"><div class="empty-state"><i class="fa-solid fa-coins"></i><p>No profitable centers</p></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="analytic-section">
+    <div class="analytic-header">
+      <div class="analytic-title"><i class="fa-solid fa-triangle-exclamation" style="color:#dc2626"></i> TOP 5 LOSS-MAKING</div>
+    </div>
+    <table class="data-table analytic-table">
+      <thead>
+        <tr><th>#</th><th>Cost Center</th><th style="text-align:right">Revenue</th>
+            <th style="text-align:right">Costs</th><th style="text-align:right">Net</th>
+            <th style="text-align:right">Loss %</th></tr>
+      </thead>
+      <tbody>
+        {% for r in top_loss %}
+        <tr>
+          <td><strong>{{ loop.index }}</strong></td>
+          <td>{{ r.name }}</td>
+          <td style="text-align:right">
+            <span class="amount-display" data-amount="{{ r.revenue or 0 }}" data-currency="{{ ccy }}">
+              {{ ccy }} {{ r.revenue | fmt_currency_int }}
+            </span>
+          </td>
+          <td style="text-align:right">
+            <span class="amount-display" data-amount="{{ r.costs or 0 }}" data-currency="{{ ccy }}">
+              {{ ccy }} {{ r.costs | fmt_currency_int }}
+            </span>
+          </td>
+          <td class="net-neg" style="text-align:right">
+            <span class="amount-display" data-amount="{{ r.net or 0 }}" data-currency="{{ ccy }}">
+              {{ ccy }} {{ r.net | fmt_currency_int }}
+            </span>
+          </td>
+          <td style="text-align:right">{{ '%.1f' % (r.margin_pct or 0) }}%</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6"><div class="empty-state"><i class="fa-solid fa-circle-check"></i><p>No losses recorded</p></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Detailed table -->
+<div class="card table-card" style="margin-top:1rem">
+  <div class="card-header">
+    <i class="fa-solid fa-list" style="color:var(--primary)"></i>
+    <h5>Analytic Accounts</h5>
+    <span id="analyticFilterPill" class="analytic-filter-pill" style="display:none">
+      <span>Filtered: <strong id="analyticFilterName"></strong></span>
+      <button type="button" id="analyticFilterClear" title="Clear filter">×</button>
+    </span>
+    <div style="margin-left:auto;display:flex;gap:.5rem">
+      <a href="{{ url_for('export', key='financial_analytic', fmt='pdf',
+                          date_from=date_from, date_to=date_to,
+                          search=(search or none), range=range_key) }}"
+         class="btn btn-secondary btn-sm" title="Export PDF">
+        <i class="fa-solid fa-file-pdf"></i> PDF
+      </a>
+      <a href="{{ url_for('export', key='financial_analytic', fmt='excel',
+                          date_from=date_from, date_to=date_to,
+                          search=(search or none), range=range_key) }}"
+         class="btn btn-secondary btn-sm" title="Export Excel">
+        <i class="fa-solid fa-file-excel"></i> Excel
+      </a>
+    </div>
+  </div>
+  <table class="data-table analytic-table" id="analyticTable">
+    <thead>
+      <tr>
+        <th class="sortable" data-key="name">Cost Center <span class="sort-ind">⇅</span></th>
+        <th class="sortable" data-key="plan_name">Plan / Group <span class="sort-ind">⇅</span></th>
+        <th class="sortable" data-key="revenue" style="text-align:right">Revenue <span class="sort-ind">⇅</span></th>
+        <th class="sortable" data-key="costs" style="text-align:right">Costs <span class="sort-ind">⇅</span></th>
+        <th class="sortable sort-desc" data-key="net" style="text-align:right">Net <span class="sort-ind">↓</span></th>
+        <th class="sortable" data-key="margin_pct" style="text-align:right">Margin % <span class="sort-ind">⇅</span></th>
+        <th class="sortable" data-key="count" style="text-align:right"># Tx <span class="sort-ind">⇅</span></th>
+      </tr>
+    </thead>
+    <tbody id="analyticTableBody">
+      {% for r in records | sort(attribute='net', reverse=true) %}
+      <tr data-id="{{ r.id }}" data-name="{{ r.name }}">
+        <td>{{ r.name }}{% if r.code %} <small style="color:var(--text-muted)">[{{ r.code }}]</small>{% endif %}</td>
+        <td>{{ r.plan_name or '—' }}</td>
+        <td style="text-align:right">
+          <span class="amount-display" data-amount="{{ r.revenue or 0 }}" data-currency="{{ ccy }}">
+            {{ ccy }} {{ r.revenue | fmt_currency_int }}
+          </span>
+        </td>
+        <td style="text-align:right">
+          <span class="amount-display" data-amount="{{ r.costs or 0 }}" data-currency="{{ ccy }}">
+            {{ ccy }} {{ r.costs | fmt_currency_int }}
+          </span>
+        </td>
+        <td class="{{ 'net-pos' if (r.net or 0) >= 0 else 'net-neg' }}" style="text-align:right">
+          <span class="amount-display" data-amount="{{ r.net or 0 }}" data-currency="{{ ccy }}">
+            {{ ccy }} {{ r.net | fmt_currency_int }}
+          </span>
+        </td>
+        <td style="text-align:right">{{ '%.1f' % (r.margin_pct or 0) }}%</td>
+        <td style="text-align:right">{{ r.count }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7"><div class="empty-state"><i class="fa-solid fa-diagram-project"></i><p>No analytic accounts found</p></div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
 {% endif %}
 
 {% endblock %}
@@ -1742,6 +2176,414 @@
   toInput.addEventListener('change', function () {
     if (rangeSelect.value === 'custom' && fromInput.value && toInput.value) fetchData();
   });
+})();
+</script>
+{% endif %}
+
+{% if tab == 'analytic' %}
+<script>
+(function () {
+  if (!window.Chart) return;
+  var ccy = {{ (ccy or '') | tojson }};
+  var initialRows = {{ records | tojson }};
+
+  function getMode() {
+    return (window.odooDashAmountMode && window.odooDashAmountMode()) || 'units';
+  }
+  function fmtAmount(n) {
+    var mode = getMode();
+    if (window.odooDashFormatAmount) {
+      return (ccy ? ccy + ' ' : '') + window.odooDashFormatAmount(n, mode);
+    }
+    return (ccy ? ccy + ' ' : '') + Math.round(Number(n) || 0).toLocaleString();
+  }
+  function fmtPlain(n) {
+    var mode = getMode();
+    if (window.odooDashFormatAmount) return window.odooDashFormatAmount(n, mode);
+    return Math.round(n).toLocaleString();
+  }
+  function netColor(net) {
+    if (net > 0) return '#22c55e';
+    if (net < 0) return '#ef4444';
+    return '#eab308';
+  }
+
+  // ---- Treemap ----
+  var tmCanvas = document.getElementById('treemapChart');
+  var treemapChart = null;
+  function buildTreemapData(rows) {
+    return rows.map(function (r) {
+      var net = (r.revenue || 0) - (r.costs || 0);
+      var size = Math.max(Math.abs(net), 1);
+      return {
+        name: r.name, revenue: r.revenue || 0, costs: r.costs || 0,
+        net: net, value: size, id: r.id,
+      };
+    }).filter(function (d) { return d.value > 0; });
+  }
+  function renderTreemap(rows) {
+    var data = buildTreemapData(rows);
+    var total = data.reduce(function (s, d) { return s + Math.abs(d.net); }, 0);
+    if (treemapChart) treemapChart.destroy();
+    if (!tmCanvas || !data.length) return;
+    treemapChart = new Chart(tmCanvas.getContext('2d'), {
+      type: 'treemap',
+      data: {
+        datasets: [{
+          tree: data,
+          key: 'value',
+          labels: {
+            display: true,
+            formatter: function (ctx) {
+              var d = ctx.raw && ctx.raw._data;
+              if (!d) return '';
+              var pct = total ? (Math.abs(d.net) / total * 100) : 0;
+              return [d.name, fmtAmount(d.net), pct.toFixed(1) + '%'];
+            },
+            color: '#fff',
+            font: { weight: 'bold' },
+          },
+          backgroundColor: function (ctx) {
+            var d = ctx.raw && ctx.raw._data;
+            if (!d) return '#94a3b8';
+            return netColor(d.net);
+          },
+          borderColor: '#fff',
+          borderWidth: 1,
+          spacing: 1,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: function (items) {
+                var d = items[0].raw && items[0].raw._data;
+                return d ? d.name : '';
+              },
+              label: function (item) {
+                var d = item.raw && item.raw._data;
+                if (!d) return '';
+                var pct = total ? (Math.abs(d.net) / total * 100).toFixed(1) : '0.0';
+                return [
+                  'Revenue: ' + fmtAmount(d.revenue),
+                  'Costs: '   + fmtAmount(d.costs),
+                  'Net: '     + fmtAmount(d.net),
+                  '% of total: ' + pct + '%',
+                ];
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  // ---- Grouped bar with net line ("waterfall") ----
+  var wfCanvas = document.getElementById('waterfallChart');
+  var waterfallChart = null;
+  function renderWaterfall(rows) {
+    var top = rows.slice().sort(function (a, b) {
+      return Math.abs(b.net || 0) - Math.abs(a.net || 0);
+    }).slice(0, 15);
+    var labels = top.map(function (r) { return r.name; });
+    if (waterfallChart) waterfallChart.destroy();
+    if (!wfCanvas || !top.length) return;
+    waterfallChart = new Chart(wfCanvas.getContext('2d'), {
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            type: 'bar', label: 'Revenue',
+            data: top.map(function (r) { return r.revenue || 0; }),
+            backgroundColor: '#22c55e', borderColor: '#22c55e',
+            yAxisID: 'y',
+          },
+          {
+            type: 'bar', label: 'Cost',
+            data: top.map(function (r) { return r.costs || 0; }),
+            backgroundColor: '#ef4444', borderColor: '#ef4444',
+            yAxisID: 'y',
+          },
+          {
+            type: 'line', label: 'Net',
+            data: top.map(function (r) { return r.net || 0; }),
+            borderColor: '#1d4ed8', backgroundColor: '#1d4ed8',
+            tension: .25, borderWidth: 2, pointRadius: 3, yAxisID: 'y',
+          },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { position: 'bottom' },
+          tooltip: {
+            callbacks: {
+              label: function (ctx) {
+                return ctx.dataset.label + ': ' + fmtAmount(ctx.parsed.y);
+              },
+            },
+          },
+        },
+        scales: {
+          x: { ticks: { autoSkip: false, maxRotation: 45, minRotation: 30 } },
+          y: { beginAtZero: true, ticks: { callback: function (v) { return fmtPlain(v); } } },
+        },
+      },
+    });
+  }
+
+  // ---- Bubble chart ----
+  var bbCanvas = document.getElementById('bubbleChart');
+  var bubbleChart = null;
+  function renderBubble(rows) {
+    if (bubbleChart) bubbleChart.destroy();
+    if (!bbCanvas || !rows.length) return;
+    var maxAbsNet = rows.reduce(function (m, r) {
+      return Math.max(m, Math.abs(r.net || 0));
+    }, 1);
+    var data = rows.map(function (r) {
+      var net = r.net || 0;
+      return {
+        x: r.revenue || 0,
+        y: r.costs || 0,
+        r: 6 + (Math.abs(net) / maxAbsNet) * 26,
+        _row: r,
+      };
+    });
+    bubbleChart = new Chart(bbCanvas.getContext('2d'), {
+      type: 'bubble',
+      data: {
+        datasets: [{
+          label: 'Cost Centers',
+          data: data,
+          backgroundColor: function (ctx) {
+            var r = ctx.raw && ctx.raw._row;
+            if (!r) return '#94a3b8';
+            return netColor(r.net || 0);
+          },
+          borderColor: '#1f2937',
+          borderWidth: 1,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: function (items) {
+                var r = items[0].raw && items[0].raw._row;
+                return r ? r.name : '';
+              },
+              label: function (item) {
+                var r = item.raw && item.raw._row;
+                if (!r) return '';
+                return [
+                  'Revenue: ' + fmtAmount(r.revenue || 0),
+                  'Costs: '   + fmtAmount(r.costs || 0),
+                  'Net: '     + fmtAmount(r.net || 0),
+                  'Margin: '  + (r.margin_pct || 0).toFixed(1) + '%',
+                ];
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            title: { display: true, text: 'Revenue' },
+            beginAtZero: true,
+            ticks: { callback: function (v) { return fmtPlain(v); } },
+          },
+          y: {
+            title: { display: true, text: 'Costs' },
+            beginAtZero: true,
+            ticks: { callback: function (v) { return fmtPlain(v); } },
+          },
+        },
+      },
+    });
+  }
+
+  // ---- AJAX wiring shared by all three charts ----
+  function bindSection(sectionId, rangeId, fromId, toId, periodLabelId, onData) {
+    var section = document.getElementById(sectionId);
+    if (!section) return;
+    var rangeSel = document.getElementById(rangeId);
+    var fromIn   = document.getElementById(fromId);
+    var toIn     = document.getElementById(toId);
+    var periodEl = document.getElementById(periodLabelId);
+    var initRange = section.getAttribute('data-default-range') || 'ytd';
+    rangeSel.value = initRange;
+    if (initRange === 'custom') {
+      fromIn.style.display = '';
+      toIn.style.display = '';
+      fromIn.value = section.getAttribute('data-default-from') || '';
+      toIn.value   = section.getAttribute('data-default-to')   || '';
+    }
+    var busy = false;
+    function fetchData() {
+      var range = rangeSel.value;
+      var params = new URLSearchParams();
+      params.set('range', range);
+      if (range === 'custom') {
+        if (!fromIn.value || !toIn.value) return;
+        params.set('date_from', fromIn.value);
+        params.set('date_to',   toIn.value);
+      }
+      if (busy) return;
+      busy = true;
+      section.style.opacity = '0.65';
+      fetch('{{ url_for("financial_analytic_aggregate") }}?' + params.toString(), {
+        credentials: 'same-origin',
+        headers: { 'Accept': 'application/json' },
+      })
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(r); })
+        .then(function (d) {
+          onData(d.rows || []);
+          if (periodEl) periodEl.textContent = d.period_label || '';
+        })
+        .catch(function () {})
+        .finally(function () { busy = false; section.style.opacity = ''; });
+    }
+    rangeSel.addEventListener('change', function () {
+      var isCustom = rangeSel.value === 'custom';
+      fromIn.style.display = isCustom ? '' : 'none';
+      toIn.style.display   = isCustom ? '' : 'none';
+      if (!isCustom) fetchData();
+      else if (fromIn.value && toIn.value) fetchData();
+    });
+    fromIn.addEventListener('change', function () {
+      if (rangeSel.value === 'custom' && fromIn.value && toIn.value) fetchData();
+    });
+    toIn.addEventListener('change', function () {
+      if (rangeSel.value === 'custom' && fromIn.value && toIn.value) fetchData();
+    });
+  }
+
+  // ---- Row click → filter all charts to a single center ----
+  var activeId = null;
+  function applyFilterToCharts(rows) {
+    var filtered = activeId == null ? rows : rows.filter(function (r) { return r.id === activeId; });
+    renderTreemap(filtered);
+    renderWaterfall(filtered);
+    renderBubble(filtered);
+  }
+
+  // Each chart caches its last-fetched rows so re-applying the filter
+  // doesn't require a refetch.
+  var lastTreemapRows = initialRows.slice();
+  var lastWaterfallRows = initialRows.slice();
+  var lastBubbleRows = initialRows.slice();
+
+  renderTreemap(initialRows);
+  renderWaterfall(initialRows);
+  renderBubble(initialRows);
+
+  bindSection('treemapSection', 'treemapRange', 'treemapFrom', 'treemapTo',
+    'treemapPeriodLabel', function (rows) {
+      lastTreemapRows = rows;
+      renderTreemap(activeId == null ? rows : rows.filter(function (r) { return r.id === activeId; }));
+    });
+  bindSection('waterfallSection', 'waterfallRange', 'waterfallFrom', 'waterfallTo',
+    'waterfallPeriodLabel', function (rows) {
+      lastWaterfallRows = rows;
+      renderWaterfall(activeId == null ? rows : rows.filter(function (r) { return r.id === activeId; }));
+    });
+  bindSection('bubbleSection', 'bubbleRange', 'bubbleFrom', 'bubbleTo',
+    'bubblePeriodLabel', function (rows) {
+      lastBubbleRows = rows;
+      renderBubble(activeId == null ? rows : rows.filter(function (r) { return r.id === activeId; }));
+    });
+
+  // Format-mode subscribers
+  document.addEventListener('odoo:amount-mode-change', function () {
+    if (treemapChart)   treemapChart.update('none');
+    if (waterfallChart) waterfallChart.update('none');
+    if (bubbleChart)    bubbleChart.update('none');
+  });
+
+  // ---- Detailed table: sort, search, click-filter ----
+  var tbody = document.getElementById('analyticTableBody');
+  var pill  = document.getElementById('analyticFilterPill');
+  var pillName = document.getElementById('analyticFilterName');
+  var pillClear = document.getElementById('analyticFilterClear');
+
+  function setActiveId(id, name) {
+    activeId = id;
+    if (id == null) {
+      pill.style.display = 'none';
+      Array.prototype.forEach.call(tbody.querySelectorAll('tr.active-filter'),
+        function (tr) { tr.classList.remove('active-filter'); });
+    } else {
+      pill.style.display = '';
+      pillName.textContent = name || '';
+      Array.prototype.forEach.call(tbody.querySelectorAll('tr'), function (tr) {
+        tr.classList.toggle('active-filter',
+          parseInt(tr.getAttribute('data-id'), 10) === id);
+      });
+    }
+    renderTreemap(activeId == null ? lastTreemapRows
+                    : lastTreemapRows.filter(function (r) { return r.id === activeId; }));
+    renderWaterfall(activeId == null ? lastWaterfallRows
+                    : lastWaterfallRows.filter(function (r) { return r.id === activeId; }));
+    renderBubble(activeId == null ? lastBubbleRows
+                    : lastBubbleRows.filter(function (r) { return r.id === activeId; }));
+  }
+
+  if (tbody) {
+    tbody.addEventListener('click', function (e) {
+      var tr = e.target.closest('tr[data-id]');
+      if (!tr) return;
+      var id = parseInt(tr.getAttribute('data-id'), 10);
+      var name = tr.getAttribute('data-name') || '';
+      if (activeId === id) setActiveId(null);
+      else setActiveId(id, name);
+    });
+  }
+  if (pillClear) pillClear.addEventListener('click', function () { setActiveId(null); });
+
+  // Sort
+  var headers = document.querySelectorAll('#analyticTable th.sortable');
+  Array.prototype.forEach.call(headers, function (th) {
+    th.addEventListener('click', function () {
+      var key = th.getAttribute('data-key');
+      var asc = !th.classList.contains('sort-asc');
+      Array.prototype.forEach.call(headers, function (h) {
+        h.classList.remove('sort-asc', 'sort-desc');
+        var ind = h.querySelector('.sort-ind');
+        if (ind) ind.textContent = '⇅';
+      });
+      th.classList.add(asc ? 'sort-asc' : 'sort-desc');
+      var ind = th.querySelector('.sort-ind');
+      if (ind) ind.textContent = asc ? '↑' : '↓';
+      var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr[data-id]'));
+      rows.sort(function (a, b) {
+        var av = sortValue(a, key);
+        var bv = sortValue(b, key);
+        if (av < bv) return asc ? -1 : 1;
+        if (av > bv) return asc ?  1 : -1;
+        return 0;
+      });
+      rows.forEach(function (r) { tbody.appendChild(r); });
+    });
+  });
+
+  function sortValue(tr, key) {
+    var rid = parseInt(tr.getAttribute('data-id'), 10);
+    var row = null;
+    for (var i = 0; i < initialRows.length; i++) {
+      if (initialRows[i].id === rid) { row = initialRows[i]; break; }
+    }
+    if (!row) return 0;
+    var v = row[key];
+    if (typeof v === 'string') return v.toLowerCase();
+    return Number(v) || 0;
+  }
 })();
 </script>
 {% endif %}

@@ -327,6 +327,96 @@ def _compute_trend(client, move_type, date_from, date_to):
     return months
 
 
+def _compute_analytic(client, date_from, date_to):
+    """Aggregate account.analytic.line into one row per analytic account.
+    Returns a list of dicts with revenue / costs / net / margin / count / plan.
+    Costs are stored as positive numbers (absolute value of negative amounts)."""
+    base_dom = []
+    if date_from:
+        base_dom.append(['date', '>=', date_from])
+    if date_to:
+        base_dom.append(['date', '<=', date_to])
+
+    rev_grps = client.safe_read_group(
+        'account.analytic.line', base_dom + [['amount', '>', 0]],
+        ['amount:sum'], ['account_id']) or []
+    cost_grps = client.safe_read_group(
+        'account.analytic.line', base_dom + [['amount', '<', 0]],
+        ['amount:sum'], ['account_id']) or []
+    count_grps = client.safe_read_group(
+        'account.analytic.line', base_dom,
+        [], ['account_id']) or []
+
+    def _aid(grp):
+        pair = grp.get('account_id')
+        if isinstance(pair, list) and pair:
+            return pair[0], pair[1] if len(pair) > 1 else f'#{pair[0]}'
+        if isinstance(pair, int):
+            return pair, f'#{pair}'
+        return None, ''
+
+    accounts = {}
+
+    def _ensure(aid, name):
+        a = accounts.get(aid)
+        if a is None:
+            a = {'id': aid, 'name': name,
+                 'revenue': 0, 'costs': 0, 'count': 0,
+                 'plan_id': None, 'plan_name': ''}
+            accounts[aid] = a
+        return a
+
+    for g in rev_grps:
+        aid, name = _aid(g)
+        if aid is None:
+            continue
+        _ensure(aid, name)['revenue'] = g.get('amount', 0) or 0
+    for g in cost_grps:
+        aid, name = _aid(g)
+        if aid is None:
+            continue
+        _ensure(aid, name)['costs'] = abs(g.get('amount', 0) or 0)
+    for g in count_grps:
+        aid, name = _aid(g)
+        if aid is None:
+            continue
+        _ensure(aid, name)['count'] = g.get('__count', 0)
+
+    aids = list(accounts.keys())
+    if aids:
+        recs = client.safe_search_read(
+            'account.analytic.account',
+            [['id', 'in', aids]],
+            ['id', 'plan_id', 'code'])
+        for r in recs:
+            a = accounts.get(r.get('id'))
+            if not a:
+                continue
+            plan = r.get('plan_id')
+            if isinstance(plan, list) and len(plan) > 1:
+                a['plan_id'] = plan[0]
+                a['plan_name'] = plan[1]
+            a['code'] = r.get('code') or ''
+
+    rows = list(accounts.values())
+    for a in rows:
+        a['net'] = a['revenue'] - a['costs']
+        denom = a['revenue']
+        a['margin_pct'] = (a['net'] / denom * 100) if denom else 0
+    return rows
+
+
+def _analytic_summary(rows):
+    revenue = sum((a['revenue'] or 0) for a in rows)
+    costs   = sum((a['costs']   or 0) for a in rows)
+    return {
+        'count':   len(rows),
+        'revenue': revenue,
+        'costs':   costs,
+        'net':     revenue - costs,
+    }
+
+
 def _compute_tax_summary(client, move_type, date_from, date_to):
     """Return {'untaxed', 'tax', 'total'} for the given move_type/range."""
     domain = [
@@ -774,7 +864,7 @@ def financial():
     raw_date_to = request.args.get('date_to', '')
     range_key = request.args.get('range', '').strip()
 
-    if tab in ('invoices', 'bills'):
+    if tab in ('invoices', 'bills', 'analytic'):
         if range_key not in DATE_RANGE_KEYS:
             range_key = 'ytd'
         date_from, date_to, range_key = _resolve_date_range(
@@ -1257,6 +1347,50 @@ def financial():
             'done': state_totals.get('done', 0),
         }
 
+    elif tab == 'analytic':
+        try:
+            rows = _compute_analytic(c, date_from, date_to)
+        except Exception:
+            rows = []
+            ctx['error'] = 'Analytic accounting module may not be installed on this Odoo instance.'
+        if search:
+            s = search.lower()
+            rows = [r for r in rows if s in (r.get('name') or '').lower()
+                    or s in (r.get('plan_name') or '').lower()
+                    or s in (r.get('code') or '').lower()]
+        summary = _analytic_summary(rows)
+
+        # Previous-period comparison
+        prev_from, prev_to, prev_label = _previous_date_range(
+            range_key, date_from, date_to)
+        try:
+            prev_rows = _compute_analytic(c, prev_from, prev_to) if prev_from else []
+        except Exception:
+            prev_rows = []
+        prev_summary = _analytic_summary(prev_rows)
+
+        rows_sorted_net = sorted(rows, key=lambda r: r['net'], reverse=True)
+        top_profitable = [r for r in rows_sorted_net if r['net'] > 0][:5]
+        top_loss = sorted([r for r in rows if r['net'] < 0],
+                          key=lambda r: r['net'])[:5]
+
+        ctx['records']       = rows
+        ctx['total_count']   = len(rows)
+        ctx['total_pages']   = 1
+        ctx['stats']         = summary
+        ctx['compare_stats'] = prev_summary
+        ctx['compare_label'] = f'vs {prev_label}'
+        ctx['compare_pct']   = {
+            'count':   _pct_change(summary['count'],   prev_summary['count']),
+            'revenue': _pct_change(summary['revenue'], prev_summary['revenue']),
+            'costs':   _pct_change(summary['costs'],   prev_summary['costs']),
+            'net':     _pct_change(summary['net'],     prev_summary['net']),
+        }
+        ctx['top_profitable'] = top_profitable
+        ctx['top_loss']       = top_loss
+        ctx['period_label']   = _format_period_label(
+            range_key, date_from, date_to)
+
     return render_template('financial.html', **ctx)
 
 
@@ -1311,6 +1445,35 @@ def financial_trend():
         'date_to':      date_to,
         'period_label': _format_period_label(range_key, date_from, date_to),
         'months':       months,
+    })
+
+
+@app.route('/financial/analytic-aggregate')
+@login_required
+def financial_analytic_aggregate():
+    """JSON endpoint feeding the Analytic tab's per-chart period selectors.
+    Returns per-account rows plus summary totals for the requested range."""
+    range_key = (request.args.get('range', 'ytd') or 'ytd').strip()
+    raw_from = request.args.get('date_from', '')
+    raw_to   = request.args.get('date_to', '')
+    if range_key not in DATE_RANGE_KEYS:
+        range_key = 'ytd'
+    date_from, date_to, range_key = _resolve_date_range(
+        range_key, raw_from, raw_to)
+
+    c = get_client()
+    try:
+        rows = _compute_analytic(c, date_from, date_to)
+    except Exception:
+        rows = []
+    summary = _analytic_summary(rows)
+    return jsonify({
+        'range_key':    range_key,
+        'date_from':    date_from,
+        'date_to':      date_to,
+        'period_label': _format_period_label(range_key, date_from, date_to),
+        'rows':         rows,
+        'summary':      summary,
     })
 
 
@@ -1754,6 +1917,14 @@ EXPORT_CONFIG = {
                    'date_planned_start', 'date_planned_finished', 'state'],
         'headers': ['Reference', 'Product', 'Qty', 'UoM', 'Planned Start', 'Planned End', 'Status'],
     },
+    'financial_analytic': {
+        'title': 'Analytic Accounts Report',
+        'model': 'account.analytic.account',  # aggregation handled in export()
+        'fields': [],
+        'headers': ['Cost Center', 'Plan / Group', 'Revenue', 'Costs',
+                    'Net', 'Margin %', '# Transactions'],
+        'col_widths': [2.4, 1.6, 1.3, 1.3, 1.3, 1.0, 1.0],
+    },
 }
 
 
@@ -1829,6 +2000,54 @@ def export(key: str, fmt: str):
 
         if search:
             title_extras.append(f'Search: "{search}"')
+
+    if key == 'financial_analytic':
+        range_key = (request.args.get('range', '') or '').strip()
+        if range_key in DATE_RANGE_KEYS:
+            date_from_a, date_to_a, _ = _resolve_date_range(
+                range_key, date_from, date_to)
+        else:
+            date_from_a = date_from or date.today().replace(month=1, day=1).isoformat()
+            date_to_a = date_to or today_str()
+        try:
+            rows_a = _compute_analytic(c, date_from_a, date_to_a)
+        except Exception:
+            rows_a = []
+        if search:
+            s = search.lower()
+            rows_a = [r for r in rows_a if s in (r.get('name') or '').lower()
+                      or s in (r.get('plan_name') or '').lower()
+                      or s in (r.get('code') or '').lower()]
+        rows_a.sort(key=lambda r: r['net'], reverse=True)
+        rows = [
+            [
+                (r.get('name') or '') +
+                (f" [{r.get('code')}]" if r.get('code') else ''),
+                r.get('plan_name') or '',
+                fmt_currency(r.get('revenue', 0)),
+                fmt_currency(r.get('costs', 0)),
+                fmt_currency(r.get('net', 0)),
+                f"{r.get('margin_pct', 0):.1f}%",
+                r.get('count', 0),
+            ]
+            for r in rows_a
+        ]
+        period_lbl = _format_period_label(range_key or 'custom',
+                                          date_from_a, date_to_a)
+        if period_lbl:
+            title = f'{title} - {period_lbl}'
+        if fmt == 'pdf':
+            buf = export_pdf(title, cfg['headers'], rows,
+                             col_widths=cfg.get('col_widths'))
+            return send_file(buf, mimetype='application/pdf',
+                             download_name=f'{key}.pdf', as_attachment=True)
+        else:
+            buf = export_excel(title, cfg['headers'], rows)
+            return send_file(
+                buf,
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                download_name=f'{key}.xlsx', as_attachment=True,
+            )
 
     records = c.paginated_search_read(cfg['model'], domain,
                                       fields=cfg['fields'], order=None)
