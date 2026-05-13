@@ -372,6 +372,182 @@
 </div>
 {% endif %}
 
+{% if trend is defined %}
+<style>
+  .trend-section, .tax-section {
+    background: var(--card-bg, #fff);
+    border: 1px solid var(--border, #e5e7eb);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1rem;
+  }
+  .trend-header, .tax-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: .75rem;
+    margin-bottom: .65rem;
+  }
+  .trend-title, .tax-title {
+    font-size: .72rem;
+    letter-spacing: .08em;
+    color: var(--text-muted);
+    font-weight: 700;
+  }
+  .trend-controls, .tax-controls {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    font-size: .82rem;
+  }
+  .trend-controls select,
+  .trend-controls input[type=date],
+  .tax-controls select,
+  .tax-controls input[type=date] {
+    height: 30px;
+    padding: 0 .5rem;
+    border: 1px solid var(--border, #e5e7eb);
+    border-radius: 6px;
+    font-size: .82rem;
+    background: #fff;
+  }
+  .trend-period-label, .tax-period-label {
+    margin-top: .35rem;
+    font-size: .8rem;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+  .trend-canvas-wrap {
+    position: relative;
+    width: 100%;
+    height: 280px;
+  }
+  .tax-cards {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .85rem;
+    margin-top: .35rem;
+  }
+  .tax-card {
+    border: 1px solid var(--border, #e5e7eb);
+    border-radius: 8px;
+    padding: .85rem 1rem;
+    background: #fafafa;
+  }
+  .tax-card-label {
+    font-size: .72rem;
+    letter-spacing: .05em;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    margin-bottom: .35rem;
+  }
+  .tax-card-value {
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  .tax-card.untaxed .tax-card-value { color: #334155; }
+  .tax-card.tax     .tax-card-value { color: #2563eb; }
+  .tax-card.total   .tax-card-value { color: #16a34a; }
+  @media (max-width: 720px) {
+    .tax-cards { grid-template-columns: 1fr; }
+  }
+</style>
+
+<div class="trend-section" id="trendSection"
+     data-tab="{{ tab }}"
+     data-range="{{ trend.range_key or 'last_6' }}"
+     data-date-from="{{ trend.date_from or '' }}"
+     data-date-to="{{ trend.date_to or '' }}"
+     data-currency="{{ ccy }}">
+  <div class="trend-header">
+    <div class="trend-title">
+      <i class="fa-solid fa-chart-line"></i>
+      {{ doc_label | upper }} TREND
+    </div>
+    <div class="trend-controls">
+      <select id="trendRangeSelect" aria-label="Trend period">
+        <option value="this_quarter">This Quarter</option>
+        <option value="last_quarter">Last Quarter</option>
+        <option value="last_6" selected>Last 6 Months</option>
+        <option value="this_year">This Year</option>
+        <option value="last_year">Last Year</option>
+        <option value="last_2_years">Last 2 Years</option>
+        <option value="custom">Custom</option>
+      </select>
+      <input type="date" id="trendDateFrom" style="display:none" aria-label="From date">
+      <input type="date" id="trendDateTo"   style="display:none" aria-label="To date">
+    </div>
+  </div>
+  <div class="trend-canvas-wrap">
+    <canvas id="trendChart"></canvas>
+  </div>
+  <div class="trend-period-label" id="trendPeriodLabel">{{ trend.period_label or '' }}</div>
+</div>
+{% endif %}
+
+{% if tax_summary is defined %}
+{% set tax_label = 'VAT Paid' if is_bills else 'VAT Collected' %}
+<div class="tax-section" id="taxSection"
+     data-tab="{{ tab }}"
+     data-range="{{ tax_summary.range_key or 'ytd' }}"
+     data-date-from="{{ tax_summary.date_from or '' }}"
+     data-date-to="{{ tax_summary.date_to or '' }}"
+     data-currency="{{ ccy }}"
+     data-tax-label="{{ tax_label }}">
+  <div class="tax-header">
+    <div class="tax-title">TAX SUMMARY</div>
+    <div class="tax-controls">
+      <select id="taxRangeSelect" aria-label="Tax period">
+        <option value="this_quarter">This Quarter</option>
+        <option value="last_quarter">Last Quarter</option>
+        <option value="last_6">Last 6 Months</option>
+        <option value="this_year">This Year</option>
+        <option value="ytd" selected>Year to Date (YTD)</option>
+        <option value="last_year">Last Year</option>
+        <option value="last_2_years">Last 2 Years</option>
+        <option value="custom">Custom</option>
+      </select>
+      <input type="date" id="taxDateFrom" style="display:none" aria-label="From date">
+      <input type="date" id="taxDateTo"   style="display:none" aria-label="To date">
+    </div>
+  </div>
+  <div class="tax-cards">
+    <div class="tax-card untaxed">
+      <div class="tax-card-label">Total Untaxed</div>
+      <div class="tax-card-value">
+        <span class="amount-display" id="taxUntaxed"
+              data-amount="{{ tax_summary.untaxed or 0 }}" data-currency="{{ ccy }}">
+          {{ ccy }} {{ tax_summary.untaxed | fmt_currency_int }}
+        </span>
+      </div>
+    </div>
+    <div class="tax-card tax">
+      <div class="tax-card-label" id="taxTaxLabel">{{ tax_label }}</div>
+      <div class="tax-card-value">
+        <span class="amount-display" id="taxTax"
+              data-amount="{{ tax_summary.tax or 0 }}" data-currency="{{ ccy }}">
+          {{ ccy }} {{ tax_summary.tax | fmt_currency_int }}
+        </span>
+      </div>
+    </div>
+    <div class="tax-card total">
+      <div class="tax-card-label">Total with Tax</div>
+      <div class="tax-card-value">
+        <span class="amount-display" id="taxTotal"
+              data-amount="{{ tax_summary.total or 0 }}" data-currency="{{ ccy }}">
+          {{ ccy }} {{ tax_summary.total | fmt_currency_int }}
+        </span>
+      </div>
+    </div>
+  </div>
+  <div class="tax-period-label" id="taxPeriodLabel">{{ tax_summary.period_label or '' }}</div>
+</div>
+{% endif %}
+
 {% set period_options = [
   ('today',         'Today'),
   ('yesterday',     'Yesterday'),
@@ -1203,6 +1379,19 @@
   // Hook so other scripts (e.g. the Collection Rate AJAX update) can
   // re-format newly written amounts in the current Units/K/M mode.
   window.odooDashRefreshAmounts = function () { renderAll(getMode()); };
+  window.odooDashAmountMode = getMode;
+  window.odooDashFormatAmount = formatNumber;
+
+  // Notify external listeners (e.g. Chart.js) on every render so they
+  // can re-format axis ticks / tooltips with the new mode.
+  var _origRenderAll = renderAll;
+  renderAll = function (mode) {
+    _origRenderAll(mode);
+    try {
+      document.dispatchEvent(new CustomEvent('odoo:amount-mode-change',
+        { detail: { mode: mode } }));
+    } catch (e) {}
+  };
 })();
 </script>
 
@@ -1307,6 +1496,233 @@
       .then(function (r) { return r.ok ? r.json() : Promise.reject(r); })
       .then(applyData)
       .catch(function () { /* silent — keep previous chart */ })
+      .finally(function () {
+        fetching = false;
+        section.style.opacity = '';
+      });
+  }
+
+  rangeSelect.addEventListener('change', function () {
+    var isCustom = rangeSelect.value === 'custom';
+    fromInput.style.display = isCustom ? '' : 'none';
+    toInput.style.display   = isCustom ? '' : 'none';
+    if (!isCustom) fetchData();
+    else if (fromInput.value && toInput.value) fetchData();
+  });
+  fromInput.addEventListener('change', function () {
+    if (rangeSelect.value === 'custom' && fromInput.value && toInput.value) fetchData();
+  });
+  toInput.addEventListener('change', function () {
+    if (rangeSelect.value === 'custom' && fromInput.value && toInput.value) fetchData();
+  });
+})();
+</script>
+{% endif %}
+
+{% if trend is defined %}
+<script>
+(function () {
+  if (!window.Chart) return;
+  var section = document.getElementById('trendSection');
+  if (!section) return;
+  var tab          = section.getAttribute('data-tab') || 'invoices';
+  var ccy          = section.getAttribute('data-currency') || '';
+  var rangeSelect  = document.getElementById('trendRangeSelect');
+  var fromInput    = document.getElementById('trendDateFrom');
+  var toInput      = document.getElementById('trendDateTo');
+  var periodLabel  = document.getElementById('trendPeriodLabel');
+  var canvas       = document.getElementById('trendChart');
+  if (!canvas) return;
+
+  var initialRange = section.getAttribute('data-range') || 'last_6';
+  rangeSelect.value = initialRange;
+  if (initialRange === 'custom') {
+    fromInput.style.display = '';
+    toInput.style.display = '';
+    fromInput.value = section.getAttribute('data-date-from') || '';
+    toInput.value   = section.getAttribute('data-date-to')   || '';
+  }
+
+  var months = {{ trend.months | tojson }};
+
+  function fmtAmount(n) {
+    var mode = (window.odooDashAmountMode && window.odooDashAmountMode()) || 'units';
+    if (window.odooDashFormatAmount) {
+      return (ccy ? ccy + ' ' : '') + window.odooDashFormatAmount(n, mode);
+    }
+    return (ccy ? ccy + ' ' : '') + Math.round(Number(n) || 0).toLocaleString();
+  }
+  function tickFmt(v) {
+    var mode = (window.odooDashAmountMode && window.odooDashAmountMode()) || 'units';
+    if (window.odooDashFormatAmount) return window.odooDashFormatAmount(v, mode);
+    return Math.round(v).toLocaleString();
+  }
+
+  var chart = new Chart(canvas.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: months.map(function (m) { return m.label; }),
+      datasets: [
+        {
+          label: 'Total',
+          data: months.map(function (m) { return m.total; }),
+          borderColor: '#2563eb',
+          backgroundColor: 'rgba(37,99,235,.08)',
+          tension: .25,
+          borderWidth: 2,
+          pointRadius: 3,
+        },
+        {
+          label: 'Paid',
+          data: months.map(function (m) { return m.paid; }),
+          borderColor: '#16a34a',
+          backgroundColor: 'rgba(22,163,74,.08)',
+          tension: .25,
+          borderWidth: 2,
+          pointRadius: 3,
+        },
+        {
+          label: 'Outstanding',
+          data: months.map(function (m) { return m.outstanding; }),
+          borderColor: '#dc2626',
+          backgroundColor: 'rgba(220,38,38,.08)',
+          tension: .25,
+          borderWidth: 2,
+          pointRadius: 3,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'bottom' },
+        tooltip: {
+          callbacks: {
+            label: function (ctx) {
+              return ctx.dataset.label + ': ' + fmtAmount(ctx.parsed.y);
+            },
+          },
+        },
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: { callback: function (v) { return tickFmt(v); } },
+        },
+      },
+    },
+  });
+
+  document.addEventListener('odoo:amount-mode-change', function () {
+    chart.update('none');
+  });
+
+  var fetching = false;
+  function fetchData() {
+    var range = rangeSelect.value;
+    var params = new URLSearchParams();
+    params.set('tab', tab);
+    params.set('range', range);
+    if (range === 'custom') {
+      if (!fromInput.value || !toInput.value) return;
+      params.set('date_from', fromInput.value);
+      params.set('date_to',   toInput.value);
+    }
+    if (fetching) return;
+    fetching = true;
+    section.style.opacity = '0.65';
+    fetch('{{ url_for("financial_trend") }}?' + params.toString(), {
+      credentials: 'same-origin',
+      headers: { 'Accept': 'application/json' },
+    })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r); })
+      .then(function (data) {
+        var ms = data.months || [];
+        chart.data.labels = ms.map(function (m) { return m.label; });
+        chart.data.datasets[0].data = ms.map(function (m) { return m.total; });
+        chart.data.datasets[1].data = ms.map(function (m) { return m.paid; });
+        chart.data.datasets[2].data = ms.map(function (m) { return m.outstanding; });
+        chart.update();
+        periodLabel.textContent = data.period_label || '';
+      })
+      .catch(function () {})
+      .finally(function () {
+        fetching = false;
+        section.style.opacity = '';
+      });
+  }
+
+  rangeSelect.addEventListener('change', function () {
+    var isCustom = rangeSelect.value === 'custom';
+    fromInput.style.display = isCustom ? '' : 'none';
+    toInput.style.display   = isCustom ? '' : 'none';
+    if (!isCustom) fetchData();
+    else if (fromInput.value && toInput.value) fetchData();
+  });
+  fromInput.addEventListener('change', function () {
+    if (rangeSelect.value === 'custom' && fromInput.value && toInput.value) fetchData();
+  });
+  toInput.addEventListener('change', function () {
+    if (rangeSelect.value === 'custom' && fromInput.value && toInput.value) fetchData();
+  });
+})();
+</script>
+{% endif %}
+
+{% if tax_summary is defined %}
+<script>
+(function () {
+  var section = document.getElementById('taxSection');
+  if (!section) return;
+  var tab          = section.getAttribute('data-tab') || 'invoices';
+  var rangeSelect  = document.getElementById('taxRangeSelect');
+  var fromInput    = document.getElementById('taxDateFrom');
+  var toInput      = document.getElementById('taxDateTo');
+  var periodLabel  = document.getElementById('taxPeriodLabel');
+  var untaxedEl    = document.getElementById('taxUntaxed');
+  var taxEl        = document.getElementById('taxTax');
+  var totalEl      = document.getElementById('taxTotal');
+
+  var initialRange = section.getAttribute('data-range') || 'ytd';
+  rangeSelect.value = initialRange;
+  if (initialRange === 'custom') {
+    fromInput.style.display = '';
+    toInput.style.display = '';
+    fromInput.value = section.getAttribute('data-date-from') || '';
+    toInput.value   = section.getAttribute('data-date-to')   || '';
+  }
+
+  var fetching = false;
+  function fetchData() {
+    var range = rangeSelect.value;
+    var params = new URLSearchParams();
+    params.set('tab', tab);
+    params.set('range', range);
+    if (range === 'custom') {
+      if (!fromInput.value || !toInput.value) return;
+      params.set('date_from', fromInput.value);
+      params.set('date_to',   toInput.value);
+    }
+    if (fetching) return;
+    fetching = true;
+    section.style.opacity = '0.65';
+    fetch('{{ url_for("financial_tax_summary") }}?' + params.toString(), {
+      credentials: 'same-origin',
+      headers: { 'Accept': 'application/json' },
+    })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r); })
+      .then(function (data) {
+        untaxedEl.setAttribute('data-amount', data.untaxed || 0);
+        taxEl.setAttribute('data-amount',     data.tax     || 0);
+        totalEl.setAttribute('data-amount',   data.total   || 0);
+        periodLabel.textContent = data.period_label || '';
+        if (typeof window.odooDashRefreshAmounts === 'function') {
+          window.odooDashRefreshAmounts();
+        }
+      })
+      .catch(function () {})
       .finally(function () {
         fetching = false;
         section.style.opacity = '';

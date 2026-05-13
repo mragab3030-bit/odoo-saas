@@ -233,6 +233,125 @@ def _resolve_cr_range(range_key, raw_from, raw_to):
     return range_key, date_from, date_to
 
 
+def _resolve_trend_range(range_key, raw_from, raw_to):
+    """Return (range_key, date_from, date_to) for the trend / tax sections.
+    Adds last_6, this_year, last_2_years on top of the standard keys."""
+    today_d = date.today()
+    today_iso = today_d.isoformat()
+    if range_key == 'last_6':
+        first_this = today_d.replace(day=1)
+        m = first_this.month - 5
+        y = first_this.year
+        while m <= 0:
+            m += 12
+            y -= 1
+        start = date(y, m, 1)
+        return 'last_6', start.isoformat(), today_iso
+    if range_key == 'this_year':
+        return ('this_year',
+                date(today_d.year, 1, 1).isoformat(),
+                date(today_d.year, 12, 31).isoformat())
+    if range_key == 'last_2_years':
+        start_year = today_d.year - 2
+        return ('last_2_years',
+                date(start_year, today_d.month, 1).isoformat(),
+                today_iso)
+    if range_key in ('this_quarter', 'last_quarter', 'last_year',
+                     'ytd', 'custom'):
+        date_from, date_to, range_key = _resolve_date_range(
+            range_key, raw_from, raw_to)
+        return range_key, date_from, date_to
+    # default last_6
+    first_this = today_d.replace(day=1)
+    m = first_this.month - 5
+    y = first_this.year
+    while m <= 0:
+        m += 12
+        y -= 1
+    start = date(y, m, 1)
+    return 'last_6', start.isoformat(), today_iso
+
+
+def _compute_trend(client, move_type, date_from, date_to):
+    """Return monthly series of {month, total, paid, outstanding} between
+    date_from and date_to (inclusive) for the given move_type."""
+    domain = [
+        ['move_type', '=', move_type],
+        ['state', '=', 'posted'],
+    ]
+    if date_from:
+        domain.append(['invoice_date', '>=', date_from])
+    if date_to:
+        domain.append(['invoice_date', '<=', date_to])
+    grps = client.safe_read_group(
+        'account.move', domain,
+        ['amount_total:sum', 'amount_residual:sum'],
+        ['invoice_date:month'],
+        orderby='invoice_date asc') or []
+
+    # Build a continuous month series so empty months show 0.
+    try:
+        d_from = date.fromisoformat(date_from[:10]) if date_from else None
+        d_to = date.fromisoformat(date_to[:10]) if date_to else None
+    except (ValueError, TypeError):
+        d_from = d_to = None
+
+    bucket = {}
+    for g in grps:
+        raw = g.get('invoice_date:month') or ''
+        total = g.get('amount_total') or 0
+        residual = g.get('amount_residual') or 0
+        bucket[raw] = {
+            'label': raw,
+            'total': total,
+            'outstanding': residual,
+            'paid': max(total - residual, 0),
+        }
+
+    months = []
+    if d_from and d_to:
+        y, m = d_from.year, d_from.month
+        end_y, end_m = d_to.year, d_to.month
+        while (y, m) <= (end_y, end_m):
+            key = date(y, m, 1).strftime('%B %Y')
+            entry = bucket.get(key) or {
+                'label': key, 'total': 0, 'outstanding': 0, 'paid': 0,
+            }
+            months.append(entry)
+            m += 1
+            if m > 12:
+                m = 1
+                y += 1
+    else:
+        months = [bucket[k] for k in sorted(bucket.keys())]
+    return months
+
+
+def _compute_tax_summary(client, move_type, date_from, date_to):
+    """Return {'untaxed', 'tax', 'total'} for the given move_type/range."""
+    domain = [
+        ['move_type', '=', move_type],
+        ['state', '=', 'posted'],
+    ]
+    if date_from:
+        domain.append(['invoice_date', '>=', date_from])
+    if date_to:
+        domain.append(['invoice_date', '<=', date_to])
+    grps = client.safe_read_group(
+        'account.move', domain,
+        ['amount_untaxed:sum', 'amount_tax:sum', 'amount_total:sum'], [])
+    row = grps[0] if grps else {}
+    untaxed = row.get('amount_untaxed', 0) or 0
+    total = row.get('amount_total', 0) or 0
+    tax_raw = row.get('amount_tax', None)
+    tax = tax_raw if tax_raw not in (None, False) else (total - untaxed)
+    return {
+        'untaxed': untaxed,
+        'tax': tax,
+        'total': total,
+    }
+
+
 def _shift_year(d: date, years: int) -> date:
     """Shift a date back by N years, snapping Feb 29 to Feb 28 in non-leap years."""
     try:
@@ -983,6 +1102,28 @@ def financial():
             cr_range_default, cr_from_default, cr_to_default)
         ctx['collection_rate'] = collection_rate
 
+        # ---- Monthly trend chart (independent, default Last 6 Months) ----
+        trend_range, trend_from, trend_to = _resolve_trend_range(
+            'last_6', '', '')
+        ctx['trend'] = {
+            'months':       _compute_trend(c, move_type, trend_from, trend_to),
+            'range_key':    trend_range,
+            'date_from':    trend_from,
+            'date_to':      trend_to,
+            'period_label': _format_period_label(
+                trend_range, trend_from, trend_to),
+        }
+
+        # ---- Tax summary (independent, default YTD) ----
+        tax_range, tax_from, tax_to = _resolve_trend_range('ytd', '', '')
+        tax_summary = _compute_tax_summary(c, move_type, tax_from, tax_to)
+        tax_summary['range_key']    = tax_range
+        tax_summary['date_from']    = tax_from
+        tax_summary['date_to']      = tax_to
+        tax_summary['period_label'] = _format_period_label(
+            tax_range, tax_from, tax_to)
+        ctx['tax_summary'] = tax_summary
+
         status_colors = {
             'not_paid': '#ef4444',
             'paid': '#22c55e',
@@ -1139,6 +1280,57 @@ def financial_collection_rate():
     today_iso = today_str()
     data = _compute_collection_rate(
         c, move_type, date_from, date_to, today_iso)
+    data['range_key']    = range_key
+    data['date_from']    = date_from
+    data['date_to']      = date_to
+    data['period_label'] = _format_period_label(
+        range_key, date_from, date_to)
+    return jsonify(data)
+
+
+@app.route('/financial/trend')
+@login_required
+def financial_trend():
+    """JSON endpoint for the monthly trend line chart."""
+    tab = request.args.get('tab', 'invoices')
+    if tab not in ('invoices', 'bills'):
+        return jsonify({'error': 'invalid tab'}), 400
+    move_type = 'out_invoice' if tab == 'invoices' else 'in_invoice'
+
+    range_key = (request.args.get('range', 'last_6') or 'last_6').strip()
+    raw_from = request.args.get('date_from', '')
+    raw_to = request.args.get('date_to', '')
+    range_key, date_from, date_to = _resolve_trend_range(
+        range_key, raw_from, raw_to)
+
+    c = get_client()
+    months = _compute_trend(c, move_type, date_from, date_to)
+    return jsonify({
+        'range_key':    range_key,
+        'date_from':    date_from,
+        'date_to':      date_to,
+        'period_label': _format_period_label(range_key, date_from, date_to),
+        'months':       months,
+    })
+
+
+@app.route('/financial/tax-summary')
+@login_required
+def financial_tax_summary():
+    """JSON endpoint for the untaxed / tax / total summary cards."""
+    tab = request.args.get('tab', 'invoices')
+    if tab not in ('invoices', 'bills'):
+        return jsonify({'error': 'invalid tab'}), 400
+    move_type = 'out_invoice' if tab == 'invoices' else 'in_invoice'
+
+    range_key = (request.args.get('range', 'ytd') or 'ytd').strip()
+    raw_from = request.args.get('date_from', '')
+    raw_to = request.args.get('date_to', '')
+    range_key, date_from, date_to = _resolve_trend_range(
+        range_key, raw_from, raw_to)
+
+    c = get_client()
+    data = _compute_tax_summary(c, move_type, date_from, date_to)
     data['range_key']    = range_key
     data['date_from']    = date_from
     data['date_to']      = date_to
