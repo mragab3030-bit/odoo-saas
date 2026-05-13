@@ -442,6 +442,61 @@
 </div>
 {% endif %}
 
+{% if top_overdue is defined and top_overdue %}
+<div class="card top-overdue-section" style="margin-top:1rem">
+  <div class="card-header">
+    <i class="fa-solid fa-ranking-star" style="color:var(--danger)"></i>
+    <h5>Top 5 Overdue {{ partner_label }}s</h5>
+    <small style="margin-left:auto;color:var(--text-muted);font-weight:400">
+      Overall — not affected by period or card filters
+    </small>
+  </div>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th style="width:3rem">#</th>
+        <th>{{ partner_label }}</th>
+        <th style="text-align:right">Overdue {{ doc_label }}s</th>
+        <th style="text-align:right">Total Overdue</th>
+        <th style="text-align:right">Oldest</th>
+        <th style="text-align:right">Avg Days Overdue</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in top_overdue %}
+      {% set avg = p.avg_days or 0 %}
+      {% if avg > 90 %}
+        {% set badge_bg = '#fee2e2' %}{% set badge_fg = '#b91c1c' %}
+      {% elif avg > 30 %}
+        {% set badge_bg = '#ffedd5' %}{% set badge_fg = '#c2410c' %}
+      {% else %}
+        {% set badge_bg = '#fef9c3' %}{% set badge_fg = '#a16207' %}
+      {% endif %}
+      <tr>
+        <td><strong>{{ loop.index }}</strong></td>
+        <td>{{ p.name }}</td>
+        <td style="text-align:right">{{ p.count }}</td>
+        <td style="text-align:right">
+          <strong>
+            <span class="amount-display" data-amount="{{ p.total or 0 }}" data-currency="{{ ccy }}">
+              {{ ccy }} {{ p.total | fmt_currency_int }}
+            </span>
+          </strong>
+        </td>
+        <td style="text-align:right">{{ p.oldest_days }} days</td>
+        <td style="text-align:right">
+          <span class="badge"
+                style="background:{{ badge_bg }};color:{{ badge_fg }};font-weight:600">
+            {{ '%.0f' % avg }} days
+          </span>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
 {% set odoo_base = (session.get('odoo_url') or '').rstrip('/') %}
 {% set record_path = '/odoo/accounting/vendor-bills/' if is_bills else '/odoo/accounting/customer-invoices/' %}
 

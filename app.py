@@ -842,6 +842,62 @@ def financial():
         ctx['cashflow'] = cf
         ctx['cashflow_filter'] = cashflow_filter
 
+        # ---- Top 5 Overdue Customers / Vendors ----
+        # Always shows the overall top 5; ignores period, search, status,
+        # aging, and cashflow filters. Company filter is applied by the
+        # OdooClient context automatically.
+        top_overdue_dom = [
+            ['move_type', '=', move_type],
+            ['state', '=', 'posted'],
+            ['payment_state', 'in', ['not_paid', 'partial']],
+            ['invoice_date_due', '<', today_d.isoformat()],
+        ]
+        top_overdue_records = c.paginated_search_read(
+            'account.move', top_overdue_dom,
+            fields=['partner_id', 'invoice_date_due', 'amount_residual'],
+            order='invoice_date_due asc')
+
+        partners_agg = {}
+        for r in top_overdue_records:
+            pid_pair = r.get('partner_id')
+            if not pid_pair:
+                continue
+            pid = pid_pair[0]
+            pname = pid_pair[1] if len(pid_pair) > 1 else f'#{pid}'
+            due_raw = r.get('invoice_date_due')
+            if not due_raw:
+                continue
+            try:
+                due_d = date.fromisoformat(str(due_raw)[:10])
+            except (ValueError, TypeError):
+                continue
+            days_overdue = (today_d - due_d).days
+            if days_overdue <= 0:
+                continue
+            amt = r.get('amount_residual') or 0
+            agg = partners_agg.get(pid)
+            if agg is None:
+                agg = {
+                    'partner_id': pid,
+                    'name': pname,
+                    'count': 0,
+                    'total': 0,
+                    'oldest_days': 0,
+                    'days_sum': 0,
+                }
+                partners_agg[pid] = agg
+            agg['count'] += 1
+            agg['total'] += amt
+            agg['days_sum'] += days_overdue
+            if days_overdue > agg['oldest_days']:
+                agg['oldest_days'] = days_overdue
+
+        top_overdue = sorted(partners_agg.values(),
+                             key=lambda a: a['total'], reverse=True)[:5]
+        for a in top_overdue:
+            a['avg_days'] = a['days_sum'] / a['count'] if a['count'] else 0
+        ctx['top_overdue'] = top_overdue
+
         status_colors = {
             'not_paid': '#ef4444',
             'paid': '#22c55e',
