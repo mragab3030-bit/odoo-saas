@@ -184,6 +184,10 @@
 {% set cr_paid_pct    = cr.paid    / cr.total * 100 %}
 {% set cr_overdue_pct = cr.overdue / cr.total * 100 %}
 {% set cr_not_due_pct = cr.not_due / cr.total * 100 %}
+{% set cr_section_title  = 'VENDOR PAYMENT OVERVIEW' if is_bills else 'COLLECTION RATE OVERVIEW' %}
+{% set cr_paid_label     = 'Paid to Vendors'        if is_bills else 'Paid' %}
+{% set cr_overdue_label  = 'Overdue to Vendors'     if is_bills else 'Overdue' %}
+{% set cr_not_due_label  = 'Pending Payment'        if is_bills else 'Not Due Yet' %}
 <style>
   .collection-rate-section {
     background: var(--card-bg, #fff);
@@ -241,13 +245,13 @@
   }
 </style>
 <div class="collection-rate-section">
-  <div class="collection-rate-title">COLLECTION RATE OVERVIEW</div>
+  <div class="collection-rate-title">{{ cr_section_title }}</div>
   <div class="collection-rate-bar" role="img"
-       aria-label="Collection rate: {{ '%.0f' % cr_paid_pct }}% paid, {{ '%.0f' % cr_overdue_pct }}% overdue, {{ '%.0f' % cr_not_due_pct }}% not due yet">
+       aria-label="{{ cr_paid_label }} {{ '%.0f' % cr_paid_pct }}%, {{ cr_overdue_label }} {{ '%.0f' % cr_overdue_pct }}%, {{ cr_not_due_label }} {{ '%.0f' % cr_not_due_pct }}%">
     {% if cr_paid_pct > 0 %}
     <div class="collection-rate-seg paid"
          style="width:{{ cr_paid_pct }}%"
-         data-label="Paid"
+         data-label="{{ cr_paid_label }}"
          data-amount="{{ cr.paid or 0 }}"
          data-currency="{{ ccy }}"
          data-pct="{{ '%.1f' % cr_paid_pct }}">
@@ -257,7 +261,7 @@
     {% if cr_overdue_pct > 0 %}
     <div class="collection-rate-seg overdue"
          style="width:{{ cr_overdue_pct }}%"
-         data-label="Overdue"
+         data-label="{{ cr_overdue_label }}"
          data-amount="{{ cr.overdue or 0 }}"
          data-currency="{{ ccy }}"
          data-pct="{{ '%.1f' % cr_overdue_pct }}">
@@ -267,7 +271,7 @@
     {% if cr_not_due_pct > 0 %}
     <div class="collection-rate-seg notdue"
          style="width:{{ cr_not_due_pct }}%"
-         data-label="Not Due Yet"
+         data-label="{{ cr_not_due_label }}"
          data-amount="{{ cr.not_due or 0 }}"
          data-currency="{{ ccy }}"
          data-pct="{{ '%.1f' % cr_not_due_pct }}">
@@ -278,7 +282,7 @@
   <div class="collection-rate-legend">
     <div class="collection-rate-legend-item">
       <span aria-hidden="true">✅</span>
-      <span class="collection-rate-legend-label">Paid:</span>
+      <span class="collection-rate-legend-label">{{ cr_paid_label }}:</span>
       <span class="collection-rate-legend-amount amount-display"
             data-amount="{{ cr.paid or 0 }}" data-currency="{{ ccy }}">
         {{ ccy }} {{ cr.paid | fmt_currency_int }}
@@ -287,7 +291,7 @@
     </div>
     <div class="collection-rate-legend-item">
       <span aria-hidden="true">🔴</span>
-      <span class="collection-rate-legend-label">Overdue:</span>
+      <span class="collection-rate-legend-label">{{ cr_overdue_label }}:</span>
       <span class="collection-rate-legend-amount amount-display"
             data-amount="{{ cr.overdue or 0 }}" data-currency="{{ ccy }}">
         {{ ccy }} {{ cr.overdue | fmt_currency_int }}
@@ -296,7 +300,7 @@
     </div>
     <div class="collection-rate-legend-item">
       <span aria-hidden="true">🟡</span>
-      <span class="collection-rate-legend-label">Not Due Yet:</span>
+      <span class="collection-rate-legend-label">{{ cr_not_due_label }}:</span>
       <span class="collection-rate-legend-amount amount-display"
             data-amount="{{ cr.not_due or 0 }}" data-currency="{{ ccy }}">
         {{ ccy }} {{ cr.not_due | fmt_currency_int }}
