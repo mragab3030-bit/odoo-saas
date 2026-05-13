@@ -381,12 +381,21 @@
     <small class="cashflow-note">Based on today — not affected by the period filter</small>
   </div>
   <div class="cashflow-cards">
+    {% if is_bills %}
     {% set cf_specs = [
-      ('overdue', '#dc2626', 'fa-triangle-exclamation', cashflow.overdue),
-      ('b1',      '#f59e0b', 'fa-clock',                cashflow.b1),
-      ('b2',      '#f97316', 'fa-hourglass-half',       cashflow.b2),
-      ('b3',      '#22c55e', 'fa-calendar-days',        cashflow.b3),
+      ('overdue', '#e74c3c', 'fa-triangle-exclamation', cashflow.overdue),
+      ('b1',      '#e67e22', 'fa-clock',                cashflow.b1),
+      ('b2',      '#f39c12', 'fa-hourglass-half',       cashflow.b2),
+      ('b3',      '#27ae60', 'fa-calendar-days',        cashflow.b3),
     ] %}
+    {% else %}
+    {% set cf_specs = [
+      ('overdue', '#e74c3c', 'fa-triangle-exclamation', cashflow.overdue),
+      ('b1',      '#27ae60', 'fa-clock',                cashflow.b1),
+      ('b2',      '#f39c12', 'fa-hourglass-half',       cashflow.b2),
+      ('b3',      '#e67e22', 'fa-calendar-days',        cashflow.b3),
+    ] %}
+    {% endif %}
     {% for key, color, icon, bucket in cf_specs %}
     {% set is_active = (cashflow_filter == key) %}
     <a href="{{ url_for('financial', tab=tab, search=search, range=range_key,
@@ -416,8 +425,8 @@
     {% endif %}
     {% endfor %}
 
-    <div class="cashflow-card cashflow-card-total" style="border-left:4px solid #0ea5e9">
-      <div class="cashflow-label" style="color:#0ea5e9">
+    <div class="cashflow-card cashflow-card-total" style="border-left:4px solid #2980b9">
+      <div class="cashflow-label" style="color:#2980b9">
         <i class="fa-solid fa-chart-line"></i> Total Expected
       </div>
       <div class="stat-value stat-value-num">
