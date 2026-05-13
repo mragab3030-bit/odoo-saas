@@ -682,9 +682,10 @@
   var ccy = {{ (ccy or '') | tojson }};
   var deepLinkBase = {{ (odoo_root ~ deep_link_path) | tojson }};
   var periodDays = {{ period_days | int }};
-  // Payment-state values to push into Odoo's search domain — note the user's
-  // spec maps the "Reversed" card to cancel rather than reversed.
-  var statusKeyByIndex = ['not_paid', 'paid', 'partial', 'cancel'];
+  // Payment-state values pushed into Odoo's `domain=` query param. The card
+  // labels map to actual Odoo payment_state values: in_payment for Partial,
+  // reversed for Reversed.
+  var statusKeyByIndex = ['not_paid', 'paid', 'in_payment', 'reversed'];
 
   function pct(value, total) {
     if (!total) return '0.0';
@@ -722,9 +723,11 @@
   }
 
   // Build the Odoo deep-link for a given domain (array of leaf clauses).
+  // Odoo's list-view action reads its initial filter from the `domain=`
+  // query parameter (the older `search=` only seeded search-bar text).
   function odooLinkFor(domain) {
     if (!deepLinkBase) return null;
-    var qs = 'search=' + encodeURIComponent(JSON.stringify(domain));
+    var qs = 'domain=' + encodeURIComponent(JSON.stringify(domain));
     return deepLinkBase + '?' + qs;
   }
 
@@ -737,26 +740,36 @@
     if (url) window.open(url, '_blank', 'noopener,noreferrer');
   }
 
+  // Aging windows partition the timeline cleanly:
+  //   bucket 0: today-n  ≤ due ≤ today
+  //   bucket 1: today-2n ≤ due <  today-n       (strict upper avoids overlap)
+  //   …
+  //   last:                  due <  today-4n    (open-ended bottom)
   function agingClick(_event, elements) {
     if (!elements || !elements.length) return;
     var i = elements[0].index;
     var n = periodDays;
-    var ranges = [
-      [0,         n],
-      [n + 1,     2 * n],
-      [2 * n + 1, 3 * n],
-      [3 * n + 1, 4 * n],
-      [4 * n + 1, null],
-    ];
-    if (i < 0 || i >= ranges.length) return;
-    var lo = ranges[i][0], hi = ranges[i][1];
+    if (i < 0 || i > 4) return;
     var today = new Date();
-    var upper = new Date(today); upper.setDate(today.getDate() - lo);
-    var domain = [['invoice_date_due', '<=', isoDate(upper)]];
-    if (hi !== null) {
-      var lower = new Date(today); lower.setDate(today.getDate() - hi);
-      domain.push(['invoice_date_due', '>=', isoDate(lower)]);
+    function offset(days) {
+      var d = new Date(today); d.setDate(today.getDate() - days);
+      return isoDate(d);
     }
+    var domain;
+    if (i === 0) {
+      domain = [
+        ['invoice_date_due', '>=', offset(n)],
+        ['invoice_date_due', '<=', offset(0)],
+      ];
+    } else if (i < 4) {
+      domain = [
+        ['invoice_date_due', '>=', offset((i + 1) * n)],
+        ['invoice_date_due', '<',  offset(i * n)],
+      ];
+    } else {
+      domain = [['invoice_date_due', '<', offset(4 * n)]];
+    }
+    domain.push(['payment_state', 'in', ['not_paid', 'partial']]);
     var url = odooLinkFor(domain);
     if (url) window.open(url, '_blank', 'noopener,noreferrer');
   }
