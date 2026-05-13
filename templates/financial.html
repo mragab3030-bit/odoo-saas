@@ -372,7 +372,7 @@
   </div>
 </div>
 
-{% if tab == 'invoices' and cashflow is defined %}
+{% if cashflow is defined %}
 <div class="cashflow-section">
   <div class="cashflow-header">
     <span class="cashflow-title">
@@ -382,12 +382,12 @@
   </div>
   <div class="cashflow-cards">
     {% set cf_specs = [
-      ('overdue', 'Overdue',     '#dc2626', 'fa-triangle-exclamation', cashflow.overdue),
-      ('next_30', 'Next 30 Days','#f59e0b', 'fa-clock',                cashflow.next_30),
-      ('next_60', '31-60 Days',  '#f97316', 'fa-hourglass-half',       cashflow.next_60),
-      ('next_90', '61-90 Days',  '#22c55e', 'fa-calendar-days',        cashflow.next_90),
+      ('overdue', '#dc2626', 'fa-triangle-exclamation', cashflow.overdue),
+      ('b1',      '#f59e0b', 'fa-clock',                cashflow.b1),
+      ('b2',      '#f97316', 'fa-hourglass-half',       cashflow.b2),
+      ('b3',      '#22c55e', 'fa-calendar-days',        cashflow.b3),
     ] %}
-    {% for key, label, color, icon, bucket in cf_specs %}
+    {% for key, color, icon, bucket in cf_specs %}
     {% set is_active = (cashflow_filter == key) %}
     <a href="{{ url_for('financial', tab=tab, search=search, range=range_key,
                         date_from=date_from, date_to=date_to, period=period_days,
@@ -397,7 +397,7 @@
        class="cashflow-card {% if is_active %}cashflow-card-active{% endif %}"
        style="border-left:4px solid {{ color }}">
       <div class="cashflow-label" style="color:{{ color }}">
-        <i class="fa-solid {{ icon }}"></i> {{ label }}
+        <i class="fa-solid {{ icon }}"></i> {{ bucket.label }}
       </div>
       <div class="stat-value stat-value-num">
         <span class="amount-display" data-amount="{{ bucket.amount or 0 }}" data-currency="{{ ccy }}">
@@ -405,12 +405,15 @@
         </span>
       </div>
       <div class="cashflow-meta">
-        {{ bucket.count }} invoice{{ '' if bucket.count == 1 else 's' }}
+        {{ bucket.count }} {{ doc_label | lower }}{{ '' if bucket.count == 1 else 's' }}
         {% if key == 'overdue' and bucket.avg_days %}
           &bull; avg {{ '%.0f' % bucket.avg_days }} days late
         {% endif %}
       </div>
     </a>
+    {% if key == 'overdue' %}
+    <div class="cashflow-separator" aria-hidden="true"></div>
+    {% endif %}
     {% endfor %}
 
     <div class="cashflow-card cashflow-card-total" style="border-left:4px solid #0ea5e9">
@@ -423,7 +426,7 @@
         </span>
       </div>
       <div class="cashflow-meta">
-        {{ cashflow.total_expected.count }} expected over next 90 days
+        {{ cashflow.total_expected.count }} expected over next {{ 3 * period_days }} days
       </div>
     </div>
   </div>
