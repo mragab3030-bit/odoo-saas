@@ -608,6 +608,9 @@ def financial():
 
         status_filter = _parse_status_filters(request.args)
         aging_filter = _parse_aging_filters(request.args)
+        cashflow_filter = request.args.get('cashflow', '').strip()
+        if cashflow_filter not in ('overdue', 'next_30', 'next_60', 'next_90'):
+            cashflow_filter = ''
 
         domain = [['move_type', '=', move_type], ['state', '!=', 'cancel']]
         if date_from:
@@ -633,6 +636,28 @@ def financial():
         elif status_filter:
             table_domain.append(['payment_state', 'in', status_filter])
         _apply_aging_filter(table_domain, aging_filter, bucket_ranges, today_d)
+
+        # Cash-flow forecast filter (Invoices only) — anchored to TODAY,
+        # independent of the period date filter. Restricts the table to one
+        # of the four forecast buckets.
+        if cashflow_filter and tab == 'invoices':
+            today_iso_now = today_d.isoformat()
+            table_domain.append(['state', '=', 'posted'])
+            table_domain.append(['payment_state', 'in', ['not_paid', 'partial']])
+            if cashflow_filter == 'overdue':
+                table_domain.append(['invoice_date_due', '<', today_iso_now])
+            else:
+                # next_30 covers [today, today+30]; next_60 covers
+                # [today+31, today+60]; next_90 covers [today+61, today+90].
+                bounds = {
+                    'next_30': (0, 30),
+                    'next_60': (31, 60),
+                    'next_90': (61, 90),
+                }[cashflow_filter]
+                lower = (today_d + timedelta(days=bounds[0])).isoformat()
+                upper = (today_d + timedelta(days=bounds[1])).isoformat()
+                table_domain.append(['invoice_date_due', '>=', lower])
+                table_domain.append(['invoice_date_due', '<=', upper])
 
         # ---- Previous-period comparison (fired in background while current
         # period queries run on the main thread) ----
@@ -761,6 +786,63 @@ def financial():
                     break
         ctx['aging_buckets'] = buckets
         ctx['period_days'] = period_days
+
+        # ---- Cash flow forecast (Invoices only) ----
+        # Always anchored to today, independent of the period date filter.
+        # Only Unpaid / Partial posted invoices count toward the forecast.
+        if tab == 'invoices':
+            cashflow_dom = [
+                ['move_type', '=', 'out_invoice'],
+                ['state', '=', 'posted'],
+                ['payment_state', 'in', ['not_paid', 'partial']],
+            ]
+            cashflow_records = c.paginated_search_read(
+                'account.move', cashflow_dom,
+                fields=['invoice_date_due', 'amount_residual'],
+                order='invoice_date_due asc')
+
+            cf = {
+                'overdue': {'count': 0, 'amount': 0, 'days_sum': 0, 'avg_days': 0},
+                'next_30': {'count': 0, 'amount': 0},
+                'next_60': {'count': 0, 'amount': 0},
+                'next_90': {'count': 0, 'amount': 0},
+            }
+            for r in cashflow_records:
+                due_raw = r.get('invoice_date_due')
+                if not due_raw:
+                    continue
+                try:
+                    due_d = date.fromisoformat(str(due_raw)[:10])
+                except (ValueError, TypeError):
+                    continue
+                amt = r.get('amount_residual') or 0
+                delta = (due_d - today_d).days
+                if delta < 0:
+                    cf['overdue']['count'] += 1
+                    cf['overdue']['amount'] += amt
+                    cf['overdue']['days_sum'] += -delta
+                elif delta <= 30:
+                    cf['next_30']['count'] += 1
+                    cf['next_30']['amount'] += amt
+                elif delta <= 60:
+                    cf['next_60']['count'] += 1
+                    cf['next_60']['amount'] += amt
+                elif delta <= 90:
+                    cf['next_90']['count'] += 1
+                    cf['next_90']['amount'] += amt
+
+            if cf['overdue']['count']:
+                cf['overdue']['avg_days'] = (
+                    cf['overdue']['days_sum'] / cf['overdue']['count']
+                )
+            cf['total_expected'] = {
+                'amount': (cf['next_30']['amount'] + cf['next_60']['amount']
+                           + cf['next_90']['amount']),
+                'count':  (cf['next_30']['count']  + cf['next_60']['count']
+                           + cf['next_90']['count']),
+            }
+            ctx['cashflow'] = cf
+            ctx['cashflow_filter'] = cashflow_filter
 
         status_colors = {
             'not_paid': '#ef4444',

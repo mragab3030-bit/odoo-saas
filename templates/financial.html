@@ -200,6 +200,7 @@
   {% for s in status_filter %}<input type="hidden" name="status" value="{{ s }}">{% endfor %}
   {% for a in aging_filter %}<input type="hidden" name="aging" value="{{ a }}">{% endfor %}
   <input type="hidden" name="period" value="{{ period_days }}">
+  {% if cashflow_filter %}<input type="hidden" name="cashflow" value="{{ cashflow_filter }}">{% endif %}
   {% if compare_yoy %}<input type="hidden" name="compare_yoy" value="1">{% endif %}
   <div class="filter-group fg-grow">
     <label>Search</label>
@@ -251,7 +252,7 @@
       <span class="cards-section-label">
         <i class="fa-solid fa-circle-dot" style="color:var(--primary)"></i> Payment Status
       </span>
-      {% if status_filter or aging_filter %}
+      {% if status_filter or aging_filter or cashflow_filter %}
       <a href="{{ url_for('financial', tab=tab, search=search, range=range_key,
                           date_from=date_from, date_to=date_to, period=period_days,
                           compare_yoy=(1 if compare_yoy else none)) }}"
@@ -269,6 +270,7 @@
       <a href="{{ url_for('financial', tab=tab, search=search, range=range_key,
                           date_from=date_from, date_to=date_to, period=period_days,
                           status=new_status, aging=aging_filter,
+                          cashflow=(cashflow_filter or none),
                           compare_yoy=(1 if compare_yoy else none)) }}"
          class="stat-card stat-card-link {% if is_active %}stat-card-active{% endif %}">
         <div class="stat-label">{{ s.label }}</div>
@@ -311,6 +313,7 @@
         <input type="hidden" name="date_to" value="{{ date_to }}">
         {% for s in status_filter %}<input type="hidden" name="status" value="{{ s }}">{% endfor %}
         {% for a in aging_filter %}<input type="hidden" name="aging" value="{{ a }}">{% endfor %}
+        {% if cashflow_filter %}<input type="hidden" name="cashflow" value="{{ cashflow_filter }}">{% endif %}
         {% if compare_yoy %}<input type="hidden" name="compare_yoy" value="1">{% endif %}
         <label style="font-size:.72rem;color:var(--text-muted);margin:0">Period (days)</label>
         <input type="number" name="period" min="1" max="365" value="{{ period_days }}"
@@ -327,6 +330,7 @@
       <a href="{{ url_for('financial', tab=tab, search=search, range=range_key,
                           date_from=date_from, date_to=date_to, period=period_days,
                           status=status_filter, aging=new_aging,
+                          cashflow=(cashflow_filter or none),
                           compare_yoy=(1 if compare_yoy else none)) }}"
          class="stat-card stat-card-link {% if is_active %}stat-card-active{% endif %}">
         <div class="stat-label">{{ b.label }} days</div>
@@ -367,6 +371,64 @@
     </div>
   </div>
 </div>
+
+{% if tab == 'invoices' and cashflow is defined %}
+<div class="cashflow-section">
+  <div class="cashflow-header">
+    <span class="cashflow-title">
+      <i class="fa-solid fa-money-bill-trend-up"></i> Cash Flow Forecast
+    </span>
+    <small class="cashflow-note">Based on today — not affected by the period filter</small>
+  </div>
+  <div class="cashflow-cards">
+    {% set cf_specs = [
+      ('overdue', 'Overdue',     '#dc2626', 'fa-triangle-exclamation', cashflow.overdue),
+      ('next_30', 'Next 30 Days','#f59e0b', 'fa-clock',                cashflow.next_30),
+      ('next_60', '31-60 Days',  '#f97316', 'fa-hourglass-half',       cashflow.next_60),
+      ('next_90', '61-90 Days',  '#22c55e', 'fa-calendar-days',        cashflow.next_90),
+    ] %}
+    {% for key, label, color, icon, bucket in cf_specs %}
+    {% set is_active = (cashflow_filter == key) %}
+    <a href="{{ url_for('financial', tab=tab, search=search, range=range_key,
+                        date_from=date_from, date_to=date_to, period=period_days,
+                        status=status_filter, aging=aging_filter,
+                        cashflow=(none if is_active else key),
+                        compare_yoy=(1 if compare_yoy else none)) }}"
+       class="cashflow-card {% if is_active %}cashflow-card-active{% endif %}"
+       style="border-left:4px solid {{ color }}">
+      <div class="cashflow-label" style="color:{{ color }}">
+        <i class="fa-solid {{ icon }}"></i> {{ label }}
+      </div>
+      <div class="stat-value stat-value-num">
+        <span class="amount-display" data-amount="{{ bucket.amount or 0 }}" data-currency="{{ ccy }}">
+          {{ ccy }} {{ bucket.amount | fmt_currency_int }}
+        </span>
+      </div>
+      <div class="cashflow-meta">
+        {{ bucket.count }} invoice{{ '' if bucket.count == 1 else 's' }}
+        {% if key == 'overdue' and bucket.avg_days %}
+          &bull; avg {{ '%.0f' % bucket.avg_days }} days late
+        {% endif %}
+      </div>
+    </a>
+    {% endfor %}
+
+    <div class="cashflow-card cashflow-card-total" style="border-left:4px solid #0ea5e9">
+      <div class="cashflow-label" style="color:#0ea5e9">
+        <i class="fa-solid fa-chart-line"></i> Total Expected
+      </div>
+      <div class="stat-value stat-value-num">
+        <span class="amount-display" data-amount="{{ cashflow.total_expected.amount or 0 }}" data-currency="{{ ccy }}">
+          {{ ccy }} {{ cashflow.total_expected.amount | fmt_currency_int }}
+        </span>
+      </div>
+      <div class="cashflow-meta">
+        {{ cashflow.total_expected.count }} expected over next 90 days
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 {% set odoo_base = (session.get('odoo_url') or '').rstrip('/') %}
 {% set record_path = '/odoo/accounting/vendor-bills/' if is_bills else '/odoo/accounting/customer-invoices/' %}
