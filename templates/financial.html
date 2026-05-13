@@ -179,11 +179,11 @@
 </script>
 {% endif %}
 
-{% if collection_rate is defined and collection_rate.total %}
+{% if collection_rate is defined %}
 {% set cr = collection_rate %}
-{% set cr_paid_pct    = cr.paid    / cr.total * 100 %}
-{% set cr_overdue_pct = cr.overdue / cr.total * 100 %}
-{% set cr_not_due_pct = cr.not_due / cr.total * 100 %}
+{% set cr_paid_pct    = (cr.paid    / cr.total * 100) if cr.total else 0 %}
+{% set cr_overdue_pct = (cr.overdue / cr.total * 100) if cr.total else 0 %}
+{% set cr_not_due_pct = (cr.not_due / cr.total * 100) if cr.total else 0 %}
 {% set cr_section_title  = 'VENDOR PAYMENT OVERVIEW' if is_bills else 'COLLECTION RATE OVERVIEW' %}
 {% set cr_paid_label     = 'Paid to Vendors'        if is_bills else 'Paid' %}
 {% set cr_overdue_label  = 'Overdue to Vendors'     if is_bills else 'Overdue' %}
@@ -196,12 +196,40 @@
     padding: 1rem 1.25rem;
     margin-bottom: 1rem;
   }
+  .collection-rate-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: .75rem;
+    margin-bottom: .65rem;
+  }
   .collection-rate-title {
     font-size: .72rem;
     letter-spacing: .08em;
     color: var(--text-muted);
     font-weight: 700;
-    margin-bottom: .65rem;
+  }
+  .collection-rate-controls {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    font-size: .82rem;
+  }
+  .collection-rate-controls select,
+  .collection-rate-controls input[type=date] {
+    height: 30px;
+    padding: 0 .5rem;
+    border: 1px solid var(--border, #e5e7eb);
+    border-radius: 6px;
+    font-size: .82rem;
+    background: #fff;
+  }
+  .collection-rate-period-label {
+    margin-top: .35rem;
+    font-size: .8rem;
+    color: var(--text-muted);
+    font-style: italic;
   }
   .collection-rate-bar {
     display: flex;
@@ -225,6 +253,12 @@
   .collection-rate-seg.paid    { background: #22c55e; }
   .collection-rate-seg.overdue { background: #ef4444; }
   .collection-rate-seg.notdue  { background: #eab308; }
+  .collection-rate-empty {
+    text-align: center;
+    padding: 1.25rem .5rem;
+    color: var(--text-muted);
+    font-size: .85rem;
+  }
   .collection-rate-legend {
     display: flex;
     flex-wrap: wrap;
@@ -244,12 +278,36 @@
     font-variant-numeric: tabular-nums;
   }
 </style>
-<div class="collection-rate-section">
-  <div class="collection-rate-title">{{ cr_section_title }}</div>
-  <div class="collection-rate-bar" role="img"
+<div class="collection-rate-section" id="collectionRateSection"
+     data-tab="{{ tab }}"
+     data-range="{{ cr.range_key or 'ytd' }}"
+     data-date-from="{{ cr.date_from or '' }}"
+     data-date-to="{{ cr.date_to or '' }}"
+     data-paid-label="{{ cr_paid_label }}"
+     data-overdue-label="{{ cr_overdue_label }}"
+     data-not-due-label="{{ cr_not_due_label }}"
+     data-currency="{{ ccy }}">
+  <div class="collection-rate-header">
+    <div class="collection-rate-title">{{ cr_section_title }}</div>
+    <div class="collection-rate-controls">
+      <select id="crRangeSelect" aria-label="Chart period">
+        <option value="this_month">This Month</option>
+        <option value="last_month">Last Month</option>
+        <option value="this_quarter">This Quarter</option>
+        <option value="last_quarter">Last Quarter</option>
+        <option value="ytd" selected>Year to Date (YTD)</option>
+        <option value="last_year">Last Year</option>
+        <option value="all">All Time</option>
+        <option value="custom">Custom</option>
+      </select>
+      <input type="date" id="crDateFrom" style="display:none" aria-label="From date">
+      <input type="date" id="crDateTo"   style="display:none" aria-label="To date">
+    </div>
+  </div>
+  <div class="collection-rate-bar" id="crBar" role="img"
        aria-label="{{ cr_paid_label }} {{ '%.0f' % cr_paid_pct }}%, {{ cr_overdue_label }} {{ '%.0f' % cr_overdue_pct }}%, {{ cr_not_due_label }} {{ '%.0f' % cr_not_due_pct }}%">
-    {% if cr_paid_pct > 0 %}
     <div class="collection-rate-seg paid"
+         id="crSegPaid"
          style="width:{{ cr_paid_pct }}%"
          data-label="{{ cr_paid_label }}"
          data-amount="{{ cr.paid or 0 }}"
@@ -257,9 +315,8 @@
          data-pct="{{ '%.1f' % cr_paid_pct }}">
       {% if cr_paid_pct > 5 %}{{ '%.0f' % cr_paid_pct }}%{% endif %}
     </div>
-    {% endif %}
-    {% if cr_overdue_pct > 0 %}
     <div class="collection-rate-seg overdue"
+         id="crSegOverdue"
          style="width:{{ cr_overdue_pct }}%"
          data-label="{{ cr_overdue_label }}"
          data-amount="{{ cr.overdue or 0 }}"
@@ -267,9 +324,8 @@
          data-pct="{{ '%.1f' % cr_overdue_pct }}">
       {% if cr_overdue_pct > 5 %}{{ '%.0f' % cr_overdue_pct }}%{% endif %}
     </div>
-    {% endif %}
-    {% if cr_not_due_pct > 0 %}
     <div class="collection-rate-seg notdue"
+         id="crSegNotDue"
          style="width:{{ cr_not_due_pct }}%"
          data-label="{{ cr_not_due_label }}"
          data-amount="{{ cr.not_due or 0 }}"
@@ -277,35 +333,40 @@
          data-pct="{{ '%.1f' % cr_not_due_pct }}">
       {% if cr_not_due_pct > 5 %}{{ '%.0f' % cr_not_due_pct }}%{% endif %}
     </div>
-    {% endif %}
+  </div>
+  <div class="collection-rate-period-label" id="crPeriodLabel">
+    {{ cr.period_label or '' }}
   </div>
   <div class="collection-rate-legend">
     <div class="collection-rate-legend-item">
       <span aria-hidden="true">✅</span>
       <span class="collection-rate-legend-label">{{ cr_paid_label }}:</span>
       <span class="collection-rate-legend-amount amount-display"
+            id="crLegendPaid"
             data-amount="{{ cr.paid or 0 }}" data-currency="{{ ccy }}">
         {{ ccy }} {{ cr.paid | fmt_currency_int }}
       </span>
-      <span class="collection-rate-legend-pct">({{ '%.1f' % cr_paid_pct }}%)</span>
+      <span class="collection-rate-legend-pct" id="crLegendPaidPct">({{ '%.1f' % cr_paid_pct }}%)</span>
     </div>
     <div class="collection-rate-legend-item">
       <span aria-hidden="true">🔴</span>
       <span class="collection-rate-legend-label">{{ cr_overdue_label }}:</span>
       <span class="collection-rate-legend-amount amount-display"
+            id="crLegendOverdue"
             data-amount="{{ cr.overdue or 0 }}" data-currency="{{ ccy }}">
         {{ ccy }} {{ cr.overdue | fmt_currency_int }}
       </span>
-      <span class="collection-rate-legend-pct">({{ '%.1f' % cr_overdue_pct }}%)</span>
+      <span class="collection-rate-legend-pct" id="crLegendOverduePct">({{ '%.1f' % cr_overdue_pct }}%)</span>
     </div>
     <div class="collection-rate-legend-item">
       <span aria-hidden="true">🟡</span>
       <span class="collection-rate-legend-label">{{ cr_not_due_label }}:</span>
       <span class="collection-rate-legend-amount amount-display"
+            id="crLegendNotDue"
             data-amount="{{ cr.not_due or 0 }}" data-currency="{{ ccy }}">
         {{ ccy }} {{ cr.not_due | fmt_currency_int }}
       </span>
-      <span class="collection-rate-legend-pct">({{ '%.1f' % cr_not_due_pct }}%)</span>
+      <span class="collection-rate-legend-pct" id="crLegendNotDuePct">({{ '%.1f' % cr_not_due_pct }}%)</span>
     </div>
   </div>
 </div>
@@ -1138,6 +1199,135 @@
   document.addEventListener('DOMContentLoaded', function () {
     renderAll(getMode());
   });
+
+  // Hook so other scripts (e.g. the Collection Rate AJAX update) can
+  // re-format newly written amounts in the current Units/K/M mode.
+  window.odooDashRefreshAmounts = function () { renderAll(getMode()); };
 })();
 </script>
+
+{% if collection_rate is defined %}
+<script>
+(function () {
+  var section = document.getElementById('collectionRateSection');
+  if (!section) return;
+  var tab          = section.getAttribute('data-tab') || 'invoices';
+  var fromInput    = document.getElementById('crDateFrom');
+  var toInput      = document.getElementById('crDateTo');
+  var rangeSelect  = document.getElementById('crRangeSelect');
+  var barEl        = document.getElementById('crBar');
+  var periodLabel  = document.getElementById('crPeriodLabel');
+  var segPaid      = document.getElementById('crSegPaid');
+  var segOverdue   = document.getElementById('crSegOverdue');
+  var segNotDue    = document.getElementById('crSegNotDue');
+  var legPaid      = document.getElementById('crLegendPaid');
+  var legOverdue   = document.getElementById('crLegendOverdue');
+  var legNotDue    = document.getElementById('crLegendNotDue');
+  var legPaidPct   = document.getElementById('crLegendPaidPct');
+  var legOverduePct= document.getElementById('crLegendOverduePct');
+  var legNotDuePct = document.getElementById('crLegendNotDuePct');
+
+  var initialRange = section.getAttribute('data-range') || 'ytd';
+  rangeSelect.value = initialRange;
+  if (initialRange === 'custom') {
+    fromInput.style.display = '';
+    toInput.style.display = '';
+    fromInput.value = section.getAttribute('data-date-from') || '';
+    toInput.value   = section.getAttribute('data-date-to')   || '';
+  }
+
+  function fmtPct(v) {
+    return (Math.round(v * 10) / 10).toFixed(1);
+  }
+
+  function applySegment(el, label, amount, pct) {
+    el.style.width = pct + '%';
+    el.setAttribute('data-amount', amount);
+    el.setAttribute('data-label', label);
+    el.setAttribute('data-pct', fmtPct(pct));
+    el.textContent = pct > 5 ? Math.round(pct) + '%' : '';
+  }
+
+  function applyLegend(el, pctEl, amount, pct) {
+    el.setAttribute('data-amount', amount);
+    pctEl.textContent = '(' + fmtPct(pct) + '%)';
+  }
+
+  function applyData(data) {
+    var total   = Number(data.total)   || 0;
+    var paid    = Number(data.paid)    || 0;
+    var overdue = Number(data.overdue) || 0;
+    var notDue  = Number(data.not_due) || 0;
+    var paidPct    = total ? (paid    / total * 100) : 0;
+    var overduePct = total ? (overdue / total * 100) : 0;
+    var notDuePct  = total ? (notDue  / total * 100) : 0;
+
+    var paidLabel    = section.getAttribute('data-paid-label')    || 'Paid';
+    var overdueLabel = section.getAttribute('data-overdue-label') || 'Overdue';
+    var notDueLabel  = section.getAttribute('data-not-due-label') || 'Not Due Yet';
+
+    applySegment(segPaid,    paidLabel,    paid,    paidPct);
+    applySegment(segOverdue, overdueLabel, overdue, overduePct);
+    applySegment(segNotDue,  notDueLabel,  notDue,  notDuePct);
+
+    applyLegend(legPaid,    legPaidPct,    paid,    paidPct);
+    applyLegend(legOverdue, legOverduePct, overdue, overduePct);
+    applyLegend(legNotDue,  legNotDuePct,  notDue,  notDuePct);
+
+    barEl.setAttribute('aria-label',
+      paidLabel + ' ' + Math.round(paidPct) + '%, ' +
+      overdueLabel + ' ' + Math.round(overduePct) + '%, ' +
+      notDueLabel + ' ' + Math.round(notDuePct) + '%');
+
+    periodLabel.textContent = data.period_label || '';
+
+    if (typeof window.odooDashRefreshAmounts === 'function') {
+      window.odooDashRefreshAmounts();
+    }
+  }
+
+  var fetching = false;
+  function fetchData() {
+    var range = rangeSelect.value;
+    var params = new URLSearchParams();
+    params.set('tab', tab);
+    params.set('range', range);
+    if (range === 'custom') {
+      if (!fromInput.value || !toInput.value) return;
+      params.set('date_from', fromInput.value);
+      params.set('date_to',   toInput.value);
+    }
+    if (fetching) return;
+    fetching = true;
+    section.style.opacity = '0.65';
+    fetch('{{ url_for("financial_collection_rate") }}?' + params.toString(), {
+      credentials: 'same-origin',
+      headers: { 'Accept': 'application/json' },
+    })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r); })
+      .then(applyData)
+      .catch(function () { /* silent — keep previous chart */ })
+      .finally(function () {
+        fetching = false;
+        section.style.opacity = '';
+      });
+  }
+
+  rangeSelect.addEventListener('change', function () {
+    var isCustom = rangeSelect.value === 'custom';
+    fromInput.style.display = isCustom ? '' : 'none';
+    toInput.style.display   = isCustom ? '' : 'none';
+    if (!isCustom) fetchData();
+    else if (fromInput.value && toInput.value) fetchData();
+  });
+  fromInput.addEventListener('change', function () {
+    if (rangeSelect.value === 'custom' && fromInput.value && toInput.value) fetchData();
+  });
+  toInput.addEventListener('change', function () {
+    if (rangeSelect.value === 'custom' && fromInput.value && toInput.value) fetchData();
+  });
+})();
+</script>
+{% endif %}
+
 {% endblock %}

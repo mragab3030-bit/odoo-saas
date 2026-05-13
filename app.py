@@ -6,7 +6,7 @@ from functools import wraps
 
 from flask import (
     Flask, render_template, request, redirect,
-    url_for, session, flash, send_file, g
+    url_for, session, flash, send_file, g, jsonify
 )
 from dotenv import load_dotenv
 
@@ -163,6 +163,74 @@ def _resolve_date_range(range_key: str, request_date_from: str,
         return today_d.replace(day=1).isoformat(), today_iso, 'this_month'
     # Default: Year to Date
     return today_d.replace(month=1, day=1).isoformat(), today_iso, 'ytd'
+
+
+def _format_period_label(range_key, date_from, date_to):
+    if range_key == 'all':
+        return 'All Time'
+    if not date_from or not date_to:
+        return ''
+    try:
+        d_from = date.fromisoformat(date_from[:10])
+        d_to = date.fromisoformat(date_to[:10])
+    except (ValueError, TypeError):
+        return f'{date_from} – {date_to}'
+    fmt = '%b %Y'
+    if d_from.year == d_to.year and d_from.month == d_to.month:
+        return d_from.strftime(fmt)
+    return f"{d_from.strftime(fmt)} – {d_to.strftime(fmt)}"
+
+
+def _compute_collection_rate(client, move_type, date_from, date_to, today_iso):
+    base_dom = [
+        ['move_type', '=', move_type],
+        ['state', '=', 'posted'],
+    ]
+    if date_from:
+        base_dom.append(['invoice_date', '>=', date_from])
+    if date_to:
+        base_dom.append(['invoice_date', '<=', date_to])
+
+    totals_grps = client.safe_read_group(
+        'account.move', base_dom,
+        ['amount_total:sum', 'amount_residual:sum'], [])
+    totals = totals_grps[0] if totals_grps else {}
+    total = totals.get('amount_total', 0) or 0
+    outstanding = totals.get('amount_residual', 0) or 0
+    paid = max(total - outstanding, 0)
+
+    overdue_grps = client.safe_read_group(
+        'account.move', base_dom + [
+            ['payment_state', 'in', ['not_paid', 'partial']],
+            ['invoice_date_due', '<', today_iso],
+        ],
+        ['amount_residual:sum'], [])
+    overdue = ((overdue_grps[0].get('amount_residual', 0) or 0)
+               if overdue_grps else 0)
+    not_due = max(outstanding - overdue, 0)
+
+    return {
+        'total':   total,
+        'paid':    paid,
+        'overdue': overdue,
+        'not_due': not_due,
+    }
+
+
+def _resolve_cr_range(range_key, raw_from, raw_to):
+    """Return (range_key, date_from, date_to) for the chart's own selector.
+    Supports the same keys as the main filter plus 'all' (no date bounds)."""
+    if range_key == 'all':
+        return 'all', '', ''
+    valid_chart_keys = {
+        'this_month', 'last_month', 'this_quarter', 'last_quarter',
+        'ytd', 'last_year', 'custom',
+    }
+    if range_key not in valid_chart_keys:
+        range_key = 'ytd'
+    date_from, date_to, range_key = _resolve_date_range(
+        range_key, raw_from, raw_to)
+    return range_key, date_from, date_to
 
 
 def _shift_year(d: date, years: int) -> date:
@@ -898,38 +966,22 @@ def financial():
             a['avg_days'] = a['days_sum'] / a['count'] if a['count'] else 0
         ctx['top_overdue'] = top_overdue
 
-        # ---- Collection rate (overall, all-time, posted, this move_type) ----
-        # Always shows the overall picture; ignores period, search, status,
-        # aging, and cashflow filters. Company filter is applied at the
-        # client level.
-        cr_base_dom = [
-            ['move_type', '=', move_type],
-            ['state', '=', 'posted'],
-        ]
-        cr_grps = c.safe_read_group(
-            'account.move', cr_base_dom,
-            ['amount_total:sum', 'amount_residual:sum'], [])
-        cr_totals = cr_grps[0] if cr_grps else {}
-        cr_total = cr_totals.get('amount_total', 0) or 0
-        cr_outstanding = cr_totals.get('amount_residual', 0) or 0
-        cr_paid = max(cr_total - cr_outstanding, 0)
-
-        cr_overdue_grps = c.safe_read_group(
-            'account.move', cr_base_dom + [
-                ['payment_state', 'in', ['not_paid', 'partial']],
-                ['invoice_date_due', '<', today_d.isoformat()],
-            ],
-            ['amount_residual:sum'], [])
-        cr_overdue = ((cr_overdue_grps[0].get('amount_residual', 0) or 0)
-                      if cr_overdue_grps else 0)
-        cr_not_due = max(cr_outstanding - cr_overdue, 0)
-
-        ctx['collection_rate'] = {
-            'total':   cr_total,
-            'paid':    cr_paid,
-            'overdue': cr_overdue,
-            'not_due': cr_not_due,
-        }
+        # ---- Collection rate (independent of main filters) ----
+        # The chart has its own period selector; on first load it defaults
+        # to YTD. The selector is independent from the main period filter
+        # above and from search / status / aging / cashflow filters. Company
+        # filter is applied automatically at the OdooClient level.
+        cr_today_iso = today_d.isoformat()
+        cr_range_default, cr_from_default, cr_to_default = _resolve_cr_range(
+            'ytd', '', '')
+        collection_rate = _compute_collection_rate(
+            c, move_type, cr_from_default, cr_to_default, cr_today_iso)
+        collection_rate['range_key']    = cr_range_default
+        collection_rate['date_from']    = cr_from_default
+        collection_rate['date_to']      = cr_to_default
+        collection_rate['period_label'] = _format_period_label(
+            cr_range_default, cr_from_default, cr_to_default)
+        ctx['collection_rate'] = collection_rate
 
         status_colors = {
             'not_paid': '#ef4444',
@@ -1065,6 +1117,34 @@ def financial():
         }
 
     return render_template('financial.html', **ctx)
+
+
+@app.route('/financial/collection-rate')
+@login_required
+def financial_collection_rate():
+    """JSON endpoint for the Collection Rate / Vendor Payment chart's own
+    period selector. Independent of the main filter set on /financial."""
+    tab = request.args.get('tab', 'invoices')
+    if tab not in ('invoices', 'bills'):
+        return jsonify({'error': 'invalid tab'}), 400
+    move_type = 'out_invoice' if tab == 'invoices' else 'in_invoice'
+
+    range_key = (request.args.get('range', 'ytd') or 'ytd').strip()
+    raw_from = request.args.get('date_from', '')
+    raw_to = request.args.get('date_to', '')
+    range_key, date_from, date_to = _resolve_cr_range(
+        range_key, raw_from, raw_to)
+
+    c = get_client()
+    today_iso = today_str()
+    data = _compute_collection_rate(
+        c, move_type, date_from, date_to, today_iso)
+    data['range_key']    = range_key
+    data['date_from']    = date_from
+    data['date_to']      = date_to
+    data['period_label'] = _format_period_label(
+        range_key, date_from, date_to)
+    return jsonify(data)
 
 
 # ---------------------------------------------------------------------------
