@@ -898,6 +898,39 @@ def financial():
             a['avg_days'] = a['days_sum'] / a['count'] if a['count'] else 0
         ctx['top_overdue'] = top_overdue
 
+        # ---- Collection rate (overall, all-time, posted, this move_type) ----
+        # Always shows the overall picture; ignores period, search, status,
+        # aging, and cashflow filters. Company filter is applied at the
+        # client level.
+        cr_base_dom = [
+            ['move_type', '=', move_type],
+            ['state', '=', 'posted'],
+        ]
+        cr_grps = c.safe_read_group(
+            'account.move', cr_base_dom,
+            ['amount_total:sum', 'amount_residual:sum'], [])
+        cr_totals = cr_grps[0] if cr_grps else {}
+        cr_total = cr_totals.get('amount_total', 0) or 0
+        cr_outstanding = cr_totals.get('amount_residual', 0) or 0
+        cr_paid = max(cr_total - cr_outstanding, 0)
+
+        cr_overdue_grps = c.safe_read_group(
+            'account.move', cr_base_dom + [
+                ['payment_state', 'in', ['not_paid', 'partial']],
+                ['invoice_date_due', '<', today_d.isoformat()],
+            ],
+            ['amount_residual:sum'], [])
+        cr_overdue = ((cr_overdue_grps[0].get('amount_residual', 0) or 0)
+                      if cr_overdue_grps else 0)
+        cr_not_due = max(cr_outstanding - cr_overdue, 0)
+
+        ctx['collection_rate'] = {
+            'total':   cr_total,
+            'paid':    cr_paid,
+            'overdue': cr_overdue,
+            'not_due': cr_not_due,
+        }
+
         status_colors = {
             'not_paid': '#ef4444',
             'paid': '#22c55e',

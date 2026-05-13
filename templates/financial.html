@@ -179,6 +179,134 @@
 </script>
 {% endif %}
 
+{% if collection_rate is defined and collection_rate.total %}
+{% set cr = collection_rate %}
+{% set cr_paid_pct    = cr.paid    / cr.total * 100 %}
+{% set cr_overdue_pct = cr.overdue / cr.total * 100 %}
+{% set cr_not_due_pct = cr.not_due / cr.total * 100 %}
+<style>
+  .collection-rate-section {
+    background: var(--card-bg, #fff);
+    border: 1px solid var(--border, #e5e7eb);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1rem;
+  }
+  .collection-rate-title {
+    font-size: .72rem;
+    letter-spacing: .08em;
+    color: var(--text-muted);
+    font-weight: 700;
+    margin-bottom: .65rem;
+  }
+  .collection-rate-bar {
+    display: flex;
+    width: 100%;
+    height: 24px;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #f1f5f9;
+  }
+  .collection-rate-seg {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: .78rem;
+    font-weight: 600;
+    transition: width .25s ease;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .collection-rate-seg.paid    { background: #22c55e; }
+  .collection-rate-seg.overdue { background: #ef4444; }
+  .collection-rate-seg.notdue  { background: #eab308; }
+  .collection-rate-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.25rem;
+    margin-top: .75rem;
+    font-size: .88rem;
+  }
+  .collection-rate-legend-item {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+  }
+  .collection-rate-legend-label { color: var(--text-muted); }
+  .collection-rate-legend-amount { font-weight: 600; color: var(--text); }
+  .collection-rate-legend-pct {
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+</style>
+<div class="collection-rate-section">
+  <div class="collection-rate-title">COLLECTION RATE OVERVIEW</div>
+  <div class="collection-rate-bar" role="img"
+       aria-label="Collection rate: {{ '%.0f' % cr_paid_pct }}% paid, {{ '%.0f' % cr_overdue_pct }}% overdue, {{ '%.0f' % cr_not_due_pct }}% not due yet">
+    {% if cr_paid_pct > 0 %}
+    <div class="collection-rate-seg paid"
+         style="width:{{ cr_paid_pct }}%"
+         data-label="Paid"
+         data-amount="{{ cr.paid or 0 }}"
+         data-currency="{{ ccy }}"
+         data-pct="{{ '%.1f' % cr_paid_pct }}">
+      {% if cr_paid_pct > 5 %}{{ '%.0f' % cr_paid_pct }}%{% endif %}
+    </div>
+    {% endif %}
+    {% if cr_overdue_pct > 0 %}
+    <div class="collection-rate-seg overdue"
+         style="width:{{ cr_overdue_pct }}%"
+         data-label="Overdue"
+         data-amount="{{ cr.overdue or 0 }}"
+         data-currency="{{ ccy }}"
+         data-pct="{{ '%.1f' % cr_overdue_pct }}">
+      {% if cr_overdue_pct > 5 %}{{ '%.0f' % cr_overdue_pct }}%{% endif %}
+    </div>
+    {% endif %}
+    {% if cr_not_due_pct > 0 %}
+    <div class="collection-rate-seg notdue"
+         style="width:{{ cr_not_due_pct }}%"
+         data-label="Not Due Yet"
+         data-amount="{{ cr.not_due or 0 }}"
+         data-currency="{{ ccy }}"
+         data-pct="{{ '%.1f' % cr_not_due_pct }}">
+      {% if cr_not_due_pct > 5 %}{{ '%.0f' % cr_not_due_pct }}%{% endif %}
+    </div>
+    {% endif %}
+  </div>
+  <div class="collection-rate-legend">
+    <div class="collection-rate-legend-item">
+      <span aria-hidden="true">✅</span>
+      <span class="collection-rate-legend-label">Paid:</span>
+      <span class="collection-rate-legend-amount amount-display"
+            data-amount="{{ cr.paid or 0 }}" data-currency="{{ ccy }}">
+        {{ ccy }} {{ cr.paid | fmt_currency_int }}
+      </span>
+      <span class="collection-rate-legend-pct">({{ '%.1f' % cr_paid_pct }}%)</span>
+    </div>
+    <div class="collection-rate-legend-item">
+      <span aria-hidden="true">🔴</span>
+      <span class="collection-rate-legend-label">Overdue:</span>
+      <span class="collection-rate-legend-amount amount-display"
+            data-amount="{{ cr.overdue or 0 }}" data-currency="{{ ccy }}">
+        {{ ccy }} {{ cr.overdue | fmt_currency_int }}
+      </span>
+      <span class="collection-rate-legend-pct">({{ '%.1f' % cr_overdue_pct }}%)</span>
+    </div>
+    <div class="collection-rate-legend-item">
+      <span aria-hidden="true">🟡</span>
+      <span class="collection-rate-legend-label">Not Due Yet:</span>
+      <span class="collection-rate-legend-amount amount-display"
+            data-amount="{{ cr.not_due or 0 }}" data-currency="{{ ccy }}">
+        {{ ccy }} {{ cr.not_due | fmt_currency_int }}
+      </span>
+      <span class="collection-rate-legend-pct">({{ '%.1f' % cr_not_due_pct }}%)</span>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {% set period_options = [
   ('today',         'Today'),
   ('yesterday',     'Yesterday'),
@@ -979,6 +1107,15 @@
       var formatted = formatNumber(raw, mode);
       el.textContent = ccy ? (ccy + ' ' + formatted) : formatted;
       applyShrink(el);
+    });
+    document.querySelectorAll('.collection-rate-seg[data-amount]').forEach(function (el) {
+      var raw = el.getAttribute('data-amount');
+      var ccy = el.getAttribute('data-currency') || '';
+      var label = el.getAttribute('data-label') || '';
+      var pct = el.getAttribute('data-pct') || '0';
+      var formatted = formatNumber(raw, mode);
+      el.title = label + ': ' + (ccy ? ccy + ' ' : '') + formatted +
+                 ' (' + pct + '%)';
     });
     document.querySelectorAll('.amount-format-btn').forEach(function (b) {
       b.classList.toggle('active', b.getAttribute('data-format') === mode);
