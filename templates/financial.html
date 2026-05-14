@@ -1207,14 +1207,40 @@
     font-style: italic;
   }
   .analytic-canvas-wrap { position: relative; width: 100%; height: 320px; }
+  /* Treemap gets extra height so labels stay readable when there are many
+     cost centres. */
+  .analytic-canvas-wrap--treemap { height: 500px; }
+  /* Waterfall: vertical-scrolling viewport — the inner shell's height is
+     set by JS based on number of accounts (max(400, n*30) px). */
+  .analytic-canvas-wrap--waterfall {
+    height: 500px;
+    max-height: 70vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  .analytic-canvas-shell {
+    position: relative;
+    width: 100%;
+    min-height: 400px;
+  }
+  /* Bubble: roomy minimum so axes don't collide with bubble radii. */
+  .analytic-canvas-wrap--bubble { height: 500px; }
   .analytic-charts-row {
     display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
   }
   .analytic-tables-row {
     display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
   }
+  /* Stack vertically on tablets and narrower laptops too — side-by-side
+     dense charts get cramped below ~1200px. */
+  @media (max-width: 1200px) {
+    .analytic-charts-row { grid-template-columns: 1fr; }
+  }
   @media (max-width: 980px) {
-    .analytic-charts-row, .analytic-tables-row { grid-template-columns: 1fr; }
+    .analytic-tables-row { grid-template-columns: 1fr; }
+    .analytic-canvas-wrap--treemap { height: 380px; }
+    .analytic-canvas-wrap--waterfall { height: 420px; max-height: 60vh; }
+    .analytic-canvas-wrap--bubble { height: 380px; }
   }
   .analytic-filter-pill {
     display: inline-flex; align-items: center; gap: .35rem;
@@ -1407,7 +1433,7 @@
       <input type="date" id="treemapTo"   style="display:none">
     </div>
   </div>
-  <div class="analytic-canvas-wrap" style="height:380px">
+  <div class="analytic-canvas-wrap analytic-canvas-wrap--treemap">
     <canvas id="treemapChart"></canvas>
   </div>
   <div class="analytic-period-label" id="treemapPeriodLabel">{{ period_label or '' }}</div>
@@ -1428,7 +1454,11 @@
         <input type="date" id="waterfallTo"   style="display:none">
       </div>
     </div>
-    <div class="analytic-canvas-wrap"><canvas id="waterfallChart"></canvas></div>
+    <div class="analytic-canvas-wrap analytic-canvas-wrap--waterfall" id="waterfallScroll">
+      <div class="analytic-canvas-shell" id="waterfallShell">
+        <canvas id="waterfallChart"></canvas>
+      </div>
+    </div>
     <div class="analytic-period-label" id="waterfallPeriodLabel">{{ period_label or '' }}</div>
   </div>
 
@@ -1445,7 +1475,9 @@
         <input type="date" id="bubbleTo"   style="display:none">
       </div>
     </div>
-    <div class="analytic-canvas-wrap"><canvas id="bubbleChart"></canvas></div>
+    <div class="analytic-canvas-wrap analytic-canvas-wrap--bubble">
+      <canvas id="bubbleChart"></canvas>
+    </div>
     <div class="analytic-period-label" id="bubblePeriodLabel">{{ period_label or '' }}</div>
   </div>
 </div>
@@ -2237,11 +2269,28 @@
             formatter: function (ctx) {
               var d = ctx.raw && ctx.raw._data;
               if (!d) return '';
+              // Hide labels entirely on tiles too small to fit them
+              // legibly — keeps the treemap clean at high cardinality.
+              var w = ctx.raw && ctx.raw.w, h = ctx.raw && ctx.raw.h;
+              if (w && h && w * h < 1800) return '';
               var pct = total ? (Math.abs(d.net) / total * 100) : 0;
+              if (w && h && w * h < 5000) return [d.name];
               return [d.name, fmtAmount(d.net), pct.toFixed(1) + '%'];
             },
             color: '#fff',
-            font: { weight: 'bold' },
+            // Font size scales with rectangle area — smaller tiles get
+            // smaller labels so they don't overflow.
+            font: function (ctx) {
+              var w = ctx.raw && ctx.raw.w, h = ctx.raw && ctx.raw.h;
+              var area = (w || 0) * (h || 0);
+              var size = 11;
+              if (area > 60000)      size = 18;
+              else if (area > 25000) size = 15;
+              else if (area > 10000) size = 13;
+              else if (area > 5000)  size = 11;
+              else                   size = 9;
+              return { weight: 'bold', size: size };
+            },
           },
           backgroundColor: function (ctx) {
             var d = ctx.raw && ctx.raw._data;
@@ -2282,41 +2331,52 @@
     });
   }
 
-  // ---- Grouped bar with net line ("waterfall") ----
+  // ---- Horizontal grouped bar — Revenue / Cost / Net per cost centre.
+  // Switched to horizontal so labels stay readable at any account count.
+  // The shell height grows with the row count (max(400, n*30)px, capped)
+  // and the wrap scrolls vertically when the shell exceeds the viewport.
   var wfCanvas = document.getElementById('waterfallChart');
+  var wfShell  = document.getElementById('waterfallShell');
   var waterfallChart = null;
   function renderWaterfall(rows) {
-    var top = rows.slice().sort(function (a, b) {
+    var sorted = rows.slice().sort(function (a, b) {
       return Math.abs(b.net || 0) - Math.abs(a.net || 0);
-    }).slice(0, 15);
-    var labels = top.map(function (r) { return r.name; });
+    });
+    var labels = sorted.map(function (r) { return r.name; });
+    var n = sorted.length;
+    // height per cluster: 3 bars + padding ≈ 30px per account
+    if (wfShell) {
+      wfShell.style.height = Math.max(400, n * 30) + 'px';
+    }
     if (waterfallChart) waterfallChart.destroy();
-    if (!wfCanvas || !top.length) return;
+    if (!wfCanvas || !n) return;
     waterfallChart = new Chart(wfCanvas.getContext('2d'), {
       data: {
         labels: labels,
         datasets: [
           {
             type: 'bar', label: 'Revenue',
-            data: top.map(function (r) { return r.revenue || 0; }),
+            data: sorted.map(function (r) { return r.revenue || 0; }),
             backgroundColor: '#22c55e', borderColor: '#22c55e',
-            yAxisID: 'y',
           },
           {
             type: 'bar', label: 'Cost',
-            data: top.map(function (r) { return r.costs || 0; }),
+            data: sorted.map(function (r) { return r.costs || 0; }),
             backgroundColor: '#ef4444', borderColor: '#ef4444',
-            yAxisID: 'y',
           },
           {
-            type: 'line', label: 'Net',
-            data: top.map(function (r) { return r.net || 0; }),
-            borderColor: '#1d4ed8', backgroundColor: '#1d4ed8',
-            tension: .25, borderWidth: 2, pointRadius: 3, yAxisID: 'y',
+            type: 'bar', label: 'Net',
+            data: sorted.map(function (r) { return r.net || 0; }),
+            backgroundColor: function (ctx) {
+              var v = ctx.raw;
+              return v >= 0 ? '#1d4ed8' : '#7c3aed';
+            },
+            borderColor: '#1d4ed8',
           },
         ],
       },
       options: {
+        indexAxis: 'y',
         responsive: true, maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false },
         plugins: {
@@ -2324,20 +2384,41 @@
           tooltip: {
             callbacks: {
               label: function (ctx) {
-                return ctx.dataset.label + ': ' + fmtAmount(ctx.parsed.y);
+                return ctx.dataset.label + ': ' + fmtAmount(ctx.parsed.x);
               },
+            },
+          },
+          zoom: {
+            pan:  { enabled: true, mode: 'y' },
+            zoom: {
+              wheel: { enabled: true, modifierKey: 'ctrl' },
+              pinch: { enabled: true },
+              mode:  'y',
             },
           },
         },
         scales: {
-          x: { ticks: { autoSkip: false, maxRotation: 45, minRotation: 30 } },
-          y: { beginAtZero: true, ticks: { callback: function (v) { return fmtPlain(v); } } },
+          x: {
+            beginAtZero: true,
+            ticks: { callback: function (v) { return fmtPlain(v); } },
+          },
+          y: {
+            ticks: {
+              autoSkip: false,
+              // Truncate long names so they don't push the plot area in.
+              callback: function (v) {
+                var lbl = this.getLabelForValue(v) || '';
+                return lbl.length > 28 ? lbl.slice(0, 27) + '…' : lbl;
+              },
+            },
+          },
         },
       },
     });
   }
 
-  // ---- Bubble chart ----
+  // ---- Bubble chart — bubble radius scales inversely with account count
+  // so dense datasets stay legible. Caps: r ∈ [3, 26].
   var bbCanvas = document.getElementById('bubbleChart');
   var bubbleChart = null;
   function renderBubble(rows) {
@@ -2346,12 +2427,17 @@
     var maxAbsNet = rows.reduce(function (m, r) {
       return Math.max(m, Math.abs(r.net || 0));
     }, 1);
+    // Shrink the bubble-size band as we cross 20 / 50 / 100 accounts so
+    // overlaps stay manageable without losing the magnitude signal.
+    var n = rows.length;
+    var rMax = n > 100 ? 12 : n > 50 ? 16 : n > 20 ? 22 : 28;
+    var rMin = n > 100 ? 2  : n > 50 ? 3  : n > 20 ? 4  : 6;
     var data = rows.map(function (r) {
       var net = r.net || 0;
       return {
         x: r.revenue || 0,
         y: r.costs || 0,
-        r: 6 + (Math.abs(net) / maxAbsNet) * 26,
+        r: rMin + (Math.abs(net) / maxAbsNet) * (rMax - rMin),
         _row: r,
       };
     });
@@ -2364,7 +2450,17 @@
           backgroundColor: function (ctx) {
             var r = ctx.raw && ctx.raw._row;
             if (!r) return '#94a3b8';
-            return netColor(r.net || 0);
+            var base = netColor(r.net || 0);
+            // Soften fill when crowded so overlapping bubbles read clearly.
+            if (n > 50) {
+              // hex → rgba(.., 0.6)
+              var hex = base.replace('#', '');
+              var bigint = parseInt(hex, 16);
+              return 'rgba(' + ((bigint >> 16) & 255) + ','
+                             + ((bigint >> 8)  & 255) + ','
+                             + (bigint & 255) + ',0.6)';
+            }
+            return base;
           },
           borderColor: '#1f2937',
           borderWidth: 1,
@@ -2375,6 +2471,10 @@
         plugins: {
           legend: { display: false },
           tooltip: {
+            // Larger, more legible tooltip — account name in bold heading.
+            titleFont: { weight: 'bold', size: 13 },
+            bodyFont: { size: 12 },
+            padding: 10,
             callbacks: {
               title: function (items) {
                 var r = items[0].raw && items[0].raw._row;
@@ -2390,6 +2490,14 @@
                   'Margin: '  + (r.margin_pct || 0).toFixed(1) + '%',
                 ];
               },
+            },
+          },
+          zoom: {
+            pan:  { enabled: true, mode: 'xy' },
+            zoom: {
+              wheel: { enabled: true, modifierKey: 'ctrl' },
+              pinch: { enabled: true },
+              mode:  'xy',
             },
           },
         },
