@@ -64,12 +64,6 @@
     <button type="button" class="amount-format-btn" data-format="k">K</button>
     <button type="button" class="amount-format-btn" data-format="m">M</button>
   </div>
-  {% if compare_stats is defined %}
-  <label class="compare-yoy">
-    <input type="checkbox" id="compareYoyToggle" {% if compare_yoy %}checked{% endif %}>
-    <span>Compare with same period last year</span>
-  </label>
-  {% endif %}
 </div>
 
 {% macro compare_pill(pct) -%}
@@ -84,103 +78,237 @@
   {% endif %}
 {%- endmacro %}
 
-<div class="kpi-row">
-  <div class="kpi-group">
-    <div class="stat-card">
-      <div class="stat-value stat-value-num">{{ stats.count }}</div>
-      <div class="stat-label">Total {{ doc_label }}s</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-value stat-value-num" style="color:var(--text)">
-        <span class="amount-display" data-amount="{{ stats.total or 0 }}" data-currency="{{ ccy }}">
-          {{ ccy }} {{ stats.total | fmt_currency_int }}
-        </span>
-      </div>
-      <div class="stat-label">Total Amount</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-value stat-value-num" style="color:var(--success)">
-        <span class="amount-display" data-amount="{{ stats.paid or 0 }}" data-currency="{{ ccy }}">
-          {{ ccy }} {{ stats.paid | fmt_currency_int }}
-        </span>
-      </div>
-      <div class="stat-label">Paid</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-value stat-value-num" style="color:var(--danger)">
-        <span class="amount-display" data-amount="{{ stats.unpaid or 0 }}" data-currency="{{ ccy }}">
-          {{ ccy }} {{ stats.unpaid | fmt_currency_int }}
-        </span>
-      </div>
-      <div class="stat-label">Outstanding</div>
+<div class="kpi-section" id="kpiSection"
+     data-tab="{{ tab }}"
+     data-default-range="{{ kpi_range or 'ytd' }}"
+     data-default-from="{{ kpi_date_from }}"
+     data-default-to="{{ kpi_date_to }}">
+  <div class="kpi-section-header">
+    <div class="kpi-section-title">OVERVIEW PERIOD</div>
+    <div class="kpi-section-controls">
+      <select id="kpiRange" class="kpi-range-select">
+        <option value="today">Today</option>
+        <option value="this_month">This Month</option>
+        <option value="last_month">Last Month</option>
+        <option value="this_quarter">This Quarter</option>
+        <option value="last_quarter">Last Quarter</option>
+        <option value="ytd">Year to Date</option>
+        <option value="last_year">Last Year</option>
+        <option value="all_time">All Time</option>
+        <option value="custom">Custom</option>
+      </select>
+      <input type="date" id="kpiDateFrom" style="display:none">
+      <input type="date" id="kpiDateTo"   style="display:none">
+      <label class="compare-yoy compare-yoy--inline">
+        <input type="checkbox" id="kpiCompareYoy" {% if compare_yoy %}checked{% endif %}>
+        <span>Compare with same period last year</span>
+      </label>
     </div>
   </div>
+  <div class="kpi-section-period-label" id="kpiPeriodLabel">{{ kpi_period_label or '' }}</div>
 
-  {% if compare_stats is defined %}
-  <div class="cards-separator"></div>
-  <div class="kpi-group">
-    <div class="stat-card compare-card">
-      <div class="stat-value stat-value-num compare-value">{{ compare_stats.count }}</div>
-      <div class="compare-meta">
-        {{ compare_pill(compare_pct.count) }}
-        <span class="compare-vs">{{ compare_label }}</span>
+  <div class="kpi-row">
+    <div class="kpi-group">
+      <div class="stat-card">
+        <div class="stat-value stat-value-num" id="kpiCount">{{ stats.count }}</div>
+        <div class="stat-label">Total {{ doc_label }}s</div>
       </div>
-      <div class="stat-label">Total {{ doc_label }}s</div>
+      <div class="stat-card">
+        <div class="stat-value stat-value-num" style="color:var(--text)">
+          <span class="amount-display" id="kpiTotal" data-amount="{{ stats.total or 0 }}" data-currency="{{ ccy }}">
+            {{ ccy }} {{ stats.total | fmt_currency_int }}
+          </span>
+        </div>
+        <div class="stat-label">Total Amount</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value stat-value-num" style="color:var(--success)">
+          <span class="amount-display" id="kpiPaid" data-amount="{{ stats.paid or 0 }}" data-currency="{{ ccy }}">
+            {{ ccy }} {{ stats.paid | fmt_currency_int }}
+          </span>
+        </div>
+        <div class="stat-label">Paid</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value stat-value-num" style="color:var(--danger)">
+          <span class="amount-display" id="kpiUnpaid" data-amount="{{ stats.unpaid or 0 }}" data-currency="{{ ccy }}">
+            {{ ccy }} {{ stats.unpaid | fmt_currency_int }}
+          </span>
+        </div>
+        <div class="stat-label">Outstanding</div>
+      </div>
     </div>
-    <div class="stat-card compare-card">
-      <div class="stat-value stat-value-num compare-value">
-        <span class="amount-display" data-amount="{{ compare_stats.total or 0 }}" data-currency="{{ ccy }}">
-          {{ ccy }} {{ compare_stats.total | fmt_currency_int }}
-        </span>
+
+    {% if compare_stats is defined %}
+    <div class="cards-separator"></div>
+    <div class="kpi-group" id="kpiCompareGroup">
+      <div class="stat-card compare-card">
+        <div class="stat-value stat-value-num compare-value" id="cmpCount">{{ compare_stats.count }}</div>
+        <div class="compare-meta">
+          <span id="cmpPillCount">{{ compare_pill(compare_pct.count) }}</span>
+          <span class="compare-vs" id="cmpLabelCount">{{ compare_label }}</span>
+        </div>
+        <div class="stat-label">Total {{ doc_label }}s</div>
       </div>
-      <div class="compare-meta">
-        {{ compare_pill(compare_pct.total) }}
-        <span class="compare-vs">{{ compare_label }}</span>
+      <div class="stat-card compare-card">
+        <div class="stat-value stat-value-num compare-value">
+          <span class="amount-display" id="cmpTotal" data-amount="{{ compare_stats.total or 0 }}" data-currency="{{ ccy }}">
+            {{ ccy }} {{ compare_stats.total | fmt_currency_int }}
+          </span>
+        </div>
+        <div class="compare-meta">
+          <span id="cmpPillTotal">{{ compare_pill(compare_pct.total) }}</span>
+          <span class="compare-vs" id="cmpLabelTotal">{{ compare_label }}</span>
+        </div>
+        <div class="stat-label">Total Amount</div>
       </div>
-      <div class="stat-label">Total Amount</div>
+      <div class="stat-card compare-card">
+        <div class="stat-value stat-value-num compare-value">
+          <span class="amount-display" id="cmpPaid" data-amount="{{ compare_stats.paid or 0 }}" data-currency="{{ ccy }}">
+            {{ ccy }} {{ compare_stats.paid | fmt_currency_int }}
+          </span>
+        </div>
+        <div class="compare-meta">
+          <span id="cmpPillPaid">{{ compare_pill(compare_pct.paid) }}</span>
+          <span class="compare-vs" id="cmpLabelPaid">{{ compare_label }}</span>
+        </div>
+        <div class="stat-label">Paid</div>
+      </div>
+      <div class="stat-card compare-card">
+        <div class="stat-value stat-value-num compare-value">
+          <span class="amount-display" id="cmpUnpaid" data-amount="{{ compare_stats.unpaid or 0 }}" data-currency="{{ ccy }}">
+            {{ ccy }} {{ compare_stats.unpaid | fmt_currency_int }}
+          </span>
+        </div>
+        <div class="compare-meta">
+          <span id="cmpPillUnpaid">{{ compare_pill(compare_pct.unpaid) }}</span>
+          <span class="compare-vs" id="cmpLabelUnpaid">{{ compare_label }}</span>
+        </div>
+        <div class="stat-label">Outstanding</div>
+      </div>
     </div>
-    <div class="stat-card compare-card">
-      <div class="stat-value stat-value-num compare-value">
-        <span class="amount-display" data-amount="{{ compare_stats.paid or 0 }}" data-currency="{{ ccy }}">
-          {{ ccy }} {{ compare_stats.paid | fmt_currency_int }}
-        </span>
-      </div>
-      <div class="compare-meta">
-        {{ compare_pill(compare_pct.paid) }}
-        <span class="compare-vs">{{ compare_label }}</span>
-      </div>
-      <div class="stat-label">Paid</div>
-    </div>
-    <div class="stat-card compare-card">
-      <div class="stat-value stat-value-num compare-value">
-        <span class="amount-display" data-amount="{{ compare_stats.unpaid or 0 }}" data-currency="{{ ccy }}">
-          {{ ccy }} {{ compare_stats.unpaid | fmt_currency_int }}
-        </span>
-      </div>
-      <div class="compare-meta">
-        {{ compare_pill(compare_pct.unpaid) }}
-        <span class="compare-vs">{{ compare_label }}</span>
-      </div>
-      <div class="stat-label">Outstanding</div>
-    </div>
+    {% endif %}
   </div>
-  {% endif %}
 </div>
 
-{% if compare_stats is defined %}
 <script>
-  (function () {
-    var cb = document.getElementById('compareYoyToggle');
-    if (!cb) return;
-    cb.addEventListener('change', function () {
-      var u = new URL(window.location.href);
-      if (cb.checked) u.searchParams.set('compare_yoy', '1');
-      else u.searchParams.delete('compare_yoy');
-      window.location.href = u.toString();
-    });
-  })();
+(function () {
+  var section   = document.getElementById('kpiSection');
+  if (!section) return;
+  var tab       = section.getAttribute('data-tab') || 'invoices';
+  var rangeSel  = document.getElementById('kpiRange');
+  var fromIn    = document.getElementById('kpiDateFrom');
+  var toIn      = document.getElementById('kpiDateTo');
+  var yoyCb     = document.getElementById('kpiCompareYoy');
+  var perLbl    = document.getElementById('kpiPeriodLabel');
+  var initRange = section.getAttribute('data-default-range') || 'ytd';
+  rangeSel.value = initRange;
+  if (initRange === 'custom') {
+    fromIn.style.display = '';
+    toIn.style.display = '';
+    fromIn.value = section.getAttribute('data-default-from') || '';
+    toIn.value   = section.getAttribute('data-default-to')   || '';
+  }
+
+  function pill(pct) {
+    if (pct === null || pct === undefined) {
+      return '<span class="compare-pill neutral"><i class="fa-solid fa-minus"></i> —</span>';
+    }
+    if (pct > 0.05) {
+      return '<span class="compare-pill up"><i class="fa-solid fa-arrow-up"></i> ' + pct.toFixed(1) + '%</span>';
+    }
+    if (pct < -0.05) {
+      return '<span class="compare-pill down"><i class="fa-solid fa-arrow-down"></i> ' + Math.abs(pct).toFixed(1) + '%</span>';
+    }
+    return '<span class="compare-pill neutral"><i class="fa-solid fa-equals"></i> 0%</span>';
+  }
+
+  function setAmount(id, val) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.setAttribute('data-amount', val == null ? 0 : val);
+    // Initial text gets replaced when odooDashRefreshAmounts() reformats below.
+    var ccy = el.getAttribute('data-currency') || '';
+    el.textContent = (ccy ? ccy + ' ' : '') + Math.round(Number(val) || 0).toLocaleString();
+  }
+
+  function setText(id, txt) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = txt;
+  }
+
+  function setHTML(id, html) {
+    var el = document.getElementById(id);
+    if (el) el.innerHTML = html;
+  }
+
+  var busy = false;
+  function fetchData() {
+    var range = rangeSel.value;
+    if (range === 'custom' && (!fromIn.value || !toIn.value)) return;
+    if (busy) return;
+    busy = true;
+    section.style.opacity = '0.65';
+    var params = new URLSearchParams();
+    params.set('tab', tab);
+    params.set('range', range);
+    if (range === 'custom') {
+      params.set('date_from', fromIn.value);
+      params.set('date_to',   toIn.value);
+    }
+    if (yoyCb && yoyCb.checked) params.set('compare_yoy', '1');
+
+    fetch('{{ url_for("financial_kpi_stats") }}?' + params.toString(), {
+      credentials: 'same-origin',
+      headers: { 'Accept': 'application/json' },
+    })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r); })
+      .then(function (d) {
+        var s = d.stats || {}, cs = d.compare_stats || {}, cp = d.compare_pct || {};
+        setText('kpiCount', s.count || 0);
+        setAmount('kpiTotal',  s.total  || 0);
+        setAmount('kpiPaid',   s.paid   || 0);
+        setAmount('kpiUnpaid', s.unpaid || 0);
+
+        if (document.getElementById('cmpCount')) {
+          setText('cmpCount', cs.count || 0);
+          setAmount('cmpTotal',  cs.total  || 0);
+          setAmount('cmpPaid',   cs.paid   || 0);
+          setAmount('cmpUnpaid', cs.unpaid || 0);
+          setHTML('cmpPillCount',  pill(cp.count));
+          setHTML('cmpPillTotal',  pill(cp.total));
+          setHTML('cmpPillPaid',   pill(cp.paid));
+          setHTML('cmpPillUnpaid', pill(cp.unpaid));
+          var lbl = d.compare_label || '';
+          setText('cmpLabelCount',  lbl);
+          setText('cmpLabelTotal',  lbl);
+          setText('cmpLabelPaid',   lbl);
+          setText('cmpLabelUnpaid', lbl);
+        }
+        if (perLbl) perLbl.textContent = d.period_label || '';
+        // Re-apply Units/K/M formatting to all the freshly-set amounts.
+        if (window.odooDashRefreshAmounts) window.odooDashRefreshAmounts();
+      })
+      .catch(function () {})
+      .finally(function () { busy = false; section.style.opacity = ''; });
+  }
+
+  rangeSel.addEventListener('change', function () {
+    var isCustom = rangeSel.value === 'custom';
+    fromIn.style.display = isCustom ? '' : 'none';
+    toIn.style.display   = isCustom ? '' : 'none';
+    if (!isCustom) fetchData();
+    else if (fromIn.value && toIn.value) fetchData();
+  });
+  fromIn.addEventListener('change', function () {
+    if (rangeSel.value === 'custom' && fromIn.value && toIn.value) fetchData();
+  });
+  toIn.addEventListener('change', function () {
+    if (rangeSel.value === 'custom' && fromIn.value && toIn.value) fetchData();
+  });
+  if (yoyCb) yoyCb.addEventListener('change', fetchData);
+})();
 </script>
-{% endif %}
 
 {% if collection_rate is defined %}
 {% set cr = collection_rate %}

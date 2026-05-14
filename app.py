@@ -719,6 +719,93 @@ def _pct_change(current, previous):
     return ((cur - prev) / prev) * 100
 
 
+def _compute_kpi(client, move_type, date_from, date_to, range_key, compare_yoy):
+    """Compute the four headline KPI cards (count / total / paid / unpaid)
+    plus the previous-period comparison for the Invoices/Bills Overview
+    Period selector. Intentionally independent of search, status, aging,
+    and cashflow filters — those drive the table, not the headline.
+
+    Fires the four queries (current+previous count+totals) in parallel
+    using fresh XML-RPC clients since the underlying ServerProxy is not
+    thread-safe."""
+
+    def _fresh():
+        return OdooClient(client.url, client.db, client.uid, client.password,
+                          context=dict(client.context))
+
+    def _domain(df, dt):
+        d = [['move_type', '=', move_type], ['state', '!=', 'cancel']]
+        if df:
+            d.append(['invoice_date', '>=', df])
+        if dt:
+            d.append(['invoice_date', '<=', dt])
+        return d
+
+    domain = _domain(date_from, date_to)
+    prev_from, prev_to, prev_label = _previous_date_range(
+        range_key, date_from, date_to, year_over_year=compare_yoy)
+    prev_domain = _domain(prev_from, prev_to)
+
+    def _count(dom):
+        return _fresh().safe_count('account.move', dom)
+
+    def _totals(dom):
+        return _fresh().safe_read_group(
+            'account.move', dom,
+            ['amount_total:sum', 'amount_residual:sum'], [])
+
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+    try:
+        f_count       = pool.submit(_count, domain)
+        f_totals      = pool.submit(_totals, domain)
+        f_prev_count  = pool.submit(_count, prev_domain)
+        f_prev_totals = pool.submit(_totals, prev_domain)
+        try:
+            count = f_count.result(timeout=30)
+        except Exception:
+            count = 0
+        try:
+            totals = (f_totals.result(timeout=30) or [{}])[0]
+        except Exception:
+            totals = {}
+        try:
+            prev_count = f_prev_count.result(timeout=30)
+        except Exception:
+            prev_count = 0
+        try:
+            prev_totals = (f_prev_totals.result(timeout=30) or [{}])[0]
+        except Exception:
+            prev_totals = {}
+    finally:
+        pool.shutdown(wait=False)
+
+    def _shape(c, t):
+        total = t.get('amount_total', 0) or 0
+        residual = t.get('amount_residual', 0) or 0
+        return {
+            'count':  c,
+            'total':  total,
+            'unpaid': residual,
+            'paid':   total - residual,
+        }
+
+    stats = _shape(count, totals)
+    prev_stats = _shape(prev_count, prev_totals)
+    compare_pct = {
+        'count':  _pct_change(stats['count'],  prev_stats['count']),
+        'total':  _pct_change(stats['total'],  prev_stats['total']),
+        'paid':   _pct_change(stats['paid'],   prev_stats['paid']),
+        'unpaid': _pct_change(stats['unpaid'], prev_stats['unpaid']),
+    }
+    return {
+        'stats':         stats,
+        'compare_stats': prev_stats,
+        'compare_label': f'vs {prev_label}',
+        'compare_pct':   compare_pct,
+        'prev_label':    prev_label,
+    }
+
+
 def _apply_aging_filter(domain, aging_indices, bucket_ranges, today_d):
     """Append multi-select aging clauses to `domain` in place.
 
@@ -1180,6 +1267,18 @@ def financial():
         if cashflow_filter not in ('overdue', 'b1', 'b2', 'b3'):
             cashflow_filter = ''
 
+        # Overview Period — independent of the main range/search/aging
+        # filters. Drives the four headline KPI cards + their YoY compare.
+        # Defaults to YTD and survives any change to the page-level filters.
+        raw_kpi_range    = (request.args.get('kpi_range', '') or '').strip()
+        raw_kpi_from     = request.args.get('kpi_date_from', '')
+        raw_kpi_to       = request.args.get('kpi_date_to', '')
+        kpi_compare_yoy  = request.args.get('kpi_compare_yoy',
+                              request.args.get('compare_yoy')) == '1'
+        kpi_range = raw_kpi_range if raw_kpi_range in DATE_RANGE_KEYS else 'ytd'
+        kpi_from, kpi_to, kpi_range = _resolve_date_range(
+            kpi_range, raw_kpi_from, raw_kpi_to)
+
         domain = [['move_type', '=', move_type], ['state', '!=', 'cancel']]
         if date_from:
             domain.append(['invoice_date', '>=', date_from])
@@ -1225,44 +1324,11 @@ def financial():
                 table_domain.append(['invoice_date_due', '>=', lower])
                 table_domain.append(['invoice_date_due', '<=', upper])
 
-        # ---- Previous-period comparison (fired in background while current
-        # period queries run on the main thread) ----
-        compare_yoy = request.args.get('compare_yoy') == '1'
-        prev_from, prev_to, prev_label = _previous_date_range(
-            range_key, date_from, date_to, year_over_year=compare_yoy)
-
-        prev_domain = [['move_type', '=', move_type], ['state', '!=', 'cancel']]
-        if prev_from:
-            prev_domain.append(['invoice_date', '>=', prev_from])
-        if prev_to:
-            prev_domain.append(['invoice_date', '<=', prev_to])
-        if search:
-            prev_domain += ['|', ['name', 'ilike', search],
-                             ['partner_id.name', 'ilike', search]]
-        prev_table_domain = list(prev_domain)
-        if len(status_filter) == 1:
-            prev_table_domain.append(['payment_state', '=', status_filter[0]])
-        elif status_filter:
-            prev_table_domain.append(['payment_state', 'in', status_filter])
-        _apply_aging_filter(prev_table_domain, aging_filter, bucket_ranges, today_d)
-
-        def _fresh_client():
-            # xmlrpc.client.ServerProxy is not thread-safe; give each background
-            # call its own client bound to the same session credentials.
-            return OdooClient(c.url, c.db, c.uid, c.password,
-                              context=dict(c.context))
-
-        def _prev_count_job():
-            return _fresh_client().safe_count('account.move', prev_table_domain)
-
-        def _prev_totals_job():
-            return _fresh_client().safe_read_group(
-                'account.move', prev_domain,
-                ['amount_total:sum', 'amount_residual:sum'], [])
-
-        _prev_pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
-        prev_count_fut = _prev_pool.submit(_prev_count_job)
-        prev_totals_fut = _prev_pool.submit(_prev_totals_job)
+        # ---- Headline KPIs use the Overview Period only — never the main
+        # range / search / aging / status / cashflow filters. Comparison
+        # fires alongside via the same helper.
+        kpi_payload = _compute_kpi(
+            c, move_type, kpi_from, kpi_to, kpi_range, kpi_compare_yoy)
 
         total = c.safe_count('account.move', table_domain)
         records = c.safe_search_read('account.move', table_domain,
@@ -1271,22 +1337,13 @@ def financial():
              'amount_total', 'amount_residual', 'currency_id', 'state', 'payment_state'],
             limit=PAGE_SIZE, offset=(page - 1) * PAGE_SIZE, order='invoice_date desc')
 
-        grps = c.safe_read_group('account.move', domain,
-            ['amount_total:sum', 'amount_residual:sum'], [])
-        totals = grps[0] if grps else {}
-
         ctx['records'] = records
         ctx['total_pages'] = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
         ctx['total_count'] = total
         ctx['status_filter'] = status_filter
         ctx['aging_filter'] = aging_filter
         ctx['today_iso'] = today_str()
-        ctx['stats'] = {
-            'total': totals.get('amount_total', 0),
-            'unpaid': totals.get('amount_residual', 0),
-            'paid': totals.get('amount_total', 0) - totals.get('amount_residual', 0),
-            'count': total,
-        }
+        ctx['stats'] = kpi_payload['stats']
 
         status_keys = ['not_paid', 'paid', 'partial', 'reversed']
         status_labels = {'not_paid': 'Unpaid', 'paid': 'Paid',
@@ -1531,34 +1588,17 @@ def financial():
             'selected': list(aging_filter),
         }
 
-        # ---- Collect previous-period results and compute comparison stats ----
-        try:
-            prev_count = prev_count_fut.result(timeout=30)
-        except Exception:
-            prev_count = 0
-        try:
-            prev_grps = prev_totals_fut.result(timeout=30) or []
-        except Exception:
-            prev_grps = []
-        finally:
-            _prev_pool.shutdown(wait=False)
-        prev_totals = prev_grps[0] if prev_grps else {}
-        prev_stats = {
-            'count': prev_count,
-            'total': prev_totals.get('amount_total', 0),
-            'unpaid': prev_totals.get('amount_residual', 0),
-            'paid': (prev_totals.get('amount_total', 0)
-                     - prev_totals.get('amount_residual', 0)),
-        }
-        ctx['compare_stats'] = prev_stats
-        ctx['compare_label'] = f'vs {prev_label}'
-        ctx['compare_yoy'] = compare_yoy
-        ctx['compare_pct'] = {
-            'count':   _pct_change(ctx['stats']['count'],   prev_stats['count']),
-            'total':   _pct_change(ctx['stats']['total'],   prev_stats['total']),
-            'paid':    _pct_change(ctx['stats']['paid'],    prev_stats['paid']),
-            'unpaid':  _pct_change(ctx['stats']['unpaid'],  prev_stats['unpaid']),
-        }
+        # KPI comparison + period label come from the helper above, scoped to
+        # the Overview Period rather than the main filter.
+        ctx['compare_stats'] = kpi_payload['compare_stats']
+        ctx['compare_label'] = kpi_payload['compare_label']
+        ctx['compare_pct']   = kpi_payload['compare_pct']
+        ctx['compare_yoy']   = kpi_compare_yoy
+        ctx['kpi_range']     = kpi_range
+        ctx['kpi_date_from'] = kpi_from
+        ctx['kpi_date_to']   = kpi_to
+        ctx['kpi_period_label'] = _format_period_label(
+            kpi_range, kpi_from, kpi_to)
 
     elif tab == 'banks':
         journals = c.safe_search_read('account.journal',
@@ -1702,6 +1742,36 @@ def financial():
             range_key, date_from, date_to)
 
     return render_template('financial.html', **ctx)
+
+
+@app.route('/financial/kpi-stats')
+@login_required
+def financial_kpi_stats():
+    """JSON endpoint feeding the Overview Period KPI selector. Returns the
+    four headline KPI cards + comparison values for the requested range,
+    independent of every other filter on the page."""
+    tab = request.args.get('tab', 'invoices')
+    if tab not in ('invoices', 'bills'):
+        return jsonify({'error': 'invalid tab'}), 400
+    move_type = 'out_invoice' if tab == 'invoices' else 'in_invoice'
+
+    range_key = (request.args.get('range', 'ytd') or 'ytd').strip()
+    if range_key not in DATE_RANGE_KEYS:
+        range_key = 'ytd'
+    raw_from = request.args.get('date_from', '')
+    raw_to   = request.args.get('date_to', '')
+    date_from, date_to, range_key = _resolve_date_range(
+        range_key, raw_from, raw_to)
+    compare_yoy = request.args.get('compare_yoy') == '1'
+
+    c = get_client()
+    payload = _compute_kpi(c, move_type, date_from, date_to, range_key, compare_yoy)
+    payload['range_key']    = range_key
+    payload['date_from']    = date_from
+    payload['date_to']      = date_to
+    payload['period_label'] = _format_period_label(range_key, date_from, date_to)
+    payload['compare_yoy']  = compare_yoy
+    return jsonify(payload)
 
 
 @app.route('/financial/collection-rate')

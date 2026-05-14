@@ -530,6 +530,54 @@ a:hover { text-decoration: none; }
   user-select: none;
 }
 .compare-yoy input { accent-color: var(--primary); }
+.compare-yoy--inline { margin-left: .25rem; }
+
+/* Overview Period section wrapping the KPI cards */
+.kpi-section {
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+}
+.kpi-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: .75rem;
+  margin-bottom: .65rem;
+}
+.kpi-section-title {
+  font-size: .72rem;
+  letter-spacing: .08em;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+.kpi-section-controls {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  font-size: .82rem;
+  flex-wrap: wrap;
+}
+.kpi-section-controls select,
+.kpi-section-controls input[type=date] {
+  height: 30px;
+  padding: 0 .5rem;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 6px;
+  font-size: .82rem;
+  background: #fff;
+}
+.kpi-section-period-label {
+  margin-top: -.2rem;
+  margin-bottom: .75rem;
+  font-size: .8rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.kpi-section .kpi-row { margin-bottom: 0; }
 
 /* Single 8-card row with a vertical separator between current and previous */
 .kpi-row {
