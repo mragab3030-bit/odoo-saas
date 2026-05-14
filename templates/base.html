@@ -6,6 +6,18 @@
   <title>{% block title %}Olens — Odoo Analytics Platform{% endblock %}</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  {# Apply the saved theme before first paint so there's no flash of the
+     default theme on dark/midnight users. #}
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('olens.theme');
+        if (t === 'light' || t === 'midnight' || t === 'dark') {
+          document.documentElement.setAttribute('data-theme', t);
+        }
+      } catch (e) {}
+    })();
+  </script>
   {% block head %}{% endblock %}
 </head>
 <body>
@@ -187,6 +199,37 @@
     </nav>
 
     <div class="sidebar-footer">
+      <button type="button" class="nav-item theme-trigger" id="themeTrigger"
+              aria-haspopup="true" aria-expanded="false">
+        <i class="fa-solid fa-palette"></i>
+        <span>Theme</span>
+        <span class="theme-trigger-current" id="themeTriggerCurrent">Dark</span>
+      </button>
+
+      <div class="theme-popover" id="themePopover" role="dialog" aria-label="Choose theme" hidden>
+        <div class="theme-popover-title">COLOR THEME</div>
+        <div class="theme-options">
+          <button type="button" class="theme-option" data-theme="dark" aria-label="Dark theme">
+            <span class="theme-swatch theme-swatch--dark">
+              <i class="fa-solid fa-check"></i>
+            </span>
+            <span class="theme-option-name">Dark</span>
+          </button>
+          <button type="button" class="theme-option" data-theme="light" aria-label="Light theme">
+            <span class="theme-swatch theme-swatch--light">
+              <i class="fa-solid fa-check"></i>
+            </span>
+            <span class="theme-option-name">Light</span>
+          </button>
+          <button type="button" class="theme-option" data-theme="midnight" aria-label="Midnight theme">
+            <span class="theme-swatch theme-swatch--midnight">
+              <i class="fa-solid fa-check"></i>
+            </span>
+            <span class="theme-option-name">Midnight</span>
+          </button>
+        </div>
+      </div>
+
       <a href="{{ url_for('logout') }}" class="nav-item" style="color:#ef4444">
         <i class="fa-solid fa-right-from-bracket"></i> Logout
       </a>

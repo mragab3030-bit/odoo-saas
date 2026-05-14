@@ -255,3 +255,93 @@ document.querySelectorAll('input[type="date"][data-default-today]').forEach(el =
 
   showStamp();
 })();
+
+/* ===== Theme switcher =====
+ * Persists the chosen theme in localStorage under "olens.theme" and applies
+ * it via the data-theme attribute on <html>. Also keeps Chart.js global
+ * defaults (text + grid colors) in sync with the active theme and asks
+ * every live chart to repaint so axes/gridlines pick up the new tokens. */
+(function () {
+  var STORAGE_KEY = 'olens.theme';
+  var THEMES = ['dark', 'light', 'midnight'];
+  var LABELS = { dark: 'Dark', light: 'Light', midnight: 'Midnight' };
+
+  function readTheme() {
+    try {
+      var v = localStorage.getItem(STORAGE_KEY);
+      return THEMES.indexOf(v) >= 0 ? v : 'dark';
+    } catch (e) { return 'dark'; }
+  }
+
+  function applyChartDefaults() {
+    if (!window.Chart) return;
+    var style = getComputedStyle(document.documentElement);
+    var text = (style.getPropertyValue('--chart-text') || '').trim() || '#475569';
+    var grid = (style.getPropertyValue('--chart-grid') || '').trim() || '#e5e7eb';
+    Chart.defaults.color       = text;
+    Chart.defaults.borderColor = grid;
+    if (Chart.defaults.scale && Chart.defaults.scale.grid) {
+      Chart.defaults.scale.grid.color = grid;
+    }
+    // Repaint every live chart so axis labels + gridlines pick up the new
+    // defaults. Charts that bake explicit colors into options keep theirs.
+    if (Chart.instances) {
+      try {
+        Object.keys(Chart.instances).forEach(function (k) {
+          var c = Chart.instances[k];
+          if (c && typeof c.update === 'function') c.update('none');
+        });
+      } catch (e) {}
+    }
+  }
+
+  function setTheme(theme, persist) {
+    if (THEMES.indexOf(theme) < 0) theme = 'dark';
+    document.documentElement.setAttribute('data-theme', theme);
+    if (persist !== false) {
+      try { localStorage.setItem(STORAGE_KEY, theme); } catch (e) {}
+    }
+    var lbl = document.getElementById('themeTriggerCurrent');
+    if (lbl) lbl.textContent = LABELS[theme];
+    document.querySelectorAll('.theme-option').forEach(function (btn) {
+      btn.classList.toggle('is-active', btn.getAttribute('data-theme') === theme);
+    });
+    applyChartDefaults();
+    document.dispatchEvent(new CustomEvent('olens:theme-change', { detail: { theme: theme } }));
+  }
+
+  // Apply on load — the inline <head> script already set the attribute, this
+  // just syncs Chart defaults + popover state. Safe if called twice.
+  document.addEventListener('DOMContentLoaded', function () {
+    setTheme(readTheme(), false);
+  });
+
+  var trigger = document.getElementById('themeTrigger');
+  var popover = document.getElementById('themePopover');
+  if (trigger && popover) {
+    trigger.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var open = !popover.hidden;
+      popover.hidden = open;
+      trigger.setAttribute('aria-expanded', open ? 'false' : 'true');
+    });
+    document.addEventListener('click', function (e) {
+      if (popover.hidden) return;
+      if (!popover.contains(e.target) && e.target !== trigger) {
+        popover.hidden = true;
+        trigger.setAttribute('aria-expanded', 'false');
+      }
+    });
+    popover.querySelectorAll('.theme-option').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        setTheme(btn.getAttribute('data-theme'), true);
+        popover.hidden = true;
+        trigger.setAttribute('aria-expanded', 'false');
+      });
+    });
+  }
+
+  // Expose so other scripts can re-sync Chart defaults after creating a
+  // chart (e.g. financial charts built after DOMContentLoaded).
+  window.olensApplyChartDefaults = applyChartDefaults;
+})();
