@@ -172,12 +172,18 @@ a:hover { text-decoration: none; }
 
 .brand-text { overflow: hidden; }
 .brand-text .brand-name {
-  font-weight: 800; font-size: 1.05rem; color: #E63030;
+  font-weight: 800; font-size: 1.05rem;
   letter-spacing: .02em;
   white-space: nowrap;
+  /* The two halves carry their own colors below — leave the parent
+     unset so the cascade doesn't leak into either span. */
 }
+.brand-name-o    { color: #E63030; }
+/* "lens" defers to the sidebar's strong-text token so it stays legible
+   on the light theme (dark text) while reading white on dark/midnight. */
+.brand-name-rest { color: var(--sidebar-text-strong); }
 .brand-text .brand-sub {
-  font-size: .7rem; color: #94a3b8;
+  font-size: .7rem; color: #9ca3af;
   white-space: nowrap;
 }
 
