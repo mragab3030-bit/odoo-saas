@@ -1686,10 +1686,22 @@ def financial():
             prev_rows = []
         prev_summary = _analytic_summary(prev_rows)
 
-        rows_sorted_net = sorted(rows, key=lambda r: r['net'], reverse=True)
-        top_profitable = [r for r in rows_sorted_net if r['net'] > 0][:5]
-        top_loss = sorted([r for r in rows if r['net'] < 0],
-                          key=lambda r: r['net'])[:5]
+        # Categorize each row so the three Top-5 lists are mutually exclusive:
+        #   profitable: has revenue AND revenue > costs
+        #   loss:       has revenue AND costs > revenue (true loss with income)
+        #   pure cost:  no revenue at all but costs > 0 (cost centre)
+        top_profitable = sorted(
+            [r for r in rows if (r.get('revenue') or 0) > 0
+                              and r['net'] > 0],
+            key=lambda r: r['net'], reverse=True)[:5]
+        top_loss = sorted(
+            [r for r in rows if (r.get('revenue') or 0) > 0
+                              and (r.get('costs') or 0) > (r.get('revenue') or 0)],
+            key=lambda r: r['net'])[:5]
+        top_cost_centers = sorted(
+            [r for r in rows if (r.get('revenue') or 0) == 0
+                              and (r.get('costs') or 0) > 0],
+            key=lambda r: r.get('costs') or 0, reverse=True)[:5]
 
         ctx['records']       = rows
         ctx['total_count']   = len(rows)
@@ -1703,8 +1715,9 @@ def financial():
             'costs':   _pct_change(summary['costs'],   prev_summary['costs']),
             'net':     _pct_change(summary['net'],     prev_summary['net']),
         }
-        ctx['top_profitable'] = top_profitable
-        ctx['top_loss']       = top_loss
+        ctx['top_profitable']   = top_profitable
+        ctx['top_loss']         = top_loss
+        ctx['top_cost_centers'] = top_cost_centers
         ctx['period_label']   = _format_period_label(
             range_key, date_from, date_to)
 
