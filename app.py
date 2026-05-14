@@ -921,6 +921,50 @@ def select_company():
 
 
 # ---------------------------------------------------------------------------
+# Session refresh — re-probes the Odoo server for version, installed modules,
+# and edition. Fired by the global Refresh button so newly-installed modules
+# light up their tabs without forcing a logout.
+# ---------------------------------------------------------------------------
+
+@app.route('/refresh-session', methods=['POST'])
+@login_required
+def refresh_session():
+    c = get_client()
+    # Force re-detection by clearing the in-memory module cache. The session
+    # values are overwritten below.
+    c._installed_modules = None
+    c._field_cache = {}
+
+    result = {'ok': True, 'version': '', 'edition': 'community', 'modules': 0}
+
+    try:
+        c.version_info = OdooClient.fetch_version(session['odoo_url'])
+        session['odoo_version_info'] = c.version_info
+        session['odoo_version_major'] = c.version_major
+    except Exception:
+        pass
+    result['version'] = c.version_string or ''
+
+    try:
+        modules = sorted(c.fetch_installed_modules())
+        session['installed_modules'] = modules
+        result['modules'] = len(modules)
+    except Exception:
+        # Keep whatever was already in session — wiping it would visibly
+        # collapse the sidebar on a transient network blip.
+        result['modules'] = len(session.get('installed_modules') or [])
+
+    try:
+        session['odoo_edition'] = c.detect_edition()
+    except Exception:
+        session['odoo_edition'] = 'community'
+    session['odoo_edition_algo'] = 3
+    result['edition'] = session['odoo_edition']
+
+    return jsonify(result)
+
+
+# ---------------------------------------------------------------------------
 # Feature unavailable (locked tab landing page)
 # ---------------------------------------------------------------------------
 

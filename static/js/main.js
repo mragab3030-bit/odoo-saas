@@ -206,6 +206,26 @@ document.querySelectorAll('input[type="date"][data-default-today]').forEach(el =
     window.location.href = url.toString();
   }
 
+  // Manual refresh: re-probe the Odoo server for installed modules + edition
+  // before reloading the page. Newly-installed modules in Odoo (e.g. mrp,
+  // hr_expense) light up their sidebar tabs without a logout.
+  async function manualReload() {
+    btn.classList.add('is-spinning');
+    btn.disabled = true;
+    try {
+      await fetch('/refresh-session', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Accept': 'application/json' },
+      });
+    } catch (_) {
+      // Network blip — fall through to a normal reload anyway.
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.set('_t', Date.now().toString());
+    window.location.href = url.toString();
+  }
+
   function scheduleAuto(minutes) {
     if (autoTimer) {
       clearTimeout(autoTimer);
@@ -213,7 +233,9 @@ document.querySelectorAll('input[type="date"][data-default-today]').forEach(el =
     }
     const m = parseInt(minutes, 10);
     if (!m) return;
-    autoTimer = setTimeout(reloadNow, m * 60 * 1000);
+    // Auto-refresh re-probes modules too, so a freshly-installed Odoo module
+    // shows up on the next timer tick without a manual click.
+    autoTimer = setTimeout(manualReload, m * 60 * 1000);
   }
 
   let saved = '0';
@@ -222,7 +244,7 @@ document.querySelectorAll('input[type="date"][data-default-today]').forEach(el =
   if (sel) sel.value = saved;
   scheduleAuto(saved);
 
-  btn.addEventListener('click', reloadNow);
+  btn.addEventListener('click', manualReload);
   if (sel) {
     sel.addEventListener('change', function () {
       const v = VALID.indexOf(this.value) >= 0 ? this.value : '0';
