@@ -576,9 +576,36 @@ def _compute_analytic(client, date_from, date_to):
     rows = list(accounts.values())
     for a in rows:
         a['net'] = a['revenue'] - a['costs']
-        denom = a['revenue']
-        a['margin_pct'] = (a['net'] / denom * 100) if denom else 0
+        a['margin_pct'], a['margin_display'] = _margin_pct_and_display(
+            a['net'], a['revenue'], a['costs'])
     return rows
+
+
+# Display cap for analytic margin %. Beyond this magnitude, the number is
+# noise (tiny revenue, huge costs) so we clip and show the cap value.
+_MARGIN_PCT_CAP = 999.9
+
+
+def _margin_pct_and_display(net, revenue, costs):
+    """Return (capped_pct, display_string) for an analytic row.
+
+    Rules (per spec):
+      - revenue > 0       → pct = net / revenue * 100, clipped to ±999.9
+      - revenue = 0, costs > 0 → "No Revenue" (numeric stays 0 for sort)
+      - revenue = 0, costs = 0 → "0.0%"
+    """
+    rev = revenue or 0
+    cst = costs or 0
+    if rev <= 0:
+        if cst > 0:
+            return 0.0, 'No Revenue'
+        return 0.0, '0.0%'
+    pct = (net / rev) * 100.0
+    if pct >= _MARGIN_PCT_CAP:
+        return _MARGIN_PCT_CAP, '%.1f%%' % _MARGIN_PCT_CAP
+    if pct <= -_MARGIN_PCT_CAP:
+        return -_MARGIN_PCT_CAP, '%.1f%%' % -_MARGIN_PCT_CAP
+    return pct, '%.1f%%' % pct
 
 
 def _analytic_summary(rows):

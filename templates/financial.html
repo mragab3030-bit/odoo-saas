@@ -1514,7 +1514,7 @@
               {{ ccy }} {{ r.net | fmt_currency_int }}
             </span>
           </td>
-          <td style="text-align:right">{{ '%.1f' % (r.margin_pct or 0) }}%</td>
+          <td style="text-align:right">{{ r.margin_display or '0.0%' }}</td>
         </tr>
         {% else %}
         <tr><td colspan="6"><div class="empty-state"><i class="fa-solid fa-coins"></i><p>No profitable centers</p></div></td></tr>
@@ -1553,7 +1553,7 @@
               {{ ccy }} {{ r.net | fmt_currency_int }}
             </span>
           </td>
-          <td style="text-align:right">{{ '%.1f' % (r.margin_pct or 0) }}%</td>
+          <td style="text-align:right">{{ r.margin_display or '0.0%' }}</td>
         </tr>
         {% else %}
         <tr><td colspan="6"><div class="empty-state"><i class="fa-solid fa-circle-check"></i><p>No losses recorded</p></div></td></tr>
@@ -2487,7 +2487,8 @@
                   'Revenue: ' + fmtAmount(r.revenue || 0),
                   'Costs: '   + fmtAmount(r.costs || 0),
                   'Net: '     + fmtAmount(r.net || 0),
-                  'Margin: '  + (r.margin_pct || 0).toFixed(1) + '%',
+                  'Margin: '  + (r.margin_display
+                                  || ((r.margin_pct || 0).toFixed(1) + '%')),
                 ];
               },
             },
