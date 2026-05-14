@@ -62,11 +62,15 @@ def get_client() -> OdooClient:
                 session['odoo_version_major'] = g.odoo_client.version_major
             except Exception:
                 pass
-        if not session.get('odoo_edition'):
+        # Bump this constant whenever detect_edition's algorithm changes —
+        # stale 'community' values from earlier runs will get re-probed.
+        CURRENT_EDITION_ALGO = 3
+        if session.get('odoo_edition_algo') != CURRENT_EDITION_ALGO:
             try:
                 session['odoo_edition'] = g.odoo_client.detect_edition()
             except Exception:
                 session['odoo_edition'] = 'community'
+            session['odoo_edition_algo'] = CURRENT_EDITION_ALGO
         if session.get('installed_modules') is None:
             try:
                 session['installed_modules'] = sorted(
@@ -825,11 +829,14 @@ def login():
             session['installed_modules'] = []
 
         # Edition detection — community vs enterprise. Drives the "Enterprise
-        # only" copy on the feature-unavailable screen.
+        # only" copy on the feature-unavailable screen. Algorithm version is
+        # captured so future detection changes auto-invalidate cached values
+        # (see get_client()).
         try:
             session['odoo_edition'] = client.detect_edition()
         except Exception:
             session['odoo_edition'] = 'community'
+        session['odoo_edition_algo'] = 3
 
         # Fetch companies the user has access to (multi-company support)
         try:

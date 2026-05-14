@@ -118,70 +118,33 @@ class OdooClient:
             ver = ver.split('~')[-1]
         return ver
 
-    # Modules that only ship with Odoo Enterprise. Presence of any of these in
-    # ir.module.module (state=installed) is a strong signal the server runs the
-    # Enterprise edition. Used as a fallback when the version string lacks the
-    # `+e` suffix (older versions, custom builds, hosting providers that strip
-    # the suffix, etc.).
-    ENTERPRISE_MARKER_MODULES = frozenset({
-        'web_studio',
-        'documents',
-        'account_accountant',
-        'voip',
-        'mrp_workorder',
-        'web_mobile',
-        'helpdesk',
-        'sign',
-    })
-
-    # Canonical Enterprise markers, by reliability. `web_enterprise` is the
-    # Enterprise web client and is installed on every Enterprise instance;
-    # `account_accountant` is the Enterprise-only accounting suite.
-    ENTERPRISE_PRIMARY_MARKERS = ('web_enterprise', 'account_accountant')
-
     def detect_edition(self) -> str:
-        """Return 'enterprise' or 'community'.
+        """Definitive Enterprise check.
 
-        Primary check: query ir.module.module for `web_enterprise` /
-        `account_accountant` in state `installed`. This is the most reliable
-        signal — both modules ship only with Enterprise.
+        Reads `ir.module.module` for the row where name == 'web_enterprise'
+        and returns 'enterprise' iff its state is 'installed'.
 
-        Fallbacks (only used when the primary query throws — e.g. ACL on
-        ir.module.module): version string suffix, server_version_info tag,
-        then any module from ENTERPRISE_MARKER_MODULES. Defaults to
-        'community' so we never falsely advertise Enterprise tabs.
+        `web_enterprise` is the Enterprise web client; it is always installed
+        on Enterprise databases and is never present on Community, which makes
+        it the most reliable single-module signal. Any failure (model
+        inaccessible, network blip, malformed reply) defaults to 'community'
+        — falsely advertising Enterprise tabs is worse than the reverse.
         """
         try:
-            hits = self.execute_kw(
-                'ir.module.module', 'search',
-                [[['name', 'in', list(self.ENTERPRISE_PRIMARY_MARKERS)],
-                  ['state', '=', 'installed']]],
-                {'limit': 1})
-            if hits:
-                return 'enterprise'
-            # The query worked and returned no rows → Community. Trust this
-            # over the version-string heuristic (some Community builds have
-            # been observed shipping with `+e` in custom forks).
-            return 'community'
+            result = self.execute_kw(
+                'ir.module.module', 'search_read',
+                [[['name', '=', 'web_enterprise']]],
+                {'fields': ['name', 'state'], 'limit': 1})
         except Exception as e:
-            logger.info("Edition probe via ir.module.module failed, "
-                        "falling back to heuristics: %s", e)
+            logger.info("Edition probe failed (defaulting to community): %s", e)
+            return 'community'
 
-        ver = (self.version_info or {}).get('server_version', '') or ''
-        ver_lower = str(ver).lower()
-        if '+e' in ver_lower or 'enterprise' in ver_lower:
-            return 'enterprise'
-        info = (self.version_info or {}).get('server_version_info') or []
-        if isinstance(info, list) and info:
-            last = info[-1]
-            if isinstance(last, str) and last.lower() == 'e':
+        if result and isinstance(result, list):
+            state = result[0].get('state') if isinstance(result[0], dict) else None
+            if state == 'installed':
+                logger.info("Detected Odoo Enterprise via web_enterprise module")
                 return 'enterprise'
-        try:
-            installed = self.fetch_installed_modules()
-        except Exception:
-            installed = set()
-        if installed & self.ENTERPRISE_MARKER_MODULES:
-            return 'enterprise'
+        logger.info("Detected Odoo Community (web_enterprise not installed)")
         return 'community'
 
     @classmethod
