@@ -131,7 +131,9 @@ class OdooClient:
         Strategy, in order:
           1. `server_version` string contains `+e` or `enterprise`.
           2. The last element of `server_version_info` carries `'e'`.
-          3. Any known enterprise-only module is installed.
+          3. Probe an enterprise-only model (`account.asset`). If it answers
+             a `fields_get`, the Enterprise codebase is loaded.
+          4. Any known enterprise-only module is installed.
         Falls back to 'community' if nothing matches — community is the safer
         default because it hides enterprise-only tabs rather than exposing
         broken links."""
@@ -144,7 +146,20 @@ class OdooClient:
             last = info[-1]
             if isinstance(last, str) and last.lower() == 'e':
                 return 'enterprise'
-        # Probe installed modules — triggers lazy fetch the first time.
+        # Probe a known Enterprise-only model. A successful fields_get means
+        # the model is registered on the server (Enterprise loaded); any
+        # AccessError / Fault / "model not found" means Community.
+        try:
+            fields = self.execute_kw(
+                'account.asset', 'fields_get', [], {'attributes': []})
+            if isinstance(fields, dict) and fields:
+                # Cache so we don't re-probe on subsequent has_field calls.
+                self._field_cache.setdefault('account.asset', set(fields.keys()))
+                return 'enterprise'
+        except Exception:
+            pass
+        # Last resort: presence of known enterprise-only modules. Triggers a
+        # lazy fetch of ir.module.module the first time it runs.
         try:
             installed = self.fetch_installed_modules()
         except Exception:

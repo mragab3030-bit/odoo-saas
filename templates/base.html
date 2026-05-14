@@ -33,6 +33,10 @@
       </div>
     </div>
 
+    {% set _ver_label = 'v' ~ odoo_version_string if odoo_version_string else '' %}
+    {% set _ed_label  = odoo_edition|capitalize if odoo_edition else '' %}
+    {% set _version_line = _ver_label ~ (' · ' if _ver_label and _ed_label else '') ~ _ed_label %}
+
     {% if has_multi_company %}
     <form method="POST" action="{{ url_for('select_company') }}" class="sidebar-company">
       <label class="sidebar-company-label">
@@ -46,9 +50,9 @@
         </option>
         {% endfor %}
       </select>
-      {% if odoo_version_string %}
-      <div class="sidebar-version" title="Odoo {{ odoo_version_string }}">
-        <i class="fa-solid fa-code-branch"></i> Odoo {{ odoo_version_string }}
+      {% if _version_line %}
+      <div class="sidebar-version" title="Odoo {{ _ver_label }} {{ _ed_label }}">
+        <i class="fa-solid fa-gear"></i> {{ _version_line }}
       </div>
       {% endif %}
     </form>
@@ -58,16 +62,16 @@
         <i class="fa-solid fa-building"></i> Company
       </div>
       <div class="sidebar-company-static" title="{{ selected_company.name }}">{{ selected_company.name }}</div>
-      {% if odoo_version_string %}
-      <div class="sidebar-version" title="Odoo {{ odoo_version_string }}">
-        <i class="fa-solid fa-code-branch"></i> Odoo {{ odoo_version_string }}
+      {% if _version_line %}
+      <div class="sidebar-version" title="Odoo {{ _ver_label }} {{ _ed_label }}">
+        <i class="fa-solid fa-gear"></i> {{ _version_line }}
       </div>
       {% endif %}
     </div>
-    {% elif odoo_version_string %}
+    {% elif _version_line %}
     <div class="sidebar-company">
-      <div class="sidebar-version" title="Odoo {{ odoo_version_string }}">
-        <i class="fa-solid fa-code-branch"></i> Odoo {{ odoo_version_string }}
+      <div class="sidebar-version" title="Odoo {{ _ver_label }} {{ _ed_label }}">
+        <i class="fa-solid fa-gear"></i> {{ _version_line }}
       </div>
     </div>
     {% endif %}
