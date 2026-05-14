@@ -51,6 +51,28 @@ def get_client() -> OdooClient:
         cid = session.get('company_id')
         if cid:
             g.odoo_client.set_company(cid)
+
+        # Lazy backfill for sessions that pre-date version detection — the
+        # alternative is forcing every user to log out and back in.
+        if not session.get('odoo_version_info'):
+            try:
+                g.odoo_client.version_info = OdooClient.fetch_version(
+                    session['odoo_url'])
+                session['odoo_version_info'] = g.odoo_client.version_info
+                session['odoo_version_major'] = g.odoo_client.version_major
+            except Exception:
+                pass
+        if not session.get('odoo_edition'):
+            try:
+                session['odoo_edition'] = g.odoo_client.detect_edition()
+            except Exception:
+                session['odoo_edition'] = 'community'
+        if session.get('installed_modules') is None:
+            try:
+                session['installed_modules'] = sorted(
+                    g.odoo_client.fetch_installed_modules())
+            except Exception:
+                session['installed_modules'] = []
     return g.odoo_client
 
 
@@ -191,12 +213,19 @@ def inject_company_context():
         # all features visible so the user sees real tabs instead of a wall of
         # locks. The handlers still guard each route individually.
         features = {k: True for k in FEATURE_INFO}
+
+    # Prefer server_serie ("17.0") over server_version ("17.0+e"); strip
+    # the +e / saas~ / -YYYYMMDD suffixes so the sidebar shows a clean "17.0".
+    raw_ver = version_info.get('server_serie') or version_info.get('server_version') or ''
+    clean_ver = str(raw_ver).split('+')[0].split('-')[0]
+    if '~' in clean_ver:
+        clean_ver = clean_ver.split('~')[-1]
+
     return {
         'companies': companies,
         'selected_company': selected,
         'has_multi_company': len(companies) > 1,
-        'odoo_version_string': version_info.get('server_version_string')
-            or version_info.get('server_version') or '',
+        'odoo_version_string': clean_ver,
         'odoo_version_major': session.get('odoo_version_major') or 0,
         'odoo_edition': edition,
         'installed_modules': installed,

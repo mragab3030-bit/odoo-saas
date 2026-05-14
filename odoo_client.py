@@ -103,11 +103,20 @@ class OdooClient:
 
     @property
     def version_string(self) -> str:
-        ver = (self.version_info or {}).get('server_version') or ''
+        info = self.version_info or {}
+        # `server_serie` is the canonical "17.0" / "16.0" string when present.
+        serie = info.get('server_serie')
+        if serie:
+            return str(serie).strip()
+        ver = info.get('server_version') or ''
         if not ver:
             return ''
-        # Trim noisy suffixes like "17.0+e" → "17.0"
-        return str(ver).split('+')[0]
+        # Trim noisy suffixes: "17.0+e" → "17.0", "17.0-20231009" → "17.0",
+        # "saas~17.1+e" → "17.1".
+        ver = str(ver).split('+')[0].split('-')[0]
+        if '~' in ver:
+            ver = ver.split('~')[-1]
+        return ver
 
     # Modules that only ship with Odoo Enterprise. Presence of any of these in
     # ir.module.module (state=installed) is a strong signal the server runs the
@@ -125,18 +134,39 @@ class OdooClient:
         'sign',
     })
 
+    # Canonical Enterprise markers, by reliability. `web_enterprise` is the
+    # Enterprise web client and is installed on every Enterprise instance;
+    # `account_accountant` is the Enterprise-only accounting suite.
+    ENTERPRISE_PRIMARY_MARKERS = ('web_enterprise', 'account_accountant')
+
     def detect_edition(self) -> str:
         """Return 'enterprise' or 'community'.
 
-        Strategy, in order:
-          1. `server_version` string contains `+e` or `enterprise`.
-          2. The last element of `server_version_info` carries `'e'`.
-          3. Probe an enterprise-only model (`account.asset`). If it answers
-             a `fields_get`, the Enterprise codebase is loaded.
-          4. Any known enterprise-only module is installed.
-        Falls back to 'community' if nothing matches — community is the safer
-        default because it hides enterprise-only tabs rather than exposing
-        broken links."""
+        Primary check: query ir.module.module for `web_enterprise` /
+        `account_accountant` in state `installed`. This is the most reliable
+        signal — both modules ship only with Enterprise.
+
+        Fallbacks (only used when the primary query throws — e.g. ACL on
+        ir.module.module): version string suffix, server_version_info tag,
+        then any module from ENTERPRISE_MARKER_MODULES. Defaults to
+        'community' so we never falsely advertise Enterprise tabs.
+        """
+        try:
+            hits = self.execute_kw(
+                'ir.module.module', 'search',
+                [[['name', 'in', list(self.ENTERPRISE_PRIMARY_MARKERS)],
+                  ['state', '=', 'installed']]],
+                {'limit': 1})
+            if hits:
+                return 'enterprise'
+            # The query worked and returned no rows → Community. Trust this
+            # over the version-string heuristic (some Community builds have
+            # been observed shipping with `+e` in custom forks).
+            return 'community'
+        except Exception as e:
+            logger.info("Edition probe via ir.module.module failed, "
+                        "falling back to heuristics: %s", e)
+
         ver = (self.version_info or {}).get('server_version', '') or ''
         ver_lower = str(ver).lower()
         if '+e' in ver_lower or 'enterprise' in ver_lower:
@@ -146,20 +176,6 @@ class OdooClient:
             last = info[-1]
             if isinstance(last, str) and last.lower() == 'e':
                 return 'enterprise'
-        # Probe a known Enterprise-only model. A successful fields_get means
-        # the model is registered on the server (Enterprise loaded); any
-        # AccessError / Fault / "model not found" means Community.
-        try:
-            fields = self.execute_kw(
-                'account.asset', 'fields_get', [], {'attributes': []})
-            if isinstance(fields, dict) and fields:
-                # Cache so we don't re-probe on subsequent has_field calls.
-                self._field_cache.setdefault('account.asset', set(fields.keys()))
-                return 'enterprise'
-        except Exception:
-            pass
-        # Last resort: presence of known enterprise-only modules. Triggers a
-        # lazy fetch of ir.module.module the first time it runs.
         try:
             installed = self.fetch_installed_modules()
         except Exception:

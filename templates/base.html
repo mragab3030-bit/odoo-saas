@@ -33,9 +33,9 @@
       </div>
     </div>
 
-    {% set _ver_label = 'v' ~ odoo_version_string if odoo_version_string else '' %}
+    {% set _ver_label = ('v' ~ odoo_version_string) if odoo_version_string else 'Version unknown' %}
     {% set _ed_label  = odoo_edition|capitalize if odoo_edition else '' %}
-    {% set _version_line = _ver_label ~ (' · ' if _ver_label and _ed_label else '') ~ _ed_label %}
+    {% set _version_line = _ver_label ~ ((' · ' ~ _ed_label) if _ed_label else '') %}
 
     {% if has_multi_company %}
     <form method="POST" action="{{ url_for('select_company') }}" class="sidebar-company">
