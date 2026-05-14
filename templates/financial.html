@@ -1229,14 +1229,12 @@
     display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
   }
   .analytic-tables-row {
-    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
   }
   /* Stack vertically on tablets and narrower laptops too — side-by-side
      dense charts get cramped below ~1200px. */
   @media (max-width: 1200px) {
     .analytic-charts-row { grid-template-columns: 1fr; }
-    /* Three Top-5 tables drop to 2 columns here. */
-    .analytic-tables-row { grid-template-columns: 1fr 1fr; }
   }
   @media (max-width: 980px) {
     .analytic-tables-row { grid-template-columns: 1fr; }
@@ -1516,7 +1514,7 @@
               {{ ccy }} {{ r.net | fmt_currency_int }}
             </span>
           </td>
-          <td style="text-align:right">{{ r.margin_display or '0.0%' }}</td>
+          <td style="text-align:right">{{ r.margin_display or '—' }}</td>
         </tr>
         {% else %}
         <tr><td colspan="6"><div class="empty-state"><i class="fa-solid fa-coins"></i><p>No profitable centers</p></div></td></tr>
@@ -1555,40 +1553,10 @@
               {{ ccy }} {{ r.net | fmt_currency_int }}
             </span>
           </td>
-          <td style="text-align:right">{{ r.margin_display or '0.0%' }}</td>
+          <td style="text-align:right">{{ r.margin_display or '—' }}</td>
         </tr>
         {% else %}
         <tr><td colspan="6"><div class="empty-state"><i class="fa-solid fa-circle-check"></i><p>No losses recorded</p></div></td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <div class="analytic-section">
-    <div class="analytic-header">
-      <div class="analytic-title"><i class="fa-solid fa-money-bill-trend-up" style="color:#475569"></i> TOP 5 PURE COST CENTERS</div>
-    </div>
-    <table class="data-table analytic-table">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Cost Center</th>
-          <th style="text-align:right">Total Costs</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in top_cost_centers %}
-        <tr>
-          <td><strong>{{ loop.index }}</strong></td>
-          <td>{{ r.name }}</td>
-          <td class="net-neg" style="text-align:right">
-            <span class="amount-display" data-amount="{{ r.costs or 0 }}" data-currency="{{ ccy }}">
-              {{ ccy }} {{ r.costs | fmt_currency_int }}
-            </span>
-          </td>
-        </tr>
-        {% else %}
-        <tr><td colspan="3"><div class="empty-state"><i class="fa-solid fa-circle-check"></i><p>No pure cost centers</p></div></td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -1651,7 +1619,7 @@
             {{ ccy }} {{ r.net | fmt_currency_int }}
           </span>
         </td>
-        <td style="text-align:right">{{ '%.1f' % (r.margin_pct or 0) }}%</td>
+        <td style="text-align:right">{{ r.margin_display or '—' }}</td>
         <td style="text-align:right">{{ r.count }}</td>
       </tr>
       {% else %}

@@ -581,30 +581,17 @@ def _compute_analytic(client, date_from, date_to):
     return rows
 
 
-# Display cap for analytic margin %. Beyond this magnitude, the number is
-# noise (tiny revenue, huge costs) so we clip and show the cap value.
-_MARGIN_PCT_CAP = 999.9
-
-
 def _margin_pct_and_display(net, revenue, costs):
-    """Return (capped_pct, display_string) for an analytic row.
+    """Return (pct, display_string) for an analytic row.
 
-    Rules (per spec):
-      - revenue > 0       → pct = net / revenue * 100, clipped to ±999.9
-      - revenue = 0, costs > 0 → "No Revenue" (numeric stays 0 for sort)
-      - revenue = 0, costs = 0 → "0.0%"
+    - revenue > 0 → real percentage, formatted "%.1f%%"
+    - revenue = 0 → 0.0 numeric (so sorts cleanly), "—" string (no
+      percentage is meaningful without a denominator)
     """
     rev = revenue or 0
-    cst = costs or 0
     if rev <= 0:
-        if cst > 0:
-            return 0.0, 'No Revenue'
-        return 0.0, '0.0%'
+        return 0.0, '—'
     pct = (net / rev) * 100.0
-    if pct >= _MARGIN_PCT_CAP:
-        return _MARGIN_PCT_CAP, '%.1f%%' % _MARGIN_PCT_CAP
-    if pct <= -_MARGIN_PCT_CAP:
-        return -_MARGIN_PCT_CAP, '%.1f%%' % -_MARGIN_PCT_CAP
     return pct, '%.1f%%' % pct
 
 
@@ -1686,22 +1673,16 @@ def financial():
             prev_rows = []
         prev_summary = _analytic_summary(prev_rows)
 
-        # Categorize each row so the three Top-5 lists are mutually exclusive:
-        #   profitable: has revenue AND revenue > costs
-        #   loss:       has revenue AND costs > revenue (true loss with income)
-        #   pure cost:  no revenue at all but costs > 0 (cost centre)
+        # Two Top-5 lists:
+        #   profitable: net > 0 (revenue must exist for net to be positive)
+        #   loss:       net < 0 — includes pure cost centres (revenue=0,
+        #               costs>0); their Loss % column renders as "—".
         top_profitable = sorted(
-            [r for r in rows if (r.get('revenue') or 0) > 0
-                              and r['net'] > 0],
+            [r for r in rows if r['net'] > 0],
             key=lambda r: r['net'], reverse=True)[:5]
         top_loss = sorted(
-            [r for r in rows if (r.get('revenue') or 0) > 0
-                              and (r.get('costs') or 0) > (r.get('revenue') or 0)],
+            [r for r in rows if r['net'] < 0],
             key=lambda r: r['net'])[:5]
-        top_cost_centers = sorted(
-            [r for r in rows if (r.get('revenue') or 0) == 0
-                              and (r.get('costs') or 0) > 0],
-            key=lambda r: r.get('costs') or 0, reverse=True)[:5]
 
         ctx['records']       = rows
         ctx['total_count']   = len(rows)
@@ -1715,9 +1696,8 @@ def financial():
             'costs':   _pct_change(summary['costs'],   prev_summary['costs']),
             'net':     _pct_change(summary['net'],     prev_summary['net']),
         }
-        ctx['top_profitable']   = top_profitable
-        ctx['top_loss']         = top_loss
-        ctx['top_cost_centers'] = top_cost_centers
+        ctx['top_profitable'] = top_profitable
+        ctx['top_loss']       = top_loss
         ctx['period_label']   = _format_period_label(
             range_key, date_from, date_to)
 
