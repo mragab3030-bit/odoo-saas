@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}Odoo Dashboard{% endblock %}</title>
+  <title>{% block title %}Olens — Odoo Analytics Platform{% endblock %}</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   {% block head %}{% endblock %}
@@ -18,10 +18,20 @@
   <aside class="sidebar" id="sidebar">
 
     <div class="sidebar-brand">
-      <div class="brand-icon"><i class="fa-solid fa-chart-line"></i></div>
+      <div class="brand-icon">
+        <svg class="olens-logo" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <line x1="42" y1="42" x2="58" y2="58" stroke="#E63030" stroke-width="6" stroke-linecap="round"/>
+          <circle cx="27" cy="27" r="22" fill="none" stroke="#E63030" stroke-width="4"/>
+          <circle cx="27" cy="27" r="14" fill="none" stroke="#E63030" stroke-width="2" opacity="0.45"/>
+          <circle cx="27" cy="27" r="7"  fill="none" stroke="#E63030" stroke-width="2" opacity="0.45"/>
+          <line x1="27" y1="7"  x2="27" y2="47" stroke="#E63030" stroke-width="1.5" opacity="0.4"/>
+          <line x1="7"  y1="27" x2="47" y2="27" stroke="#E63030" stroke-width="1.5" opacity="0.4"/>
+          <circle cx="27" cy="27" r="2.5" fill="#E63030"/>
+        </svg>
+      </div>
       <div class="brand-text">
-        <div class="brand-name">Odoo Dashboard</div>
-        <div class="brand-sub">SaaS Analytics</div>
+        <div class="brand-name">Olens</div>
+        <div class="brand-sub">Odoo Analytics Platform</div>
       </div>
     </div>
 
