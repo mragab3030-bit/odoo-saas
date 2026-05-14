@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}{{ info.label }} unavailable{% endblock %}
+{% block page_title %}{{ info.label }}{% endblock %}
+{% block page_subtitle %}<small>Feature unavailable</small>{% endblock %}
+
+{% block content %}
+<div class="feature-unavailable">
+  <div class="feature-unavailable-card">
+    <div class="feature-unavailable-icon">
+      <i class="fa-solid {{ info.icon or 'fa-lock' }}"></i>
+      <span class="feature-unavailable-lock"><i class="fa-solid fa-lock"></i></span>
+    </div>
+
+    <h2>{{ info.label }} is not available</h2>
+
+    {% if show_enterprise_copy %}
+      <p class="feature-unavailable-message">
+        This feature is available in <strong>Odoo Enterprise</strong> only.
+        Your server is running <strong>Odoo Community</strong>{% if odoo_version_string %}
+          ({{ odoo_version_string }}){% endif %}.
+      </p>
+      <p class="feature-unavailable-hint">
+        Upgrade to Enterprise or install the
+        <code>{{ info.module }}</code> module to unlock {{ info.label }}.
+      </p>
+    {% else %}
+      <p class="feature-unavailable-message">
+        This module requires <code>{{ info.module }}</code> to be installed in Odoo.
+      </p>
+      <p class="feature-unavailable-hint">
+        Ask your Odoo administrator to install the
+        <code>{{ info.module }}</code> module on
+        {% if odoo_version_string %}Odoo {{ odoo_version_string }}{% else %}your instance{% endif %},
+        then refresh this dashboard.
+      </p>
+    {% endif %}
+
+    <div class="feature-unavailable-actions">
+      {% if info.learn_more %}
+      <a href="{{ info.learn_more }}" target="_blank" rel="noopener noreferrer"
+         class="btn btn-primary">
+        Learn More
+        <i class="fa-solid fa-arrow-up-right-from-square"></i>
+      </a>
+      {% endif %}
+      <a href="{{ url_for('dashboard') }}" class="btn btn-outline">
+        <i class="fa-solid fa-arrow-left"></i> Back to Dashboard
+      </a>
+    </div>
+  </div>
+</div>
+{% endblock %}

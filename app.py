@@ -45,11 +45,121 @@ def get_client() -> OdooClient:
             db=session['odoo_db'],
             uid=session['odoo_uid'],
             password=session['odoo_api_key'],
+            version_info=session.get('odoo_version_info') or {},
+            installed_modules=session.get('installed_modules') or None,
         )
         cid = session.get('company_id')
         if cid:
             g.odoo_client.set_company(cid)
     return g.odoo_client
+
+
+# Static metadata for each gated feature.
+# `module` is the canonical Odoo technical name; if it's installed, the feature
+# is on. `enterprise_only` flips the user-facing copy from "install module" to
+# "Enterprise only" when the server is community.
+FEATURE_INFO = {
+    'manufacturing': {
+        'label': 'Manufacturing',
+        'icon': 'fa-industry',
+        'module': 'mrp',
+        'enterprise_only': False,
+        'learn_more': 'https://www.odoo.com/app/manufacturing',
+    },
+    'expenses': {
+        'label': 'Expenses',
+        'icon': 'fa-receipt',
+        'module': 'hr_expense',
+        'enterprise_only': False,
+        'learn_more': 'https://www.odoo.com/app/expenses',
+    },
+    'assets': {
+        'label': 'Assets',
+        'icon': 'fa-boxes-packing',
+        'module': 'account_asset',
+        # account_asset ships only with Enterprise (community users use OCA).
+        'enterprise_only': True,
+        'learn_more': 'https://www.odoo.com/app/accounting',
+    },
+    'analytic': {
+        'label': 'Analytic Accounting',
+        'icon': 'fa-diagram-project',
+        'module': 'analytic',
+        'enterprise_only': False,
+        'learn_more': 'https://www.odoo.com/app/accounting',
+    },
+    'project': {
+        'label': 'Project',
+        'icon': 'fa-list-check',
+        'module': 'project',
+        'enterprise_only': False,
+        'learn_more': 'https://www.odoo.com/app/project',
+    },
+    'hr_attendance': {
+        'label': 'Attendance',
+        'icon': 'fa-clock',
+        'module': 'hr_attendance',
+        'enterprise_only': False,
+        'learn_more': 'https://www.odoo.com/app/attendances',
+    },
+    'hr_leave': {
+        'label': 'Time Off',
+        'icon': 'fa-calendar-xmark',
+        'module': 'hr_holidays',
+        'enterprise_only': False,
+        'learn_more': 'https://www.odoo.com/app/employees',
+    },
+    'inventory': {
+        'label': 'Inventory',
+        'icon': 'fa-warehouse',
+        'module': 'stock',
+        'enterprise_only': False,
+        'learn_more': 'https://www.odoo.com/app/inventory',
+    },
+    'sales': {
+        'label': 'Sales',
+        'icon': 'fa-cart-shopping',
+        'module': 'sale_management',
+        'enterprise_only': False,
+        'learn_more': 'https://www.odoo.com/app/sales',
+    },
+}
+
+
+def _resolve_installed_features(installed: set) -> dict:
+    """Map installed module names to feature flags. Inventory/Sales/HR keys
+    use permissive defaults: when we can't read ir.module.module the tabs
+    remain visible and the server-side fallback decides what to render."""
+    inst = installed or set()
+    return {
+        'manufacturing': 'mrp' in inst,
+        'expenses':      'hr_expense' in inst,
+        # In v17+ `account_asset` was rolled into `account`. v15/v16 keep it
+        # separate; if it's missing we treat the feature as locked and let
+        # the friendly page explain.
+        'assets':        ('account_asset' in inst),
+        # `analytic` ships as a dependency of `account`, so falling back to
+        # `account` keeps us permissive for installs where the module list
+        # isn't readable.
+        'analytic':      ('analytic' in inst) or ('account' in inst),
+        'project':       'project' in inst,
+        'hr_attendance': 'hr_attendance' in inst,
+        'hr_leave':      'hr_holidays' in inst,
+        'inventory':     'stock' in inst,
+        'sales':         ('sale_management' in inst) or ('sale' in inst),
+    }
+
+
+def _feature_is_locked(feature: str) -> bool:
+    """True iff the named feature isn't unlocked for the current session.
+    Unknown feature names are treated as unlocked (no false positives)."""
+    if feature not in FEATURE_INFO:
+        return False
+    inst = set(session.get('installed_modules') or [])
+    # If we have no module list at all (ACL-blocked), keep tabs available.
+    if not inst:
+        return False
+    return not _resolve_installed_features(inst).get(feature, True)
 
 
 @app.after_request
@@ -66,14 +176,32 @@ def _no_store_for_authed_pages(response):
 
 @app.context_processor
 def inject_company_context():
-    """Expose company list + selected company to every template."""
+    """Expose company list, selected company, server version, edition, and
+    feature flags to every template."""
     companies = session.get('companies') or []
     selected_id = session.get('company_id')
     selected = next((c for c in companies if c['id'] == selected_id), None)
+    version_info = session.get('odoo_version_info') or {}
+    installed = set(session.get('installed_modules') or [])
+    edition = session.get('odoo_edition') or 'community'
+    if installed:
+        features = _resolve_installed_features(installed)
+    else:
+        # If we never got a module list (ACL-blocked or pre-login), default to
+        # all features visible so the user sees real tabs instead of a wall of
+        # locks. The handlers still guard each route individually.
+        features = {k: True for k in FEATURE_INFO}
     return {
         'companies': companies,
         'selected_company': selected,
         'has_multi_company': len(companies) > 1,
+        'odoo_version_string': version_info.get('server_version_string')
+            or version_info.get('server_version') or '',
+        'odoo_version_major': session.get('odoo_version_major') or 0,
+        'odoo_edition': edition,
+        'installed_modules': installed,
+        'features': features,
+        'feature_info': FEATURE_INFO,
     }
 
 
@@ -330,7 +458,15 @@ def _compute_trend(client, move_type, date_from, date_to):
 def _compute_analytic(client, date_from, date_to):
     """Aggregate account.analytic.line into one row per analytic account.
     Returns a list of dicts with revenue / costs / net / margin / count / plan.
-    Costs are stored as positive numbers (absolute value of negative amounts)."""
+    Costs are stored as positive numbers (absolute value of negative amounts).
+
+    Field-rename note: in Odoo 17+ the analytic line points at the canonical
+    account via `auto_account_id` (multi-plan support); older versions used
+    `account_id`. `pick_field` resolves whichever exists on the running server.
+    """
+    account_field = client.pick_field('account.analytic.line', 'account_id',
+                                      default='account_id')
+
     base_dom = []
     if date_from:
         base_dom.append(['date', '>=', date_from])
@@ -339,16 +475,16 @@ def _compute_analytic(client, date_from, date_to):
 
     rev_grps = client.safe_read_group(
         'account.analytic.line', base_dom + [['amount', '>', 0]],
-        ['amount:sum'], ['account_id']) or []
+        ['amount:sum'], [account_field]) or []
     cost_grps = client.safe_read_group(
         'account.analytic.line', base_dom + [['amount', '<', 0]],
-        ['amount:sum'], ['account_id']) or []
+        ['amount:sum'], [account_field]) or []
     count_grps = client.safe_read_group(
         'account.analytic.line', base_dom,
-        [], ['account_id']) or []
+        [], [account_field]) or []
 
     def _aid(grp):
-        pair = grp.get('account_id')
+        pair = grp.get(account_field)
         if isinstance(pair, list) and pair:
             return pair[0], pair[1] if len(pair) > 1 else f'#{pair[0]}'
         if isinstance(pair, int):
@@ -384,15 +520,21 @@ def _compute_analytic(client, date_from, date_to):
 
     aids = list(accounts.keys())
     if aids:
+        # `plan_id` was added with the v17 multi-plan rework; older versions
+        # still expose `group_id`. Read whichever exists.
+        plan_field = client.pick_field('account.analytic.account', 'plan_id')
+        read_fields = ['id', 'code']
+        if plan_field:
+            read_fields.append(plan_field)
         recs = client.safe_search_read(
             'account.analytic.account',
             [['id', 'in', aids]],
-            ['id', 'plan_id', 'code'])
+            read_fields)
         for r in recs:
             a = accounts.get(r.get('id'))
             if not a:
                 continue
-            plan = r.get('plan_id')
+            plan = r.get(plan_field) if plan_field else None
             if isinstance(plan, list) and len(plan) > 1:
                 a['plan_id'] = plan[0]
                 a['plan_name'] = plan[1]
@@ -640,6 +782,25 @@ def login():
         session['odoo_username'] = username
         session['odoo_uid'] = client.uid
         session['odoo_api_key'] = api_key
+        # Version detection — captured during authenticate() via common.version()
+        session['odoo_version_info'] = client.version_info or {}
+        session['odoo_version_major'] = client.version_major or 0
+
+        # Module detection — drives feature flags used to gate tabs.
+        # Best-effort: if the user lacks access to ir.module.module, we fall
+        # back to an empty set and `_resolve_installed_features` gives a
+        # permissive default.
+        try:
+            session['installed_modules'] = sorted(client.fetch_installed_modules())
+        except Exception:
+            session['installed_modules'] = []
+
+        # Edition detection — community vs enterprise. Drives the "Enterprise
+        # only" copy on the feature-unavailable screen.
+        try:
+            session['odoo_edition'] = client.detect_edition()
+        except Exception:
+            session['odoo_edition'] = 'community'
 
         # Fetch companies the user has access to (multi-company support)
         try:
@@ -721,6 +882,35 @@ def select_company():
     if cid in allowed_ids:
         session['company_id'] = cid
     return redirect(request.referrer or url_for('dashboard'))
+
+
+# ---------------------------------------------------------------------------
+# Feature unavailable (locked tab landing page)
+# ---------------------------------------------------------------------------
+
+@app.route('/feature-unavailable/<feature>')
+@login_required
+def feature_unavailable(feature):
+    """Friendly landing page reached when a user clicks a locked tab in the
+    sidebar (or hits a locked tab's URL directly). Never raises — unknown
+    feature keys fall back to a generic message."""
+    info = FEATURE_INFO.get(feature, {
+        'label': feature.replace('_', ' ').title(),
+        'icon': 'fa-lock',
+        'module': feature,
+        'enterprise_only': False,
+        'learn_more': 'https://www.odoo.com/page/apps',
+    })
+    edition = session.get('odoo_edition') or 'community'
+    # Enterprise copy only fires when the module is enterprise-only AND we
+    # detected community. Otherwise it's a plain "module not installed".
+    show_enterprise_copy = info.get('enterprise_only') and edition != 'enterprise'
+    return render_template(
+        'feature_unavailable.html',
+        feature=feature,
+        info=info,
+        show_enterprise_copy=show_enterprise_copy,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -856,8 +1046,15 @@ def dashboard():
 @app.route('/financial')
 @login_required
 def financial():
-    c = get_client()
     tab = request.args.get('tab', 'invoices')
+    # Tab-level lock check: direct URLs to a locked tab land on the friendly
+    # unavailable page instead of running the handler with broken data.
+    tab_feature = {'analytic': 'analytic',
+                   'assets':   'assets',
+                   'expenses': 'expenses'}.get(tab)
+    if tab_feature and _feature_is_locked(tab_feature):
+        return redirect(url_for('feature_unavailable', feature=tab_feature))
+    c = get_client()
     page = safe_int_param('page')
     search = request.args.get('search', '').strip()
     raw_date_from = request.args.get('date_from', '')
@@ -1348,11 +1545,24 @@ def financial():
         }
 
     elif tab == 'analytic':
-        try:
-            rows = _compute_analytic(c, date_from, date_to)
-        except Exception:
+        # Probe the underlying model once — if it's missing or ACL-blocked we
+        # render a clean "Not available in this version" notice instead of
+        # crashing.
+        analytic_fields = c.get_model_fields('account.analytic.line')
+        if not analytic_fields:
             rows = []
-            ctx['error'] = 'Analytic accounting module may not be installed on this Odoo instance.'
+            ctx['error'] = (
+                'Analytic Accounting is not available on this Odoo instance '
+                '(model account.analytic.line is missing or inaccessible).'
+            )
+        else:
+            try:
+                rows = _compute_analytic(c, date_from, date_to)
+            except Exception as e:
+                rows = []
+                ctx['error'] = (
+                    f'Analytic data is not available in this Odoo version: {e}'
+                )
         if search:
             s = search.lower()
             rows = [r for r in rows if s in (r.get('name') or '').lower()
@@ -1509,6 +1719,8 @@ def financial_tax_summary():
 @app.route('/inventory')
 @login_required
 def inventory():
+    if _feature_is_locked('inventory'):
+        return redirect(url_for('feature_unavailable', feature='inventory'))
     c = get_client()
     tab = request.args.get('tab', 'stock')
     page = safe_int_param('page')
@@ -1610,6 +1822,8 @@ def inventory():
 @app.route('/sales')
 @login_required
 def sales():
+    if _feature_is_locked('sales'):
+        return redirect(url_for('feature_unavailable', feature='sales'))
     c = get_client()
     tab = request.args.get('tab', 'orders')
     page = safe_int_param('page')
@@ -1696,8 +1910,12 @@ def sales():
 @app.route('/hr')
 @login_required
 def hr():
-    c = get_client()
     tab = request.args.get('tab', 'attendance')
+    tab_feature = {'attendance': 'hr_attendance',
+                   'leave':      'hr_leave'}.get(tab)
+    if tab_feature and _feature_is_locked(tab_feature):
+        return redirect(url_for('feature_unavailable', feature=tab_feature))
+    c = get_client()
     page = safe_int_param('page')
     search = request.args.get('search', '').strip()
     date_from = request.args.get('date_from', month_start_str())
@@ -1782,6 +2000,8 @@ def hr():
 @app.route('/manufacturing')
 @login_required
 def manufacturing():
+    if _feature_is_locked('manufacturing'):
+        return redirect(url_for('feature_unavailable', feature='manufacturing'))
     c = get_client()
     tab = request.args.get('tab', 'production')
     page = safe_int_param('page')
