@@ -873,33 +873,141 @@ def _margin_pct_and_display(net, revenue, costs):
     return pct, '%.1f%%' % pct
 
 
+# account_type values that mark P&L revenue / expense accounts in Odoo
+# v16+. The legacy v15 schema uses user_type_id → account.account.type with
+# a free-text 'name' and a 'type' enum; we classify v15 with a hybrid
+# approach (see _classify_gl_accounts).
+PNL_REVENUE_TYPES = {'income', 'income_other'}
+PNL_EXPENSE_TYPES = {
+    'expense', 'expense_depreciation', 'expense_direct_cost',
+    'expenses',  # tolerated alias seen on some forks
+}
+
+
+def _classify_gl_accounts(client, gid_set):
+    """Return {gid: {'name', 'code', 'type'}} for every GL account id.
+
+    The 'type' value is normalised to one of:
+      'income' | 'income_other'              → revenue
+      'expense' | 'expense_depreciation' | 'expense_direct_cost' → expense
+      anything else (or '')                  → other / balance sheet
+
+    Version compatibility:
+      • v16+: account_type is a string field on account.account — read it
+        directly in a single bulk call.
+      • v15:  no account_type field. Read user_type_id, then batch-read
+        the corresponding account.account.type rows. We pick the
+        revenue/expense bucket from the legacy 'type' enum + the name
+        text ('Income', 'Other Income', 'Expense', 'Cost of Revenue').
+    """
+    if not gid_set:
+        return {}
+    gid_list = list(gid_set)
+    acc_fields_set = client.get_model_fields('account.account')
+    has_account_type = 'account_type' in acc_fields_set
+    has_user_type    = 'user_type_id' in acc_fields_set
+
+    fields = ['id', 'name', 'display_name', 'code']
+    if has_account_type: fields.append('account_type')
+    if has_user_type:    fields.append('user_type_id')
+    try:
+        accs = client.execute_kw(
+            'account.account', 'read',
+            [gid_list], {'fields': fields}) or []
+    except Exception as e:
+        logger.warning("Cost-center P&L: account.account read failed: %s", e)
+        accs = []
+
+    # v15 prep: harvest user_type ids and fetch their type/name.
+    v15_meta = {}
+    if (not has_account_type) and has_user_type:
+        ut_ids = []
+        for r in accs:
+            ut = r.get('user_type_id')
+            if isinstance(ut, list) and ut and not isinstance(ut[0], bool):
+                ut_ids.append(ut[0])
+        if ut_ids:
+            try:
+                rows = client.execute_kw(
+                    'account.account.type', 'read',
+                    [list(set(ut_ids))],
+                    {'fields': ['id', 'name', 'type']}) or []
+            except Exception as e:
+                logger.info("v15 user-type read failed: %s", e)
+                rows = []
+            for tr in rows:
+                v15_meta[tr.get('id')] = {
+                    'name': (tr.get('name') or '').lower(),
+                    'type': (tr.get('type') or '').lower(),
+                }
+
+    def _v15_atype(ut_pair):
+        if not (isinstance(ut_pair, list) and ut_pair):
+            return ''
+        meta = v15_meta.get(ut_pair[0], {})
+        legacy = meta.get('type', '')   # receivable | payable | liquidity | other | equity
+        ut_name = meta.get('name', '')
+        # Balance-sheet legacy types are never P&L — leave as 'other'.
+        if legacy in ('receivable', 'payable', 'liquidity', 'equity'):
+            return ''
+        # 'other' is overloaded: name decides revenue vs expense.
+        if 'income' in ut_name or 'revenue' in ut_name or 'sale' in ut_name:
+            return 'income'
+        if 'expense' in ut_name or 'cost' in ut_name:
+            return 'expense'
+        return ''
+
+    out = {}
+    for r in accs:
+        gid = r.get('id')
+        if not gid:
+            continue
+        dn = r.get('display_name')
+        nm = r.get('name')
+        label = (dn if dn and dn is not False
+                 else (nm if nm and nm is not False else ''))
+        code = r.get('code') if r.get('code') and r.get('code') is not False else ''
+        atype = ''
+        if has_account_type:
+            v = r.get('account_type')
+            if v and v is not False:
+                atype = str(v).lower()
+        if not atype and has_user_type:
+            atype = _v15_atype(r.get('user_type_id'))
+        out[gid] = {
+            'name': label or '',
+            'code': code or '',
+            'type': atype,
+        }
+    return out
+
+
 def _compute_cost_center_pnl(client, account_id, date_from, date_to):
     """Build a P&L statement for a single analytic account.
 
     Returns:
       {
-        'revenue_lines':  [{'id', 'name', 'code', 'amount'}, ...],
-        'expense_lines':  [{'id', 'name', 'code', 'amount'}, ...],
+        'revenue_lines':  [{'id','name','code','amount','type'}, ...],
+        'expense_lines':  [...],
+        'other_lines':    [...],  # non-P&L (assets / liabilities / equity)
         'total_revenue':  float,
         'total_expenses': float,
-        'net':            float,
+        'total_other':    float,  # signed sum across "other" accounts
+        'net':            float,  # revenue - expenses
         'margin_pct':     float,
         'margin_display': '%.1f%%' | '—',
       }
 
-    Logic:
-      • Revenue line = analytic-line amount > 0 (grouped by general_account_id)
-      • Expense line = analytic-line amount < 0 (shown positive, same grouping)
-      • Sorted by amount desc within each section
+    Classification is done by the accounting account's TYPE
+    (account.account.account_type on v16+, or v15's user_type_id), not
+    by amount sign — so a refund or reversal doesn't flip an account
+    into the wrong section.
 
-    Version compatibility:
-      • V15/V16: filter by account_id directly, read_group by general_account_id
-      • V17:     prefer auto_account_id (legacy account_id may be False)
-      • V18/V19: when account_id / auto_account_id are False for every row,
-                 fall through to a raw-line walk that matches the requested
-                 account via analytic_distribution JSON keys *and*
-                 plan-specific m2o fields (x_plan*_id / plan*_id), then
-                 aggregates client-side by general_account_id.
+    Version compatibility for the analytic line lookup:
+      • V15/V16/V17: filter on account_id / auto_account_id, group by
+                     general_account_id (single read_group).
+      • V18/V19:     fallback walk through analytic_distribution +
+                     x_plan*_id / plan*_id when account_id is False.
     """
     aid = int(account_id)
     line_fields = client.get_model_fields('account.analytic.line')
@@ -920,83 +1028,88 @@ def _compute_cost_center_pnl(client, account_id, date_from, date_to):
     else:
         account_field = None
 
-    # ---- Primary path: filter directly on account_field, group by GL acc.
-    rev_groups, exp_groups = [], []
+    # ---- Primary path: one read_group, no sign filter. Classification
+    # happens later from account_type.
+    groups = []
     if account_field and has_general:
         dom = line_company_dom + date_dom + [[account_field, '=', aid]]
-        rev_groups = client.safe_read_group(
-            'account.analytic.line', dom + [['amount', '>', 0]],
-            ['amount:sum'], ['general_account_id']) or []
-        exp_groups = client.safe_read_group(
-            'account.analytic.line', dom + [['amount', '<', 0]],
+        groups = client.safe_read_group(
+            'account.analytic.line', dom,
             ['amount:sum'], ['general_account_id']) or []
 
     # ---- Fallback for v18+ Analytic Plans (account_field is False on rows).
-    if not (rev_groups or exp_groups):
-        rev_groups, exp_groups = _cost_center_pnl_via_distribution(
+    if not groups:
+        groups = _cost_center_pnl_via_distribution(
             client, aid, line_fields, line_company_dom + date_dom)
 
-    # ---- Convert groups to line dicts and backfill missing GL names.
-    def _flatten(groups):
-        out, missing = [], []
-        for g in groups:
-            ga = g.get('general_account_id')
-            gid, gname = None, ''
-            if isinstance(ga, list) and ga:
-                gid = ga[0] if not isinstance(ga[0], bool) else None
-                gname = (ga[1] if len(ga) > 1 and ga[1] and ga[1] is not False
-                         else '')
-            elif isinstance(ga, int) and not isinstance(ga, bool):
-                gid = ga
-            amt = abs(g.get('amount') or 0)
-            if amt <= 0:
-                continue
-            line = {'id': gid, 'name': gname, 'code': '', 'amount': amt}
-            out.append(line)
-            if gid and not gname:
-                missing.append(gid)
-        return out, missing
+    # ---- Aggregate raw per-GL signed amounts.
+    raw = {}    # gid -> {'name', 'code', 'type', 'amount': signed sum}
+    for g in groups:
+        ga = g.get('general_account_id')
+        gid, gname = None, ''
+        if isinstance(ga, list) and ga and not isinstance(ga[0], bool):
+            gid = ga[0]
+            gname = (ga[1] if len(ga) > 1 and ga[1]
+                     and ga[1] is not False else '')
+        elif isinstance(ga, int) and not isinstance(ga, bool):
+            gid = ga
+        if not gid:
+            continue
+        amt = g.get('amount') or 0
+        slot = raw.setdefault(gid, {
+            'name': gname, 'code': '', 'type': '', 'amount': 0.0,
+        })
+        if gname and not slot['name']:
+            slot['name'] = gname
+        slot['amount'] += amt
 
-    rev_lines, miss_r = _flatten(rev_groups)
-    exp_lines, miss_e = _flatten(exp_groups)
+    # ---- One bulk read on account.account for names + types.
+    meta = _classify_gl_accounts(client, set(raw.keys()))
+    for gid, slot in raw.items():
+        m = meta.get(gid) or {}
+        if m.get('name'):  # canonical label wins over the m2o tuple's display
+            slot['name'] = m['name']
+        if m.get('code'):
+            slot['code'] = m['code']
+        slot['type'] = m.get('type') or ''
 
-    missing_ids = list({i for i in (miss_r + miss_e) if i})
-    if missing_ids:
-        try:
-            accs = client.execute_kw(
-                'account.account', 'read',
-                [missing_ids],
-                {'fields': ['id', 'name', 'display_name', 'code']}) or []
-        except Exception as e:
-            logger.warning("Cost-center P&L: failed to read GL accounts: %s", e)
-            accs = []
-        name_map = {}
-        for r in accs:
-            dn = r.get('display_name')
-            nm = r.get('name')
-            label = (dn if dn and dn is not False
-                     else (nm if nm and nm is not False else ''))
-            name_map[r.get('id')] = (label or '', r.get('code') or '')
-        for ln in rev_lines + exp_lines:
-            if ln['id'] and not ln['name']:
-                nm, code = name_map.get(ln['id'], ('', ''))
-                ln['name'] = nm or 'Unassigned'
-                ln['code'] = code
-        # Pull codes for already-named ones too.
-        for ln in rev_lines + exp_lines:
-            if ln['id'] and not ln['code']:
-                _, code = name_map.get(ln['id'], ('', ''))
-                ln['code'] = code
-
-    for ln in rev_lines + exp_lines:
-        if not ln['name']:
-            ln['name'] = 'Unassigned'
+    # ---- Bucket into revenue / expense / other based on account_type.
+    rev_lines, exp_lines, oth_lines = [], [], []
+    for gid, s in raw.items():
+        amt = s['amount']
+        t = (s.get('type') or '').lower()
+        base = {
+            'id':   gid,
+            'name': s['name'] or 'Unassigned',
+            'code': s['code'] or '',
+            'type': t,
+        }
+        if t in PNL_REVENUE_TYPES:
+            # Revenue posts to analytic as POSITIVE in standard Odoo. Take
+            # the absolute value so a single refund (negative net) still
+            # displays sensibly; negative net revenue is unusual but if it
+            # happens the sign is preserved in the raw total below.
+            base['amount'] = abs(amt)
+            if base['amount'] > 0:
+                rev_lines.append(base)
+        elif t in PNL_EXPENSE_TYPES:
+            base['amount'] = abs(amt)
+            if base['amount'] > 0:
+                exp_lines.append(base)
+        else:
+            # Balance-sheet movement — keep the signed amount so users can
+            # tell whether assets/liabilities increased or decreased.
+            base['amount'] = amt
+            if amt != 0:
+                oth_lines.append(base)
 
     rev_lines.sort(key=lambda x: x['amount'], reverse=True)
     exp_lines.sort(key=lambda x: x['amount'], reverse=True)
+    oth_lines.sort(key=lambda x: abs(x['amount']), reverse=True)
 
     total_revenue  = sum(x['amount'] for x in rev_lines)
     total_expenses = sum(x['amount'] for x in exp_lines)
+    total_other    = sum(x['amount'] for x in oth_lines)
     net = total_revenue - total_expenses
     if total_revenue > 0:
         margin_pct = (net / total_revenue) * 100.0
@@ -1005,11 +1118,18 @@ def _compute_cost_center_pnl(client, account_id, date_from, date_to):
         margin_pct = 0.0
         margin_display = '—'
 
+    logger.info(
+        "Cost-center P&L aid=%s rev=%d exp=%d other=%d totals=(R%.2f, E%.2f, O%.2f)",
+        aid, len(rev_lines), len(exp_lines), len(oth_lines),
+        total_revenue, total_expenses, total_other)
+
     return {
         'revenue_lines':  rev_lines,
         'expense_lines':  exp_lines,
+        'other_lines':    oth_lines,
         'total_revenue':  total_revenue,
         'total_expenses': total_expenses,
+        'total_other':    total_other,
         'net':            net,
         'margin_pct':     margin_pct,
         'margin_display': margin_display,
@@ -1026,6 +1146,11 @@ def _cost_center_pnl_via_distribution(client, account_id, line_fields_set, base_
         (including composite "51,93" multi-plan keys), or
       • any of the x_plan*_id / plan*_id fields point at the account.
     The amount attributed is amount × percentage / 100.
+
+    Returns a list of read_group-shaped rows
+    [{'general_account_id': [gid, name] | False, 'amount': float}, ...]
+    so the caller (which classifies by account_type) can treat the
+    output identically to the primary read_group path.
     """
     aid = int(account_id)
     has_distribution = 'analytic_distribution' in line_fields_set
@@ -1046,13 +1171,12 @@ def _cost_center_pnl_via_distribution(client, account_id, line_fields_set, base_
     lines = client.safe_search_read(
         'account.analytic.line', base_dom, read_fields) or []
 
-    # gid -> {'name': str, 'rev': float, 'exp': float}
+    # gid -> {'name': str, 'amount': signed sum}
     buckets = {}
 
     def _share_for_line(ln):
         amount = ln.get('amount') or 0
         share = 0.0
-        # 1. analytic_distribution JSON
         dist = ln.get('analytic_distribution') if has_distribution else None
         if isinstance(dist, dict) and dist:
             for key, pct in dist.items():
@@ -1066,7 +1190,6 @@ def _cost_center_pnl_via_distribution(client, account_id, line_fields_set, base_
                         share += amount * pct_f
             if share != 0:
                 return share
-        # 2. plan account fields
         for f in plan_account_fields:
             v = ln.get(f)
             if isinstance(v, bool):
@@ -1089,27 +1212,21 @@ def _cost_center_pnl_via_distribution(client, account_id, line_fields_set, base_
             gid, gname = ga, ''
         else:
             gid, gname = 0, 'Unallocated'
-        slot = buckets.setdefault(gid, {'name': gname, 'rev': 0.0, 'exp': 0.0})
+        slot = buckets.setdefault(gid, {'name': gname, 'amount': 0.0})
         if not slot['name'] and gname:
             slot['name'] = gname
-        if share > 0:
-            slot['rev'] += share
-        else:
-            slot['exp'] += abs(share)
+        slot['amount'] += share
 
     logger.info(
         "Cost-center P&L fallback: aid=%s scanned=%d buckets=%d "
         "(has_distribution=%s plan_fields=%s)",
         aid, len(lines), len(buckets), has_distribution, plan_account_fields)
 
-    rev_groups, exp_groups = [], []
+    out = []
     for gid, s in buckets.items():
         ga_pair = [gid, s['name']] if gid else False
-        if s['rev'] > 0:
-            rev_groups.append({'general_account_id': ga_pair, 'amount': s['rev']})
-        if s['exp'] > 0:
-            exp_groups.append({'general_account_id': ga_pair, 'amount': -s['exp']})
-    return rev_groups, exp_groups
+        out.append({'general_account_id': ga_pair, 'amount': s['amount']})
+    return out
 
 
 def _analytic_summary(rows):

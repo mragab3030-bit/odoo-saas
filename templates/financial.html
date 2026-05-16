@@ -1610,6 +1610,7 @@
   }
   .pnl-section-title.rev { color: #16a34a; }
   .pnl-section-title.exp { color: #dc2626; }
+  .pnl-section-title.oth { color: #64748b; }
   .pnl-line, .pnl-subtotal, .pnl-net {
     display: flex;
     justify-content: space-between;
@@ -1633,6 +1634,7 @@
   }
   .pnl-subtotal.rev .pnl-amt { color: #16a34a; }
   .pnl-subtotal.exp .pnl-amt { color: #dc2626; }
+  .pnl-subtotal.oth .pnl-amt { color: #64748b; }
   .pnl-net {
     margin-top: .8rem;
     padding: .65rem .35rem;
@@ -1778,26 +1780,25 @@
       setExportEnabled(false);
       return;
     }
-    var revLines = (data.revenue_lines || []).map(function (l) {
-      return '<div class="pnl-line">' +
-        '<span class="pnl-name">' +
-        (l.code ? '<span class="pnl-code">[' + esc(l.code) + ']</span>' : '') +
-        esc(l.name || 'Unassigned') + '</span>' +
-        '<span class="pnl-amt">' + esc(fmtAmount(l.amount)) + '</span>' +
-        '</div>';
-    }).join('') || '<div class="pnl-line pnl-empty">No revenue lines</div>';
-    var expLines = (data.expense_lines || []).map(function (l) {
-      return '<div class="pnl-line">' +
-        '<span class="pnl-name">' +
-        (l.code ? '<span class="pnl-code">[' + esc(l.code) + ']</span>' : '') +
-        esc(l.name || 'Unassigned') + '</span>' +
-        '<span class="pnl-amt">' + esc(fmtAmount(l.amount)) + '</span>' +
-        '</div>';
-    }).join('') || '<div class="pnl-line pnl-empty">No expense lines</div>';
+    function lineRows(arr, emptyMsg) {
+      var html = (arr || []).map(function (l) {
+        return '<div class="pnl-line">' +
+          '<span class="pnl-name">' +
+          (l.code ? '<span class="pnl-code">[' + esc(l.code) + ']</span>' : '') +
+          esc(l.name || 'Unassigned') + '</span>' +
+          '<span class="pnl-amt">' + esc(fmtAmount(l.amount)) + '</span>' +
+          '</div>';
+      }).join('');
+      return html || ('<div class="pnl-line pnl-empty">' + emptyMsg + '</div>');
+    }
+    var revLines = lineRows(data.revenue_lines, 'No revenue lines');
+    var expLines = lineRows(data.expense_lines, 'No expense lines');
+    var hasOther = (data.other_lines || []).length > 0;
+    var othLines = hasOther ? lineRows(data.other_lines, '') : '';
     var netClass = (data.net || 0) >= 0 ? 'pos' : 'neg';
     var netLabel = (data.net || 0) >= 0 ? 'NET PROFIT' : 'NET LOSS';
 
-    output.innerHTML = [
+    var html = [
       '<div class="pnl-meta">',
       '<div>Cost Center: <strong>', esc(data.cost_center_name || ''), '</strong></div>',
       '<div>Period: <strong>', esc(data.period_label || ''), '</strong></div>',
@@ -1818,6 +1819,20 @@
           '<span class="pnl-amt">', esc(fmtAmount(data.total_expenses)), '</span>',
         '</div>',
       '</div>',
+    ];
+    if (hasOther) {
+      html.push(
+        '<div class="pnl-section">',
+          '<div class="pnl-section-title oth">OTHER MOVEMENTS <span style="opacity:.6;font-weight:400">(non-P&amp;L: assets / liabilities / equity)</span></div>',
+          othLines,
+          '<div class="pnl-subtotal oth">',
+            '<span>Total Other</span>',
+            '<span class="pnl-amt">', esc(fmtAmount(data.total_other)), '</span>',
+          '</div>',
+        '</div>'
+      );
+    }
+    html.push(
       '<div class="pnl-net ', netClass, '">',
         '<span>', netLabel, '</span>',
         '<span class="pnl-amt">', esc(fmtAmount(data.net)), '</span>',
@@ -1825,8 +1840,9 @@
       '<div class="pnl-margin">',
         '<span>Margin %</span>',
         '<span>', esc(data.margin_display || '—'), '</span>',
-      '</div>',
-    ].join('');
+      '</div>'
+    );
+    output.innerHTML = html.join('');
   }
 
   function generate() {

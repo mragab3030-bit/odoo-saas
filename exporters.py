@@ -342,6 +342,15 @@ def export_pnl_pdf(company_name: str, cost_center_name: str,
     elements.append(section_block(
         'EXPENSES', EXP_RED, pnl.get('expense_lines') or [],
         pnl.get('total_expenses') or 0, 'Total Expenses'))
+    other_lines = pnl.get('other_lines') or []
+    if other_lines:
+        elements.append(Spacer(1, 0.4 * cm))
+        elements.append(section_block(
+            'OTHER MOVEMENTS (non-P&amp;L)',
+            colors.HexColor('#64748b'),
+            other_lines,
+            pnl.get('total_other') or 0,
+            'Total Other'))
     elements.append(Spacer(1, 0.6 * cm))
 
     net_value  = pnl.get('net') or 0
@@ -465,6 +474,12 @@ def export_pnl_excel(company_name: str, cost_center_name: str,
     write_section('EXPENSES', pnl.get('expense_lines') or [],
                   'Total Expenses', pnl.get('total_expenses') or 0,
                   exp_font, 'DC2626')
+    other_lines = pnl.get('other_lines') or []
+    if other_lines:
+        other_font = Font(bold=True, color='64748B', size=11)
+        write_section('OTHER MOVEMENTS (non-P&L)', other_lines,
+                      'Total Other', pnl.get('total_other') or 0,
+                      other_font, '64748B')
 
     # Net + margin summary
     net_value = pnl.get('net') or 0
