@@ -2212,18 +2212,52 @@ def _resolve_asset_model(client):
 def _build_asset_fields(client, model):
     """Build a version-portable field list for the asset model.
 
-    Older versions exposed `category_id`; v17+ replaced it with account
-    fields. We always include `name`, `state`, `original_value`, and
-    `value_residual` when present, and skip anything missing so a single
-    fields_get error doesn't black-hole the whole search_read."""
+    Field names diverged across releases:
+      * v15/v16 (account.asset.asset): `value` (acquisition), `value_residual`
+        (net), `salvage_value`, `category_id`.
+      * v17+ (account.asset): `original_value` (acquisition), `book_value`
+        (computed net), `value_residual` (still present), `account_asset_id`
+        replacing `category_id`.
+
+    We always ask for every plausible name and let the template pick the
+    first that returned a non-zero value, so a single missing column
+    doesn't blank the whole row."""
     available = client.get_model_fields(model)
     wanted = [
         'name', 'state', 'active',
-        'acquisition_date', 'first_depreciation_date', 'date',
-        'original_value', 'value_residual', 'salvage_value',
-        'category_id', 'account_asset_id', 'currency_id',
+        # Date variants
+        'acquisition_date', 'first_depreciation_date', 'date', 'prorata_date',
+        # Money variants — order matters: prefer modern names first
+        'original_value', 'value', 'gross_value',
+        'book_value', 'value_residual', 'net_book_value',
+        'salvage_value',
+        # Category / linked-account variants
+        'category_id', 'asset_category_id', 'account_asset_id', 'account_id',
+        # Misc
+        'currency_id', 'company_id',
     ]
     return [f for f in wanted if f in available]
+
+
+def _pick_asset_value_fields(client, model):
+    """Return (acq_field, net_field) — the live field names this version
+    uses for acquisition cost and net book value. Used both for the
+    read_group totals and the per-row template values so they always
+    line up."""
+    fields = client.get_model_fields(model)
+    acq = next((f for f in ('original_value', 'value', 'gross_value')
+                if f in fields), None)
+    net = next((f for f in ('book_value', 'value_residual', 'net_book_value')
+                if f in fields), None)
+    return acq, net
+
+
+def _pick_asset_category_field(client, model):
+    fields = client.get_model_fields(model)
+    return next((f for f in
+                 ('category_id', 'asset_category_id',
+                  'account_asset_id', 'account_id')
+                 if f in fields), None)
 
 
 # ---------------------------------------------------------------------------
@@ -2640,12 +2674,15 @@ def financial():
                             'residual_value': 0, 'depreciated': 0}
             ctx['asset_state_filter'] = 'all'
             ctx['asset_state_options'] = []
+            ctx['asset_record_path_template'] = ''
         else:
             asset_fields = c.get_model_fields(asset_model)
             read_fields  = _build_asset_fields(c, asset_model)
+            acq_field, net_field = _pick_asset_value_fields(c, asset_model)
+            cat_field            = _pick_asset_category_field(c, asset_model)
 
             state_filter = (request.args.get('state_filter', 'all') or 'all').strip()
-            valid_states = {'all', 'draft', 'open', 'close', 'cancel', 'paused', 'model'}
+            valid_states = {'all', 'draft', 'open', 'close', 'cancel', 'paused'}
             if state_filter not in valid_states:
                 state_filter = 'all'
 
@@ -2655,6 +2692,11 @@ def financial():
             # without being closed.
             if 'active' in asset_fields:
                 domain.append(['active', 'in', [True, False]])
+            # Always strip out the `model` template rows — they are
+            # depreciation-method templates, not real assets, and they
+            # skew counts + KPI sums.
+            if 'state' in asset_fields:
+                domain.append(['state', '!=', 'model'])
             if search:
                 domain.append(['name', 'ilike', search])
             if state_filter != 'all' and 'state' in asset_fields:
@@ -2669,42 +2711,63 @@ def financial():
                 # Order on whatever date-ish field this version exposes; fall
                 # back to `id desc` so a missing column doesn't return [].
                 order_field = next((f for f in
-                    ('acquisition_date', 'first_depreciation_date', 'date')
+                    ('acquisition_date', 'first_depreciation_date',
+                     'date', 'prorata_date')
                     if f in asset_fields), None)
                 order_clause = (order_field + ' desc') if order_field else 'id desc'
                 records = c.safe_search_read(asset_model, domain, read_fields,
                     limit=PAGE_SIZE, offset=(page - 1) * PAGE_SIZE, order=order_clause)
 
-                # Normalise the date field name + state label so the template
-                # stays version-agnostic.
+                # Normalise per-row display: pick the first non-zero value the
+                # version actually exposes, plus a clean date + state label so
+                # the template stays version-agnostic.
                 for r in records:
                     r['acquisition_date_display'] = (
                         r.get('acquisition_date')
                         or r.get('first_depreciation_date')
-                        or r.get('date') or '')
+                        or r.get('date')
+                        or r.get('prorata_date') or '')
+                    r['original_value_display'] = (
+                        r.get('original_value')
+                        or r.get('value')
+                        or r.get('gross_value') or 0)
+                    r['net_value_display'] = (
+                        r.get('book_value')
+                        or r.get('value_residual')
+                        or r.get('net_book_value') or 0)
+                    r['category_display'] = ''
+                    for cf in ('category_id', 'asset_category_id',
+                               'account_asset_id', 'account_id'):
+                        v = r.get(cf)
+                        if v and isinstance(v, (list, tuple)) and len(v) >= 2:
+                            r['category_display'] = v[1]
+                            break
                     st = r.get('state') or ''
                     r['state_label'] = ASSET_STATE_LABELS.get(st, st or '—')
 
-                # Sum totals using the same domain so KPI == table count.
+                # Sum totals on the SAME domain so KPI == table count. Use the
+                # exact field names this version exposes (acq_field/net_field
+                # picked above). Depreciation is derived = acq − net.
                 grp_fields = []
-                if 'original_value' in asset_fields:
-                    grp_fields.append('original_value:sum')
-                if 'value_residual' in asset_fields:
-                    grp_fields.append('value_residual:sum')
+                if acq_field:
+                    grp_fields.append(acq_field + ':sum')
+                if net_field:
+                    grp_fields.append(net_field + ':sum')
                 totals = {}
                 if grp_fields:
                     grps = c.safe_read_group(asset_model, domain, grp_fields, [])
                     totals = grps[0] if grps else {}
+                total_acq = (totals.get(acq_field) if acq_field else 0) or 0
+                total_net = (totals.get(net_field) if net_field else 0) or 0
 
                 ctx['records'] = records
                 ctx['total_pages'] = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
                 ctx['total_count'] = total
                 ctx['stats'] = {
                     'count': total,
-                    'original_value': totals.get('original_value', 0) or 0,
-                    'residual_value': totals.get('value_residual', 0) or 0,
-                    'depreciated': (totals.get('original_value', 0) or 0)
-                                   - (totals.get('value_residual', 0) or 0),
+                    'original_value': total_acq,
+                    'residual_value': total_net,
+                    'depreciated': total_acq - total_net,
                 }
                 ctx['asset_state_filter'] = state_filter
                 ctx['asset_state_options'] = [
@@ -2714,8 +2777,21 @@ def financial():
                     ('close',  'Closed'),
                     ('cancel', 'Cancelled'),
                 ]
-                logger.info("Assets tab: model=%s count=%d fields=%s",
-                            asset_model, total, read_fields)
+                # Deep-link to the Odoo record. v17+ uses the new web client
+                # routing (/odoo/<model-route>/<id>); v15/v16 use the legacy
+                # hash router. The model-route segment is the model name with
+                # dots → dashes (account.asset → account-asset).
+                ver = getattr(c, 'version_major', 0) or 0
+                odoo_base = (session.get('odoo_url') or '').rstrip('/')
+                if ver and ver >= 17:
+                    ctx['asset_record_path_template'] = (
+                        f'{odoo_base}/odoo/assets/{{id}}')
+                else:
+                    ctx['asset_record_path_template'] = (
+                        f'{odoo_base}/web#model={asset_model}&id={{id}}&view_type=form')
+                logger.info(
+                    "Assets tab: model=%s ver=%s count=%d acq_field=%s net_field=%s",
+                    asset_model, ver, total, acq_field, net_field)
             except Exception as e:
                 logger.warning("Assets tab failed for model %s: %s", asset_model, e)
                 ctx['error'] = 'Could not read assets from this Odoo instance.'
@@ -2724,6 +2800,7 @@ def financial():
                                 'residual_value': 0, 'depreciated': 0}
                 ctx['asset_state_filter'] = state_filter
                 ctx['asset_state_options'] = []
+                ctx['asset_record_path_template'] = ''
 
     elif tab == 'expenses':
         domain = []

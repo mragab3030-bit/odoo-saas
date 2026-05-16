@@ -1216,12 +1216,15 @@
     </thead>
     <tbody>
       {% for a in records %}
-      <tr>
+      {% set row_url = asset_record_path_template.replace('{id}', a.id|string) if asset_record_path_template else '' %}
+      <tr {% if row_url %}class="row-clickable"
+          onclick="window.open('{{ row_url }}', '_blank', 'noopener,noreferrer')"
+          title="Open in Odoo"{% endif %}>
         <td><strong>{{ a.name }}</strong></td>
-        <td>{{ a.category_id[1] if a.category_id else (a.account_asset_id[1] if a.account_asset_id else '—') }}</td>
+        <td>{{ a.category_display or '—' }}</td>
         <td>{{ a.acquisition_date_display or '—' }}</td>
-        <td>{{ (a.original_value or 0) | fmt_currency }}</td>
-        <td>{{ (a.value_residual or 0) | fmt_currency }}</td>
+        <td>{{ (a.original_value_display or 0) | fmt_currency }}</td>
+        <td>{{ (a.net_value_display or 0) | fmt_currency }}</td>
         <td>
           {% if a.state == 'open' %}<span class="badge badge-success">Running</span>
           {% elif a.state == 'draft' %}<span class="badge badge-secondary">Draft</span>
