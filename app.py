@@ -516,23 +516,41 @@ def _compute_analytic(client, date_from, date_to):
         'account.analytic.line', base_dom,
         [], [account_field]) or []
 
+    # One-time diagnostic: dump the first few raw groups so the exact field
+    # shape (which key holds the [id, name] tuple, whether name comes back
+    # False, etc.) is visible in server logs without needing a debugger.
+    if rev_grps or cost_grps:
+        sample = (rev_grps or cost_grps)[:3]
+        logger.info(
+            "Analytic _compute_analytic: account_field=%s sample_groups=%s",
+            account_field, sample)
+
     def _aid(grp):
+        # read_group returns many2one as [id, display_name]. display_name can
+        # come back False (broken name_get / empty record) — treat that as
+        # "name missing" so the search_read backfill below can fix it.
         pair = grp.get(account_field)
         if isinstance(pair, list) and pair:
-            return pair[0], pair[1] if len(pair) > 1 else f'#{pair[0]}'
+            aid = pair[0]
+            name = pair[1] if len(pair) > 1 else None
+            if not name or name is False:
+                name = None
+            return aid, name
         if isinstance(pair, int):
-            return pair, f'#{pair}'
-        return None, ''
+            return pair, None
+        return None, None
 
     accounts = {}
 
     def _ensure(aid, name):
         a = accounts.get(aid)
         if a is None:
-            a = {'id': aid, 'name': name,
+            a = {'id': aid, 'name': name or '',
                  'revenue': 0, 'costs': 0, 'count': 0,
                  'plan_id': None, 'plan_name': ''}
             accounts[aid] = a
+        elif not a['name'] and name:
+            a['name'] = name
         return a
 
     for g in rev_grps:
@@ -556,7 +574,9 @@ def _compute_analytic(client, date_from, date_to):
         # `plan_id` was added with the v17 multi-plan rework; older versions
         # still expose `group_id`. Read whichever exists.
         plan_field = client.pick_field('account.analytic.account', 'plan_id')
-        read_fields = ['id', 'code']
+        # Always pull `name` and `display_name` so we can backfill rows
+        # where read_group returned [id, False] for the m2o pair.
+        read_fields = ['id', 'name', 'display_name', 'code']
         if plan_field:
             read_fields.append(plan_field)
         recs = client.safe_search_read(
@@ -572,6 +592,22 @@ def _compute_analytic(client, date_from, date_to):
                 a['plan_id'] = plan[0]
                 a['plan_name'] = plan[1]
             a['code'] = r.get('code') or ''
+            if not a['name']:
+                # Prefer display_name (resolves hierarchy/parent prefix),
+                # then fall back to plain name. Either can be False on
+                # archived/orphan records.
+                dn = r.get('display_name')
+                nm = r.get('name')
+                if dn and dn is not False:
+                    a['name'] = dn
+                elif nm and nm is not False:
+                    a['name'] = nm
+
+    # Final safety net: anything still without a label gets a friendly
+    # placeholder. Prevents "#False" / "#<id>" leaking into the UI or charts.
+    for a in accounts.values():
+        if not a['name']:
+            a['name'] = 'Unassigned'
 
     rows = list(accounts.values())
     for a in rows:
