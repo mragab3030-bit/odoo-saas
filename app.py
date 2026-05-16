@@ -2260,6 +2260,86 @@ def _pick_asset_category_field(client, model):
                  if f in fields), None)
 
 
+def _compute_asset_depreciation_ytd(client, asset_model, base_domain):
+    """YTD depreciation expense for fixed assets.
+
+    Source model differs by Odoo version:
+      * v15/v16: `account.asset.depreciation.line` — one row per planned
+        instalment, `move_check=True` once the journal entry is posted.
+      * v17+: depreciation lines were folded into `account.move.line`
+        with an asset FK (name varies per version / customisation).
+
+    Returns 0 silently if neither source is reachable (ACL, missing
+    module, unexpected schema) so the rest of the page still renders.
+    """
+    today_d   = date.today()
+    today_iso = today_d.isoformat()
+    jan1_iso  = today_d.replace(month=1, day=1).isoformat()
+
+    # v15/v16 path — preferred when the legacy model is present.
+    legacy = client.get_model_fields('account.asset.depreciation.line')
+    if legacy:
+        amount_field = 'amount' if 'amount' in legacy else None
+        date_field   = next((f for f in ('depreciation_date', 'date')
+                             if f in legacy), None)
+        if amount_field and date_field:
+            dom = [[date_field, '>=', jan1_iso],
+                   [date_field, '<=', today_iso]]
+            if 'move_check' in legacy:
+                dom.append(['move_check', '=', True])
+            try:
+                grp = client.safe_read_group(
+                    'account.asset.depreciation.line', dom,
+                    [amount_field + ':sum'], [])
+                return (grp[0].get(amount_field) if grp else 0) or 0
+            except Exception as e:
+                logger.info("v15/16 depreciation YTD failed: %s", e)
+
+    # v17+ path — depreciation lives in account.move.line. The asset FK
+    # name has bounced around across versions, so probe.
+    mline_fields = client.get_model_fields('account.move.line') or set()
+    asset_fk = next((f for f in
+                     ('depreciation_asset_id', 'asset_id',
+                      'move_asset_id', 'account_asset_id')
+                     if f in mline_fields), None)
+    if not asset_fk:
+        return 0
+    dom = [[asset_fk, '!=', False],
+           ['date', '>=', jan1_iso],
+           ['date', '<=', today_iso]]
+    if 'parent_state' in mline_fields:
+        dom.append(['parent_state', '=', 'posted'])
+    try:
+        # Sum debit only — each depreciation move has both a debit
+        # (expense) and a credit (accumulated dep) for the same amount,
+        # so summing one side avoids double-counting.
+        grp = client.safe_read_group(
+            'account.move.line', dom, ['debit:sum'], [])
+        return (grp[0].get('debit') if grp else 0) or 0
+    except Exception as e:
+        logger.info("v17+ depreciation YTD failed: %s", e)
+        return 0
+
+
+def _compute_fully_depreciated_count(client, asset_model, base_domain):
+    """Count assets whose net book value has reached zero while still
+    being Running or Closed (draft/cancelled assets don't count as
+    'fully depreciated' — they were never put into service)."""
+    fields = client.get_model_fields(asset_model)
+    net_field = next((f for f in
+                      ('book_value', 'value_residual', 'net_book_value')
+                      if f in fields), None)
+    if not net_field:
+        return 0
+    dom = list(base_domain) + [
+        # Use ≤ 0.01 not == 0 to tolerate rounding residue (Odoo writes
+        # 0.0000000001 type values when prorata rounding hits).
+        [net_field, '<=', 0.01],
+        ['state', 'in', ['open', 'close']],
+    ]
+    return client.safe_count(asset_model, dom)
+
+
 def _resolve_asset_record_url_template(client, asset_model):
     """Build a per-row deep-link template like '<base>/odoo/<segment>/{id}'.
 
@@ -2844,6 +2924,18 @@ def financial():
                 total_acq = (totals.get(acq_field) if acq_field else 0) or 0
                 total_net = (totals.get(net_field) if net_field else 0) or 0
 
+                # Fixed-Assets-only extra KPIs (Depreciation YTD + fully
+                # depreciated count). Both honour the same `domain`, so
+                # they respect the company filter and the status filter
+                # the user has already chosen.
+                depr_ytd = 0
+                fully_dep_count = 0
+                if type_filter == 'purchase':
+                    depr_ytd = _compute_asset_depreciation_ytd(
+                        c, asset_model, domain)
+                    fully_dep_count = _compute_fully_depreciated_count(
+                        c, asset_model, domain)
+
                 ctx['records'] = records
                 ctx['total_pages'] = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
                 ctx['total_count'] = total
@@ -2852,6 +2944,8 @@ def financial():
                     'original_value': total_acq,
                     'residual_value': total_net,
                     'depreciated': total_acq - total_net,
+                    'depr_ytd': depr_ytd,
+                    'fully_depreciated': fully_dep_count,
                 }
                 ctx['asset_state_filter'] = state_filter
                 ctx['asset_state_options'] = [

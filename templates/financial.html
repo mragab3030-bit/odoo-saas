@@ -1218,6 +1218,20 @@
     </div>
     <div class="stat-label">{{ _dep_lbl }}</div>
   </div>
+  {% if not _is_expense and not _is_sale %}
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--danger)">
+      <span class="amount-display" data-amount="{{ stats.get('depr_ytd', 0) or 0 }}" data-currency="{{ assets_ccy }}">
+        {{ assets_ccy }} {{ stats.get('depr_ytd', 0) | fmt_currency }}
+      </span>
+    </div>
+    <div class="stat-label">Depreciation This Year</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" style="color:#ea580c">{{ stats.get('fully_depreciated', 0) }}</div>
+    <div class="stat-label">Fully Depreciated</div>
+  </div>
+  {% endif %}
 </div>
 
 {% if asset_type_options %}
