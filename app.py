@@ -2260,24 +2260,38 @@ def _pick_asset_category_field(client, model):
                  if f in fields), None)
 
 
-def _compute_asset_depreciation_ytd(client, asset_model, base_domain):
-    """YTD depreciation expense for fixed assets.
+def _depreciation_ytd_methods(client):
+    """Walk every known way to compute YTD depreciation and return a
+    dict keyed by method name:
 
-    Source model differs by Odoo version:
-      * v15/v16: `account.asset.depreciation.line` — one row per planned
-        instalment, `move_check=True` once the journal entry is posted.
-      * v17+: depreciation lines were folded into `account.move.line`
-        with an asset FK (name varies per version / customisation).
+      * legacy_dep_line: account.asset.depreciation.line (v15/v16)
+      * move_line_asset_fk: account.move.line via probed asset FK (v17+)
+      * move_line_expense_acct: account.move.line via accounts whose
+        account_type is 'expense_depreciation' — most reliable fallback
+        because it works on every version that supports the account
+        type and doesn't depend on an FK whose name changes.
 
-    Returns 0 silently if neither source is reachable (ACL, missing
-    module, unexpected schema) so the rest of the page still renders.
-    """
+    Each value is a float (0.0 when the method is unavailable / empty).
+    The caller decides how to combine; the debug endpoint surfaces
+    them all so a zero-result is diagnosable."""
     today_d   = date.today()
     today_iso = today_d.isoformat()
     jan1_iso  = today_d.replace(month=1, day=1).isoformat()
 
-    # v15/v16 path — preferred when the legacy model is present.
+    results = {
+        'legacy_dep_line':         0.0,
+        'move_line_asset_fk':      0.0,
+        'move_line_expense_acct':  0.0,
+        '_meta': {
+            'jan1': jan1_iso, 'today': today_iso,
+            'legacy_present': False, 'asset_fk': None,
+            'expense_acct_ids': [],
+        },
+    }
+
+    # ----- Method 1: legacy account.asset.depreciation.line -----------
     legacy = client.get_model_fields('account.asset.depreciation.line')
+    results['_meta']['legacy_present'] = bool(legacy)
     if legacy:
         amount_field = 'amount' if 'amount' in legacy else None
         date_field   = next((f for f in ('depreciation_date', 'date')
@@ -2291,53 +2305,118 @@ def _compute_asset_depreciation_ytd(client, asset_model, base_domain):
                 grp = client.safe_read_group(
                     'account.asset.depreciation.line', dom,
                     [amount_field + ':sum'], [])
-                return (grp[0].get(amount_field) if grp else 0) or 0
+                results['legacy_dep_line'] = (
+                    (grp[0].get(amount_field) if grp else 0) or 0)
             except Exception as e:
-                logger.info("v15/16 depreciation YTD failed: %s", e)
+                logger.info("Method 1 (legacy dep line) failed: %s", e)
 
-    # v17+ path — depreciation lives in account.move.line. The asset FK
-    # name has bounced around across versions, so probe.
     mline_fields = client.get_model_fields('account.move.line') or set()
+
+    # ----- Method 2: account.move.line via asset FK (v17+) ------------
     asset_fk = next((f for f in
                      ('depreciation_asset_id', 'asset_id',
                       'move_asset_id', 'account_asset_id')
                      if f in mline_fields), None)
-    if not asset_fk:
-        return 0
-    dom = [[asset_fk, '!=', False],
-           ['date', '>=', jan1_iso],
-           ['date', '<=', today_iso]]
-    if 'parent_state' in mline_fields:
-        dom.append(['parent_state', '=', 'posted'])
+    results['_meta']['asset_fk'] = asset_fk
+    if asset_fk:
+        dom = [[asset_fk, '!=', False],
+               ['date', '>=', jan1_iso],
+               ['date', '<=', today_iso]]
+        if 'parent_state' in mline_fields:
+            dom.append(['parent_state', '=', 'posted'])
+        try:
+            grp = client.safe_read_group(
+                'account.move.line', dom, ['debit:sum'], [])
+            results['move_line_asset_fk'] = (
+                (grp[0].get('debit') if grp else 0) or 0)
+        except Exception as e:
+            logger.info("Method 2 (asset-FK move line) failed: %s", e)
+
+    # ----- Method 3: account.move.line via expense_depreciation acct --
+    # Most reliable cross-version path: depreciation expense always hits
+    # an account whose account_type is 'expense_depreciation' (v16+);
+    # for v15 we fall back to a user_type name match.
+    acct_fields = client.get_model_fields('account.account') or set()
+    expense_acct_ids = []
     try:
-        # Sum debit only — each depreciation move has both a debit
-        # (expense) and a credit (accumulated dep) for the same amount,
-        # so summing one side avoids double-counting.
-        grp = client.safe_read_group(
-            'account.move.line', dom, ['debit:sum'], [])
-        return (grp[0].get('debit') if grp else 0) or 0
+        if 'account_type' in acct_fields:
+            expense_acct_ids = client.execute_kw(
+                'account.account', 'search',
+                [[['account_type', '=', 'expense_depreciation']]]) or []
+        elif 'user_type_id' in acct_fields:
+            type_ids = client.execute_kw(
+                'account.account.type', 'search',
+                [[['name', 'ilike', 'depreciation']]]) or []
+            if type_ids:
+                expense_acct_ids = client.execute_kw(
+                    'account.account', 'search',
+                    [[['user_type_id', 'in', type_ids]]]) or []
     except Exception as e:
-        logger.info("v17+ depreciation YTD failed: %s", e)
-        return 0
+        logger.info("Method 3 account search failed: %s", e)
+    results['_meta']['expense_acct_ids'] = expense_acct_ids
+    if expense_acct_ids:
+        dom = [['account_id', 'in', expense_acct_ids],
+               ['date', '>=', jan1_iso],
+               ['date', '<=', today_iso]]
+        if 'parent_state' in mline_fields:
+            dom.append(['parent_state', '=', 'posted'])
+        try:
+            grp = client.safe_read_group(
+                'account.move.line', dom, ['debit:sum'], [])
+            results['move_line_expense_acct'] = (
+                (grp[0].get('debit') if grp else 0) or 0)
+        except Exception as e:
+            logger.info("Method 3 move-line aggregate failed: %s", e)
+
+    return results
 
 
-def _compute_fully_depreciated_count(client, asset_model, base_domain):
-    """Count assets whose net book value has reached zero while still
-    being Running or Closed (draft/cancelled assets don't count as
-    'fully depreciated' — they were never put into service)."""
+def _compute_asset_depreciation_ytd(client, asset_model, base_domain):
+    """Return the first non-zero YTD depreciation total from the
+    cascade of methods in `_depreciation_ytd_methods`.
+
+    `base_domain` and `asset_model` are accepted for signature
+    compatibility but aren't applied — depreciation entries aren't
+    filterable by the asset-side company/status filters at this layer
+    (account_id is the natural anchor, not the asset)."""
+    by_method = _depreciation_ytd_methods(client)
+    for k in ('legacy_dep_line',
+              'move_line_asset_fk',
+              'move_line_expense_acct'):
+        v = by_method.get(k) or 0
+        if v:
+            return v
+    return 0
+
+
+def _fully_depreciated_domain(client, asset_model):
+    """Build the domain fragment that identifies a fully-depreciated
+    asset. Either the net field has reached zero, OR the asset has
+    been explicitly closed — closed assets are fully depreciated by
+    definition regardless of the residual the user typed in."""
     fields = client.get_model_fields(asset_model)
     net_field = next((f for f in
                       ('book_value', 'value_residual', 'net_book_value')
                       if f in fields), None)
-    if not net_field:
-        return 0
-    dom = list(base_domain) + [
+    parts = []
+    if net_field and 'state' in fields:
+        parts = ['|',
+                 [net_field, '<=', 0.01],
+                 ['state', '=', 'close']]
+    elif net_field:
         # Use ≤ 0.01 not == 0 to tolerate rounding residue (Odoo writes
         # 0.0000000001 type values when prorata rounding hits).
-        [net_field, '<=', 0.01],
-        ['state', 'in', ['open', 'close']],
-    ]
-    return client.safe_count(asset_model, dom)
+        parts = [[net_field, '<=', 0.01]]
+    elif 'state' in fields:
+        parts = [['state', '=', 'close']]
+    return parts
+
+
+def _compute_fully_depreciated_count(client, asset_model, base_domain):
+    dom_parts = _fully_depreciated_domain(client, asset_model)
+    if not dom_parts:
+        return 0
+    return client.safe_count(asset_model, list(base_domain) + dom_parts)
 
 
 def _resolve_asset_record_url_template(client, asset_model):
@@ -2831,6 +2910,10 @@ def financial():
             valid_states = {'all', 'draft', 'open', 'close', 'cancel', 'paused'}
             if state_filter not in valid_states:
                 state_filter = 'all'
+            # Card-driven toggle: when the Fully Depreciated KPI is
+            # clicked, the URL gains fully_dep=1 and the table is
+            # narrowed to rows that satisfy that OR-clause.
+            fully_dep_only = request.args.get('fully_dep') == '1'
 
             # account.asset multiplexes three record kinds via `asset_type`:
             # 'purchase' (fixed assets), 'expense' (deferred expenses), and
@@ -2869,6 +2952,8 @@ def financial():
                     domain.append(['state', 'in', ['cancel', 'cancelled']])
                 else:
                     domain.append(['state', '=', state_filter])
+            if fully_dep_only and type_filter == 'purchase':
+                domain.extend(_fully_depreciated_domain(c, asset_model))
 
             try:
                 total = c.safe_count(asset_model, domain)
@@ -2955,6 +3040,7 @@ def financial():
                     ('close',  'Closed'),
                     ('cancel', 'Cancelled'),
                 ]
+                ctx['fully_dep_filter']   = fully_dep_only
                 ctx['asset_type_filter']  = type_filter
                 ctx['asset_type_label']   = ASSET_TYPE_LABELS[type_filter][0]
                 # Per-type counts so the selector can hide empty kinds.
@@ -3531,6 +3617,67 @@ def api_analytic_debug():
         'company_dom':               company_dom,
         'line_count_no_filter':      count_no_filter,
         'line_count_with_filter':    count_with_filter,
+    })
+
+
+@app.route('/api/assets/debug')
+@login_required
+def api_assets_debug():
+    """Diagnostic dump for the Assets page: which model resolved,
+    which YTD depreciation methods returned data, and a peek at the
+    raw rows so we can tell whether the source is the legacy line
+    model, an asset FK, or a depreciation expense account."""
+    c = get_client()
+    asset_model = _resolve_asset_model(c)
+    asset_fields = sorted(c.get_model_fields(asset_model)) if asset_model else []
+    mline_fields = sorted(c.get_model_fields('account.move.line') or set())
+    legacy_fields = sorted(c.get_model_fields('account.asset.depreciation.line') or set())
+
+    by_method = _depreciation_ytd_methods(c)
+
+    # Pull 3 sample rows from whichever source actually has data so we
+    # can eyeball the field shape live.
+    sample_legacy = []
+    if legacy_fields:
+        try:
+            sample_legacy = c.safe_search_read(
+                'account.asset.depreciation.line', [],
+                ['id', 'amount', 'depreciation_date', 'move_check'],
+                limit=3, order='id desc')
+        except Exception as e:
+            sample_legacy = [{'_err': str(e)}]
+
+    expense_acct_ids = by_method.get('_meta', {}).get('expense_acct_ids') or []
+    sample_expense_moves = []
+    if expense_acct_ids:
+        try:
+            sample_expense_moves = c.safe_search_read(
+                'account.move.line',
+                [['account_id', 'in', expense_acct_ids]],
+                ['id', 'date', 'debit', 'credit', 'account_id', 'parent_state'],
+                limit=3, order='date desc')
+        except Exception as e:
+            sample_expense_moves = [{'_err': str(e)}]
+
+    return jsonify({
+        'odoo_version':         getattr(c, 'version_string', None),
+        'odoo_version_major':   getattr(c, 'version_major', None),
+        'selected_company_id':  session.get('company_id'),
+        'asset_model':          asset_model,
+        'asset_field_count':    len(asset_fields),
+        'has_state':            'state' in asset_fields,
+        'has_asset_type':       'asset_type' in asset_fields,
+        'value_fields':         [f for f in asset_fields if 'value' in f or 'book' in f],
+        'legacy_dep_model_present': bool(legacy_fields),
+        'legacy_dep_fields':    legacy_fields[:30],
+        'move_line_fields_dep_related':
+            [f for f in mline_fields if 'asset' in f or 'depre' in f],
+        'depreciation_ytd_by_method': {
+            k: v for k, v in by_method.items() if not k.startswith('_')
+        },
+        'depreciation_ytd_meta': by_method.get('_meta'),
+        'sample_legacy_lines':  sample_legacy,
+        'sample_expense_moves': sample_expense_moves,
     })
 
 

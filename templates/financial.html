@@ -1227,10 +1227,23 @@
     </div>
     <div class="stat-label">Depreciation This Year</div>
   </div>
-  <div class="stat-card">
+  {# Fully Depreciated card doubles as a table filter — click to scope
+     the rows, click again to clear. We rebuild the query string by
+     hand so other active filters (search, status, asset_type) stick. #}
+  {% set _fd_href -%}
+    {{ url_for('financial') }}?tab=assets
+    {%- if asset_type_filter %}&asset_type={{ asset_type_filter }}{% endif -%}
+    {%- if search %}&search={{ search | urlencode }}{% endif -%}
+    {%- if asset_state_filter and asset_state_filter != 'all' %}&state_filter={{ asset_state_filter }}{% endif -%}
+    {%- if not fully_dep_filter %}&fully_dep=1{% endif -%}
+  {%- endset %}
+  <a href="{{ _fd_href }}"
+     class="stat-card stat-card-link {% if fully_dep_filter %}stat-card-active{% endif %}"
+     style="cursor:pointer;text-decoration:none;color:inherit"
+     title="{{ 'Clear filter' if fully_dep_filter else 'Show only fully depreciated assets' }}">
     <div class="stat-value" style="color:#ea580c">{{ stats.get('fully_depreciated', 0) }}</div>
-    <div class="stat-label">Fully Depreciated</div>
-  </div>
+    <div class="stat-label">Fully Depreciated{% if fully_dep_filter %} <i class="fa-solid fa-circle-xmark" style="color:var(--danger);font-size:.7em"></i>{% endif %}</div>
+  </a>
   {% endif %}
 </div>
 

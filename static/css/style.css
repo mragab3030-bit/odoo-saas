@@ -1099,8 +1099,8 @@ a.amount-format-btn.active:focus {
 }
 .stat-card-active {
   border: 2px solid var(--primary) !important;
-  background: rgba(37, 99, 235, .06);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, .15);
+  background: rgba(230, 48, 48, .05);
+  box-shadow: 0 0 0 3px rgba(230, 48, 48, .15);
 }
 
 /* ===== Tables ===== */
