@@ -2675,6 +2675,9 @@ def financial():
             ctx['asset_state_filter'] = 'all'
             ctx['asset_state_options'] = []
             ctx['asset_record_path_template'] = ''
+            ctx['asset_type_filter']  = 'purchase'
+            ctx['asset_type_label']   = 'Assets'
+            ctx['asset_type_options'] = []
         else:
             asset_fields = c.get_model_fields(asset_model)
             read_fields  = _build_asset_fields(c, asset_model)
@@ -2685,6 +2688,19 @@ def financial():
             valid_states = {'all', 'draft', 'open', 'close', 'cancel', 'paused'}
             if state_filter not in valid_states:
                 state_filter = 'all'
+
+            # account.asset multiplexes three record kinds via `asset_type`:
+            # 'purchase' (fixed assets), 'expense' (deferred expenses), and
+            # 'sale' (deferred revenue). Default to real fixed assets.
+            ASSET_TYPE_LABELS = {
+                'purchase': ('Assets',             'Fixed Assets'),
+                'expense':  ('Deferred Expenses',  'Deferred Expenses'),
+                'sale':     ('Deferred Revenue',   'Deferred Revenue'),
+                'all':      ('Assets',             'All Types'),
+            }
+            type_filter = (request.args.get('asset_type', 'purchase') or 'purchase').strip()
+            if type_filter not in ASSET_TYPE_LABELS:
+                type_filter = 'purchase'
 
             domain = []
             # Show archived rows too — Odoo defaults `active=True`, and a fair
@@ -2697,6 +2713,11 @@ def financial():
             # skew counts + KPI sums.
             if 'state' in asset_fields:
                 domain.append(['state', '!=', 'model'])
+            # Restrict to the selected record kind (fixed asset / deferred
+            # expense / deferred revenue). Only applies when the model
+            # actually carries `asset_type` — some OCA / older variants don't.
+            if type_filter != 'all' and 'asset_type' in asset_fields:
+                domain.append(['asset_type', '=', type_filter])
             if search:
                 domain.append(['name', 'ilike', search])
             if state_filter != 'all' and 'state' in asset_fields:
@@ -2777,6 +2798,16 @@ def financial():
                     ('close',  'Closed'),
                     ('cancel', 'Cancelled'),
                 ]
+                ctx['asset_type_filter']  = type_filter
+                ctx['asset_type_label']   = ASSET_TYPE_LABELS[type_filter][0]
+                # Hide the Type dropdown entirely when the model doesn't
+                # carry `asset_type` (very old or stripped installs).
+                ctx['asset_type_options'] = ([
+                    ('purchase', 'Fixed Assets'),
+                    ('expense',  'Deferred Expenses'),
+                    ('sale',     'Deferred Revenue'),
+                    ('all',      'All Types'),
+                ] if 'asset_type' in asset_fields else [])
                 # Deep-link to the Odoo record. v17+ uses the new web client
                 # routing (/odoo/<model-route>/<id>); v15/v16 use the legacy
                 # hash router. The model-route segment is the model name with
@@ -2801,6 +2832,9 @@ def financial():
                 ctx['asset_state_filter'] = state_filter
                 ctx['asset_state_options'] = []
                 ctx['asset_record_path_template'] = ''
+                ctx['asset_type_filter']  = type_filter
+                ctx['asset_type_label']   = ASSET_TYPE_LABELS[type_filter][0]
+                ctx['asset_type_options'] = []
 
     elif tab == 'expenses':
         domain = []

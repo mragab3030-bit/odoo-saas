@@ -1164,30 +1164,55 @@
 {% elif tab == 'assets' %}
 
 <!-- ============================== ASSETS ============================== -->
+{% set _type = asset_type_filter or 'purchase' %}
+{% set _is_expense = (_type == 'expense') %}
+{% set _is_sale    = (_type == 'sale') %}
+{% set _count_lbl  = 'Total Deferred Expenses' if _is_expense
+                else 'Total Deferred Revenue'   if _is_sale
+                else 'Total Assets' %}
+{% set _acq_lbl    = 'Initial Amount' if _is_expense or _is_sale else 'Acquisition Cost' %}
+{% set _net_lbl    = 'Remaining Amount' if _is_expense or _is_sale else 'Net Book Value' %}
+{% set _dep_lbl    = 'Recognised'      if _is_expense or _is_sale else 'Accumulated Dep.' %}
+
+<h2 style="margin:0 0 1rem 0;font-size:1.25rem;display:flex;align-items:center;gap:.5rem">
+  <i class="fa-solid fa-boxes-packing" style="color:var(--primary)"></i>
+  {{ asset_type_label or 'Assets' }}
+</h2>
+
 <div class="stat-grid">
   <div class="stat-card">
     <div class="stat-value">{{ stats.count }}</div>
-    <div class="stat-label">Total Assets</div>
+    <div class="stat-label">{{ _count_lbl }}</div>
   </div>
   <div class="stat-card">
     <div class="stat-value">{{ stats.get('original_value', 0) | fmt_currency }}</div>
-    <div class="stat-label">Acquisition Cost</div>
+    <div class="stat-label">{{ _acq_lbl }}</div>
   </div>
   <div class="stat-card">
     <div class="stat-value" style="color:var(--success)">{{ stats.get('residual_value', 0) | fmt_currency }}</div>
-    <div class="stat-label">Net Book Value</div>
+    <div class="stat-label">{{ _net_lbl }}</div>
   </div>
   <div class="stat-card">
     <div class="stat-value" style="color:var(--danger)">{{ stats.get('depreciated', 0) | fmt_currency }}</div>
-    <div class="stat-label">Accumulated Dep.</div>
+    <div class="stat-label">{{ _dep_lbl }}</div>
   </div>
 </div>
 
 <form method="GET" action="{{ url_for('financial') }}" class="filter-bar">
   <input type="hidden" name="tab" value="assets">
+  {% if asset_type_options %}
+  <div class="filter-group">
+    <label>Type</label>
+    <select name="asset_type" class="form-control form-control-sm" onchange="this.form.submit()">
+      {% for val, lbl in asset_type_options %}
+        <option value="{{ val }}" {% if asset_type_filter == val %}selected{% endif %}>{{ lbl }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
   <div class="filter-group">
     <label>Search</label>
-    <input type="text" name="search" class="form-control form-control-sm" placeholder="Asset name…" value="{{ search }}">
+    <input type="text" name="search" class="form-control form-control-sm" placeholder="Name…" value="{{ search }}">
   </div>
   <div class="filter-group">
     <label>Status</label>
@@ -1212,7 +1237,14 @@
 <div class="card table-card">
   <table class="data-table">
     <thead>
-      <tr><th>Asset Name</th><th>Category</th><th>Acquisition Date</th><th>Original Value</th><th>Net Value</th><th>Status</th></tr>
+      <tr>
+        <th>{{ 'Description' if _is_expense or _is_sale else 'Asset Name' }}</th>
+        <th>{{ 'Account' if _is_expense or _is_sale else 'Category' }}</th>
+        <th>{{ 'Start Date' if _is_expense or _is_sale else 'Acquisition Date' }}</th>
+        <th>{{ 'Initial Amount' if _is_expense or _is_sale else 'Original Value' }}</th>
+        <th>{{ 'Remaining' if _is_expense or _is_sale else 'Net Value' }}</th>
+        <th>Status</th>
+      </tr>
     </thead>
     <tbody>
       {% for a in records %}
