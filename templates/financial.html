@@ -1189,11 +1189,25 @@
     <label>Search</label>
     <input type="text" name="search" class="form-control form-control-sm" placeholder="Asset name…" value="{{ search }}">
   </div>
+  <div class="filter-group">
+    <label>Status</label>
+    <select name="state_filter" class="form-control form-control-sm" onchange="this.form.submit()">
+      {% for val, lbl in asset_state_options %}
+        <option value="{{ val }}" {% if asset_state_filter == val %}selected{% endif %}>{{ lbl }}</option>
+      {% endfor %}
+    </select>
+  </div>
   <div class="filter-group" style="justify-content:flex-end">
     <label>&nbsp;</label>
     <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> Filter</button>
   </div>
 </form>
+
+{% if error %}
+  <div class="alert alert-warning" style="margin-bottom:1rem">
+    <i class="fa-solid fa-circle-info"></i> {{ error }}
+  </div>
+{% endif %}
 
 <div class="card table-card">
   <table class="data-table">
@@ -1204,19 +1218,21 @@
       {% for a in records %}
       <tr>
         <td><strong>{{ a.name }}</strong></td>
-        <td>{{ a.category_id[1] if a.category_id else '—' }}</td>
-        <td>{{ a.acquisition_date or '—' }}</td>
-        <td>{{ a.original_value | fmt_currency }}</td>
-        <td>{{ a.value_residual | fmt_currency }}</td>
+        <td>{{ a.category_id[1] if a.category_id else (a.account_asset_id[1] if a.account_asset_id else '—') }}</td>
+        <td>{{ a.acquisition_date_display or '—' }}</td>
+        <td>{{ (a.original_value or 0) | fmt_currency }}</td>
+        <td>{{ (a.value_residual or 0) | fmt_currency }}</td>
         <td>
           {% if a.state == 'open' %}<span class="badge badge-success">Running</span>
           {% elif a.state == 'draft' %}<span class="badge badge-secondary">Draft</span>
           {% elif a.state == 'close' %}<span class="badge badge-info">Closed</span>
-          {% else %}<span class="badge badge-secondary">{{ a.state }}</span>{% endif %}
+          {% elif a.state in ('cancel', 'cancelled') %}<span class="badge badge-danger">Cancelled</span>
+          {% elif a.state == 'paused' %}<span class="badge badge-warning">Paused</span>
+          {% else %}<span class="badge badge-secondary">{{ a.state_label or a.state or '—' }}</span>{% endif %}
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="6"><div class="empty-state"><i class="fa-solid fa-boxes-packing"></i><p>No assets found — module may not be installed</p></div></td></tr>
+      <tr><td colspan="6"><div class="empty-state"><i class="fa-solid fa-boxes-packing"></i><p>No assets match the current filters</p></div></td></tr>
       {% endfor %}
     </tbody>
   </table>

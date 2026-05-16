@@ -2162,6 +2162,71 @@ def dashboard():
 
 
 # ---------------------------------------------------------------------------
+# Assets — version-portable model + field resolution
+# ---------------------------------------------------------------------------
+
+# v15/v16 ship 'account.asset.asset'; v17+ collapse it to 'account.asset'.
+# We probe live fields_get so a third-party module (OCA on community) that
+# ships only one of the two still resolves correctly.
+ASSET_MODEL_CANDIDATES = ('account.asset', 'account.asset.asset')
+
+ASSET_STATE_LABELS = {
+    'draft':     'Draft',
+    'open':      'Running',
+    'close':     'Closed',
+    'paused':    'Paused',
+    'cancel':    'Cancelled',
+    'cancelled': 'Cancelled',
+    'model':     'Model',
+}
+
+
+def _resolve_asset_model(client):
+    """Pick the right asset model for this Odoo version.
+
+    v17+ folded `account_asset` into `account` under the model name
+    `account.asset`; v15/v16 keep the legacy `account.asset.asset`. We
+    prefer the modern name, but fall back to a live fields_get probe so
+    OCA / customised installs are detected correctly.
+    """
+    cached = getattr(g, '_asset_model', None)
+    if cached is not None:
+        return cached or None
+
+    ver = getattr(client, 'version_major', 0) or 0
+    ordered = (('account.asset.asset', 'account.asset')
+               if ver and ver <= 16
+               else ('account.asset', 'account.asset.asset'))
+    chosen = None
+    for m in ordered:
+        try:
+            if client.get_model_fields(m):
+                chosen = m
+                break
+        except Exception:
+            continue
+    g._asset_model = chosen or ''
+    return chosen
+
+
+def _build_asset_fields(client, model):
+    """Build a version-portable field list for the asset model.
+
+    Older versions exposed `category_id`; v17+ replaced it with account
+    fields. We always include `name`, `state`, `original_value`, and
+    `value_residual` when present, and skip anything missing so a single
+    fields_get error doesn't black-hole the whole search_read."""
+    available = client.get_model_fields(model)
+    wanted = [
+        'name', 'state', 'active',
+        'acquisition_date', 'first_depreciation_date', 'date',
+        'original_value', 'value_residual', 'salvage_value',
+        'category_id', 'account_asset_id', 'currency_id',
+    ]
+    return [f for f in wanted if f in available]
+
+
+# ---------------------------------------------------------------------------
 # Financial
 # ---------------------------------------------------------------------------
 
@@ -2567,29 +2632,98 @@ def financial():
         ctx['total_pages'] = max(1, (stmt_total + PAGE_SIZE - 1) // PAGE_SIZE)
 
     elif tab == 'assets':
-        domain = []
-        if search:
-            domain.append(['name', 'ilike', search])
-        try:
-            total = c.safe_count('account.asset', domain)
-            records = c.safe_search_read('account.asset', domain,
-                ['name', 'category_id', 'acquisition_date', 'original_value',
-                 'value_residual', 'state'],
-                limit=PAGE_SIZE, offset=(page - 1) * PAGE_SIZE, order='acquisition_date desc')
-            grps = c.safe_read_group('account.asset', domain,
-                ['original_value:sum', 'value_residual:sum'], [])
-            totals = grps[0] if grps else {}
-            ctx['records'] = records
-            ctx['total_pages'] = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
-            ctx['total_count'] = total
-            ctx['stats'] = {
-                'count': total,
-                'original_value': totals.get('original_value', 0),
-                'residual_value': totals.get('value_residual', 0),
-                'depreciated': totals.get('original_value', 0) - totals.get('value_residual', 0),
-            }
-        except Exception:
+        asset_model = _resolve_asset_model(c)
+        if not asset_model:
             ctx['error'] = 'Assets module may not be installed on this Odoo instance.'
+            ctx['records'] = []
+            ctx['stats'] = {'count': 0, 'original_value': 0,
+                            'residual_value': 0, 'depreciated': 0}
+            ctx['asset_state_filter'] = 'all'
+            ctx['asset_state_options'] = []
+        else:
+            asset_fields = c.get_model_fields(asset_model)
+            read_fields  = _build_asset_fields(c, asset_model)
+
+            state_filter = (request.args.get('state_filter', 'all') or 'all').strip()
+            valid_states = {'all', 'draft', 'open', 'close', 'cancel', 'paused', 'model'}
+            if state_filter not in valid_states:
+                state_filter = 'all'
+
+            domain = []
+            # Show archived rows too — Odoo defaults `active=True`, and a fair
+            # number of running assets get archived to hide them from the UI
+            # without being closed.
+            if 'active' in asset_fields:
+                domain.append(['active', 'in', [True, False]])
+            if search:
+                domain.append(['name', 'ilike', search])
+            if state_filter != 'all' and 'state' in asset_fields:
+                # 'cancel' covers both 'cancel' and 'cancelled' across versions.
+                if state_filter == 'cancel':
+                    domain.append(['state', 'in', ['cancel', 'cancelled']])
+                else:
+                    domain.append(['state', '=', state_filter])
+
+            try:
+                total = c.safe_count(asset_model, domain)
+                # Order on whatever date-ish field this version exposes; fall
+                # back to `id desc` so a missing column doesn't return [].
+                order_field = next((f for f in
+                    ('acquisition_date', 'first_depreciation_date', 'date')
+                    if f in asset_fields), None)
+                order_clause = (order_field + ' desc') if order_field else 'id desc'
+                records = c.safe_search_read(asset_model, domain, read_fields,
+                    limit=PAGE_SIZE, offset=(page - 1) * PAGE_SIZE, order=order_clause)
+
+                # Normalise the date field name + state label so the template
+                # stays version-agnostic.
+                for r in records:
+                    r['acquisition_date_display'] = (
+                        r.get('acquisition_date')
+                        or r.get('first_depreciation_date')
+                        or r.get('date') or '')
+                    st = r.get('state') or ''
+                    r['state_label'] = ASSET_STATE_LABELS.get(st, st or '—')
+
+                # Sum totals using the same domain so KPI == table count.
+                grp_fields = []
+                if 'original_value' in asset_fields:
+                    grp_fields.append('original_value:sum')
+                if 'value_residual' in asset_fields:
+                    grp_fields.append('value_residual:sum')
+                totals = {}
+                if grp_fields:
+                    grps = c.safe_read_group(asset_model, domain, grp_fields, [])
+                    totals = grps[0] if grps else {}
+
+                ctx['records'] = records
+                ctx['total_pages'] = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+                ctx['total_count'] = total
+                ctx['stats'] = {
+                    'count': total,
+                    'original_value': totals.get('original_value', 0) or 0,
+                    'residual_value': totals.get('value_residual', 0) or 0,
+                    'depreciated': (totals.get('original_value', 0) or 0)
+                                   - (totals.get('value_residual', 0) or 0),
+                }
+                ctx['asset_state_filter'] = state_filter
+                ctx['asset_state_options'] = [
+                    ('all',    'All States'),
+                    ('draft',  'Draft'),
+                    ('open',   'Running'),
+                    ('close',  'Closed'),
+                    ('cancel', 'Cancelled'),
+                ]
+                logger.info("Assets tab: model=%s count=%d fields=%s",
+                            asset_model, total, read_fields)
+            except Exception as e:
+                logger.warning("Assets tab failed for model %s: %s", asset_model, e)
+                ctx['error'] = 'Could not read assets from this Odoo instance.'
+                ctx['records'] = []
+                ctx['stats'] = {'count': 0, 'original_value': 0,
+                                'residual_value': 0, 'depreciated': 0}
+                ctx['asset_state_filter'] = state_filter
+                ctx['asset_state_options'] = []
 
     elif tab == 'expenses':
         domain = []
