@@ -2391,24 +2391,27 @@ def _compute_asset_depreciation_ytd(client, asset_model, base_domain):
 
 def _fully_depreciated_domain(client, asset_model):
     """Build the domain fragment that identifies a fully-depreciated
-    asset. Either the net field has reached zero, OR the asset has
-    been explicitly closed — closed assets are fully depreciated by
-    definition regardless of the residual the user typed in."""
+    asset: state IN (open, close) AND net_value has reached zero.
+
+    Drafts, depreciation-method templates (`model`), and cancelled
+    rows never qualify — they were either never put into service or
+    explicitly retired without depreciating to zero. The ≤ 0.01
+    tolerance absorbs the floating-point residue Odoo writes when
+    prorata rounding doesn't quite land on 0."""
     fields = client.get_model_fields(asset_model)
     net_field = next((f for f in
                       ('book_value', 'value_residual', 'net_book_value')
                       if f in fields), None)
     parts = []
     if net_field and 'state' in fields:
-        parts = ['|',
-                 [net_field, '<=', 0.01],
-                 ['state', '=', 'close']]
+        parts = [
+            ['state', 'in', ['open', 'close']],
+            [net_field, '<=', 0.01],
+        ]
     elif net_field:
-        # Use ≤ 0.01 not == 0 to tolerate rounding residue (Odoo writes
-        # 0.0000000001 type values when prorata rounding hits).
         parts = [[net_field, '<=', 0.01]]
     elif 'state' in fields:
-        parts = [['state', '=', 'close']]
+        parts = [['state', 'in', ['open', 'close']]]
     return parts
 
 
