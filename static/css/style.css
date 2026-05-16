@@ -854,6 +854,27 @@ a:hover { text-decoration: none; }
   color: #fff;
 }
 
+/* Anchor-tag variant (used by the Assets Type pill bar) needs explicit
+   :link/:visited rules — the user-agent `a:link{color:-webkit-link}`
+   rule has higher specificity than the plain `.amount-format-btn`
+   class selector, so without these the pill stays link-blue (or
+   visited-purple) and the red active state is invisible. */
+a.amount-format-btn,
+a.amount-format-btn:link,
+a.amount-format-btn:visited {
+  color: var(--text-muted);
+}
+a.amount-format-btn:hover {
+  color: var(--text);
+}
+a.amount-format-btn.active,
+a.amount-format-btn.active:link,
+a.amount-format-btn.active:visited,
+a.amount-format-btn.active:hover {
+  background: var(--primary);
+  color: #fff;
+}
+
 .section-title {
   display: flex;
   align-items: center;
