@@ -658,7 +658,9 @@ a:hover { text-decoration: none; }
 /* ===== Stat Cards (inside sections) ===== */
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  /* Wider min so 4 cards still fit one row on typical desktop widths
+     and a 7+ digit currency value can't visually crowd the label. */
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: .75rem;
   margin-bottom: 1.25rem;
 }
@@ -666,12 +668,26 @@ a:hover { text-decoration: none; }
 .stat-card {
   background: var(--surface);
   border-radius: 10px;
-  padding: 1rem;
+  padding: 1rem 1.15rem;
   border: 1px solid var(--border);
   text-align: center;
+  /* Without min-width:0, the grid track refuses to shrink past the
+     longest unbreakable amount, so applyShrink() never gets to do
+     its job and the number visually overflows the card. */
+  min-width: 0;
+  overflow: hidden;
 }
 
-.stat-value { font-size: 1.35rem; font-weight: 700; color: var(--text); }
+/* clamp() lets the font breathe on wide screens and shrink on narrow
+   ones; the JS still adds amt-shrink-1/2/3 on top for very long
+   amounts so commas stay legible. */
+.stat-value {
+  font-size: clamp(1rem, 2.2vw, 1.6rem);
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.15;
+  min-width: 0;
+}
 .stat-label { font-size: .72rem; color: var(--text-muted); margin-top: .2rem; font-weight: 500; text-transform: uppercase; letter-spacing: .03em; }
 
 /* Comparison cards block */
