@@ -491,21 +491,53 @@ def _compute_trend(client, move_type, date_from, date_to):
     return months
 
 
+def _analytic_line_company_dom(client, line_fields_set, company_id):
+    """Build a domain fragment that restricts account.analytic.line to a
+    single company. The way to do this differs across Odoo versions:
+
+      • v15/v16:                line has direct company_id
+      • v17+ multi-plan:        line.company_id often gone; reach via
+                                move_line_id.company_id (a.k.a. general
+                                ledger journal item) or move_id
+      • Worst case:             no path → return [] and log a warning so
+                                the operator can see why filtering was
+                                skipped.
+
+    We always allow company_id = False alongside the real id, so records
+    shared across companies (the "global" pattern) aren't accidentally
+    hidden in single-company mode.
+    """
+    if not company_id:
+        return []
+    cid = int(company_id)
+    vals = [cid, False]
+    if 'company_id' in line_fields_set:
+        return [['company_id', 'in', vals]]
+    if 'move_line_id' in line_fields_set:
+        return [['move_line_id.company_id', 'in', vals]]
+    if 'move_id' in line_fields_set:
+        return [['move_id.company_id', 'in', vals]]
+    logger.warning(
+        "Analytic: no company_id path on account.analytic.line "
+        "(checked company_id, move_line_id, move_id). Multi-company "
+        "filter cannot be applied — falling back to context-based filtering.")
+    return []
+
+
 def _compute_analytic(client, date_from, date_to):
     """Aggregate account.analytic.line into one row per analytic account.
     Returns a list of dicts with revenue / costs / net / margin / count / plan.
     Costs are stored as positive numbers (absolute value of negative amounts).
 
-    Strategy (resilient to the v17+ field rename):
-      1. Load every analytic account up-front into an id → {name, plan, code}
-         dict. This is the source of truth for names — read_group's m2o pair
-         often returns `False` for the display_name part on certain Odoo
-         deployments, so we never trust it.
-      2. Read-group the lines to get revenue / cost / count per account.
+    Strategy (resilient to the v17+ field rename + multi-company):
+      1. Load every analytic account *for the selected company* up-front
+         into an id → {name, plan, code} dict. Source of truth for names.
+      2. Read-group the lines (also company-scoped) to get
+         revenue / cost / count per account.
       3. Match groups to accounts by id and copy the canonical name across.
 
     Field-rename note: v17 renamed the line's m2o from `account_id` to
-    `auto_account_id`; `pick_field` resolves whichever exists.
+    `auto_account_id`; we prefer auto_account_id whenever it exists.
     """
     # Field resolution: on Odoo 17+ multi-plan the canonical relation is
     # `auto_account_id`. The legacy `account_id` column may still exist on
@@ -521,19 +553,41 @@ def _compute_analytic(client, date_from, date_to):
         account_field = 'account_id'
     plan_field = client.pick_field('account.analytic.account', 'plan_id')
 
-    # ---- Step 1: id → name map for every analytic account.
+    # Resolve the active company from the client context (set by
+    # OdooClient.set_company at login). Passing it through every domain
+    # is more reliable than depending on Odoo's record-rule context — in
+    # some deployments analytic record rules don't honour the context
+    # filter and we get an empty multi-company result.
+    company_id = client.context.get('company_id') or 0
+    line_company_dom = _analytic_line_company_dom(client, line_fields, company_id)
+
+    # ---- Step 1: id → name map for every analytic account in scope.
+    # account.analytic.account.company_id is optional (False = shared
+    # across companies). Allow both the selected company and False.
+    acc_fields_set = client.get_model_fields('account.analytic.account')
+    acc_company_dom = []
+    if company_id and 'company_id' in acc_fields_set:
+        acc_company_dom = [['company_id', 'in', [int(company_id), False]]]
+
     acc_read_fields = ['id', 'name', 'display_name', 'code']
     if plan_field:
         acc_read_fields.append(plan_field)
+    if 'company_id' in acc_fields_set:
+        acc_read_fields.append('company_id')
+
     # Include archived accounts — lines often reference them, and Odoo's
     # default search filter hides active=False unless we ask explicitly.
+    archived_dom = ([['active', 'in', [True, False]]]
+                    if 'active' in acc_fields_set else [])
     all_accounts = client.safe_search_read(
         'account.analytic.account',
-        [['active', 'in', [True, False]]],
+        archived_dom + acc_company_dom,
         acc_read_fields) or []
-    # If the access-bypass domain returns 0 rows it may be that the
-    # `active` field doesn't exist on this version — fall back to plain
-    # all-records search.
+    # If that returned 0 rows, retry without the active-bypass (in case
+    # `active` isn't on this version) and finally without any domain.
+    if not all_accounts and acc_company_dom:
+        all_accounts = client.safe_search_read(
+            'account.analytic.account', acc_company_dom, acc_read_fields) or []
     if not all_accounts:
         all_accounts = client.safe_search_read(
             'account.analytic.account', [], acc_read_fields) or []
@@ -564,8 +618,8 @@ def _compute_analytic(client, date_from, date_to):
             'plan_name': plan_name,
         }
 
-    # ---- Step 2: read-group lines.
-    base_dom = []
+    # ---- Step 2: read-group lines (company-scoped).
+    base_dom = list(line_company_dom)
     if date_from:
         base_dom.append(['date', '>=', date_from])
     if date_to:
@@ -585,9 +639,10 @@ def _compute_analytic(client, date_from, date_to):
     # field-shape surprise (new Odoo version, installed extension) is
     # visible in server logs without a debugger.
     logger.info(
-        "Analytic _compute_analytic: line_field=%s plan_field=%s indexed_accounts=%d rev_groups=%d cost_groups=%d sample_groups=%s",
-        account_field, plan_field, len(account_index),
-        len(rev_grps), len(cost_grps),
+        "Analytic _compute_analytic: company_id=%s line_field=%s plan_field=%s "
+        "company_dom=%s indexed_accounts=%d rev_groups=%d cost_groups=%d sample_groups=%s",
+        company_id, account_field, plan_field, line_company_dom,
+        len(account_index), len(rev_grps), len(cost_grps),
         (rev_grps or cost_grps or count_grps)[:3])
     if not account_index:
         logger.warning(
@@ -2012,10 +2067,44 @@ def api_analytic_debug():
         except Exception as e:
             return [{'error': str(e)}]
 
+    # ---- Multi-company diagnostics ----
+    selected_company_id = session.get('company_id') or 0
+    company_dom = _analytic_line_company_dom(c, line_fields_set, selected_company_id)
+    # Lines visible to this user *without* any company filter (uses only
+    # the context that OdooClient already injects). If this is >0 but the
+    # filtered count is 0, the company_dom path is wrong.
+    try:
+        count_no_filter = c.safe_count('account.analytic.line', [])
+    except Exception:
+        count_no_filter = -1
+    try:
+        count_with_filter = c.safe_count('account.analytic.line', company_dom)
+    except Exception:
+        count_with_filter = -1
+
+    # Pull ALL fields for first 3 records so we can spot a non-standard
+    # company linkage (move_line_id, project_id, etc.). Use read() after
+    # search() so we don't have to enumerate the field list.
+    try:
+        ids = c.execute_kw('account.analytic.line', 'search',
+                           [[]], {'limit': 3})
+        sample_lines_full = c.execute_kw(
+            'account.analytic.line', 'read', [ids]) if ids else []
+    except Exception as e:
+        sample_lines_full = [{'error': str(e)}]
+
+    logger.info(
+        "Analytic /api/analytic/debug: company_id=%s "
+        "lines_total=%s lines_with_filter=%s company_dom=%s sample=%s",
+        selected_company_id, count_no_filter, count_with_filter,
+        company_dom, sample_lines_full[:1])
+
     return jsonify({
         'odoo_version':              getattr(c, 'version_string', None),
         'odoo_version_major':        getattr(c, 'version_major', None),
         'edition':                   session.get('odoo_edition'),
+        'selected_company_id':       selected_company_id,
+        'client_context':            dict(c.context),
         'resolved_line_field':       resolved_field,
         'has_account_id':            has_account_id,
         'has_auto_account_id':       has_auto_account_id,
@@ -2024,10 +2113,14 @@ def api_analytic_debug():
         'analytic_line_field_count': len(line_fields_set),
         'analytic_line_fields_err':  line_fields_err,
         'sample_lines':              sample_lines,
+        'sample_lines_full':         sample_lines_full,
         'sample_accounts':           sample_accounts,
         'account_count_visible':     account_count,
         'group_by_account_id':       _try_group('account_id'),
         'group_by_auto_account_id':  _try_group('auto_account_id'),
+        'company_dom':               company_dom,
+        'line_count_no_filter':      count_no_filter,
+        'line_count_with_filter':    count_with_filter,
     })
 
 
