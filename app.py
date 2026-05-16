@@ -873,6 +873,245 @@ def _margin_pct_and_display(net, revenue, costs):
     return pct, '%.1f%%' % pct
 
 
+def _compute_cost_center_pnl(client, account_id, date_from, date_to):
+    """Build a P&L statement for a single analytic account.
+
+    Returns:
+      {
+        'revenue_lines':  [{'id', 'name', 'code', 'amount'}, ...],
+        'expense_lines':  [{'id', 'name', 'code', 'amount'}, ...],
+        'total_revenue':  float,
+        'total_expenses': float,
+        'net':            float,
+        'margin_pct':     float,
+        'margin_display': '%.1f%%' | '—',
+      }
+
+    Logic:
+      • Revenue line = analytic-line amount > 0 (grouped by general_account_id)
+      • Expense line = analytic-line amount < 0 (shown positive, same grouping)
+      • Sorted by amount desc within each section
+
+    Version compatibility:
+      • V15/V16: filter by account_id directly, read_group by general_account_id
+      • V17:     prefer auto_account_id (legacy account_id may be False)
+      • V18/V19: when account_id / auto_account_id are False for every row,
+                 fall through to a raw-line walk that matches the requested
+                 account via analytic_distribution JSON keys *and*
+                 plan-specific m2o fields (x_plan*_id / plan*_id), then
+                 aggregates client-side by general_account_id.
+    """
+    aid = int(account_id)
+    line_fields = client.get_model_fields('account.analytic.line')
+    company_id = client.context.get('company_id') or 0
+    line_company_dom = _analytic_line_company_dom(client, line_fields, company_id)
+
+    date_dom = []
+    if date_from:
+        date_dom.append(['date', '>=', date_from])
+    if date_to:
+        date_dom.append(['date', '<=', date_to])
+
+    has_general = 'general_account_id' in line_fields
+    if 'auto_account_id' in line_fields:
+        account_field = 'auto_account_id'
+    elif 'account_id' in line_fields:
+        account_field = 'account_id'
+    else:
+        account_field = None
+
+    # ---- Primary path: filter directly on account_field, group by GL acc.
+    rev_groups, exp_groups = [], []
+    if account_field and has_general:
+        dom = line_company_dom + date_dom + [[account_field, '=', aid]]
+        rev_groups = client.safe_read_group(
+            'account.analytic.line', dom + [['amount', '>', 0]],
+            ['amount:sum'], ['general_account_id']) or []
+        exp_groups = client.safe_read_group(
+            'account.analytic.line', dom + [['amount', '<', 0]],
+            ['amount:sum'], ['general_account_id']) or []
+
+    # ---- Fallback for v18+ Analytic Plans (account_field is False on rows).
+    if not (rev_groups or exp_groups):
+        rev_groups, exp_groups = _cost_center_pnl_via_distribution(
+            client, aid, line_fields, line_company_dom + date_dom)
+
+    # ---- Convert groups to line dicts and backfill missing GL names.
+    def _flatten(groups):
+        out, missing = [], []
+        for g in groups:
+            ga = g.get('general_account_id')
+            gid, gname = None, ''
+            if isinstance(ga, list) and ga:
+                gid = ga[0] if not isinstance(ga[0], bool) else None
+                gname = (ga[1] if len(ga) > 1 and ga[1] and ga[1] is not False
+                         else '')
+            elif isinstance(ga, int) and not isinstance(ga, bool):
+                gid = ga
+            amt = abs(g.get('amount') or 0)
+            if amt <= 0:
+                continue
+            line = {'id': gid, 'name': gname, 'code': '', 'amount': amt}
+            out.append(line)
+            if gid and not gname:
+                missing.append(gid)
+        return out, missing
+
+    rev_lines, miss_r = _flatten(rev_groups)
+    exp_lines, miss_e = _flatten(exp_groups)
+
+    missing_ids = list({i for i in (miss_r + miss_e) if i})
+    if missing_ids:
+        try:
+            accs = client.execute_kw(
+                'account.account', 'read',
+                [missing_ids],
+                {'fields': ['id', 'name', 'display_name', 'code']}) or []
+        except Exception as e:
+            logger.warning("Cost-center P&L: failed to read GL accounts: %s", e)
+            accs = []
+        name_map = {}
+        for r in accs:
+            dn = r.get('display_name')
+            nm = r.get('name')
+            label = (dn if dn and dn is not False
+                     else (nm if nm and nm is not False else ''))
+            name_map[r.get('id')] = (label or '', r.get('code') or '')
+        for ln in rev_lines + exp_lines:
+            if ln['id'] and not ln['name']:
+                nm, code = name_map.get(ln['id'], ('', ''))
+                ln['name'] = nm or 'Unassigned'
+                ln['code'] = code
+        # Pull codes for already-named ones too.
+        for ln in rev_lines + exp_lines:
+            if ln['id'] and not ln['code']:
+                _, code = name_map.get(ln['id'], ('', ''))
+                ln['code'] = code
+
+    for ln in rev_lines + exp_lines:
+        if not ln['name']:
+            ln['name'] = 'Unassigned'
+
+    rev_lines.sort(key=lambda x: x['amount'], reverse=True)
+    exp_lines.sort(key=lambda x: x['amount'], reverse=True)
+
+    total_revenue  = sum(x['amount'] for x in rev_lines)
+    total_expenses = sum(x['amount'] for x in exp_lines)
+    net = total_revenue - total_expenses
+    if total_revenue > 0:
+        margin_pct = (net / total_revenue) * 100.0
+        margin_display = '%.1f%%' % margin_pct
+    else:
+        margin_pct = 0.0
+        margin_display = '—'
+
+    return {
+        'revenue_lines':  rev_lines,
+        'expense_lines':  exp_lines,
+        'total_revenue':  total_revenue,
+        'total_expenses': total_expenses,
+        'net':            net,
+        'margin_pct':     margin_pct,
+        'margin_display': margin_display,
+    }
+
+
+def _cost_center_pnl_via_distribution(client, account_id, line_fields_set, base_dom):
+    """V18+ Analytic Plans fallback for the cost-center P&L.
+
+    read_group can't filter on the JSON column `analytic_distribution`, so
+    we pull the company/date-scoped lines and walk them client-side. A
+    line is attributed to the requested account when either:
+      • analytic_distribution has a key matching the account id
+        (including composite "51,93" multi-plan keys), or
+      • any of the x_plan*_id / plan*_id fields point at the account.
+    The amount attributed is amount × percentage / 100.
+    """
+    aid = int(account_id)
+    has_distribution = 'analytic_distribution' in line_fields_set
+    plan_account_fields = sorted(
+        f for f in line_fields_set
+        if (f.startswith('x_plan') or f.startswith('plan'))
+           and f.endswith('_id')
+           and f not in ('account_id', 'auto_account_id')
+    )
+
+    read_fields = ['id', 'amount', 'date']
+    if 'general_account_id' in line_fields_set:
+        read_fields.append('general_account_id')
+    if has_distribution:
+        read_fields.append('analytic_distribution')
+    read_fields.extend(plan_account_fields)
+
+    lines = client.safe_search_read(
+        'account.analytic.line', base_dom, read_fields) or []
+
+    # gid -> {'name': str, 'rev': float, 'exp': float}
+    buckets = {}
+
+    def _share_for_line(ln):
+        amount = ln.get('amount') or 0
+        share = 0.0
+        # 1. analytic_distribution JSON
+        dist = ln.get('analytic_distribution') if has_distribution else None
+        if isinstance(dist, dict) and dist:
+            for key, pct in dist.items():
+                try:
+                    pct_f = float(pct or 0) / 100.0
+                except (TypeError, ValueError):
+                    continue
+                for tok in str(key).split(','):
+                    tok = tok.strip()
+                    if tok.isdigit() and int(tok) == aid:
+                        share += amount * pct_f
+            if share != 0:
+                return share
+        # 2. plan account fields
+        for f in plan_account_fields:
+            v = ln.get(f)
+            if isinstance(v, bool):
+                continue
+            if isinstance(v, list) and v and v[0] == aid:
+                return amount
+            if isinstance(v, int) and v == aid:
+                return amount
+        return 0.0
+
+    for ln in lines:
+        share = _share_for_line(ln)
+        if not share:
+            continue
+        ga = ln.get('general_account_id')
+        if isinstance(ga, list) and ga and not isinstance(ga[0], bool):
+            gid = ga[0]
+            gname = ga[1] if len(ga) > 1 and ga[1] and ga[1] is not False else ''
+        elif isinstance(ga, int) and not isinstance(ga, bool):
+            gid, gname = ga, ''
+        else:
+            gid, gname = 0, 'Unallocated'
+        slot = buckets.setdefault(gid, {'name': gname, 'rev': 0.0, 'exp': 0.0})
+        if not slot['name'] and gname:
+            slot['name'] = gname
+        if share > 0:
+            slot['rev'] += share
+        else:
+            slot['exp'] += abs(share)
+
+    logger.info(
+        "Cost-center P&L fallback: aid=%s scanned=%d buckets=%d "
+        "(has_distribution=%s plan_fields=%s)",
+        aid, len(lines), len(buckets), has_distribution, plan_account_fields)
+
+    rev_groups, exp_groups = [], []
+    for gid, s in buckets.items():
+        ga_pair = [gid, s['name']] if gid else False
+        if s['rev'] > 0:
+            rev_groups.append({'general_account_id': ga_pair, 'amount': s['rev']})
+        if s['exp'] > 0:
+            exp_groups.append({'general_account_id': ga_pair, 'amount': -s['exp']})
+    return rev_groups, exp_groups
+
+
 def _analytic_summary(rows):
     revenue = sum((a['revenue'] or 0) for a in rows)
     costs   = sum((a['costs']   or 0) for a in rows)
@@ -2019,6 +2258,37 @@ def financial():
         ctx['period_label']   = _format_period_label(
             range_key, date_from, date_to)
 
+        # All analytic accounts (company-scoped) for the Cost Center P&L
+        # dropdown. Cheap call — typically a few dozen rows. Include
+        # archived ones so historical P&Ls still work.
+        acc_fields_set = c.get_model_fields('account.analytic.account')
+        cc_company_dom = []
+        company_id_ctx = c.context.get('company_id') or 0
+        if company_id_ctx and 'company_id' in acc_fields_set:
+            cc_company_dom = [['company_id', 'in',
+                               [int(company_id_ctx), False]]]
+        archived_dom = ([['active', 'in', [True, False]]]
+                        if 'active' in acc_fields_set else [])
+        try:
+            cc_list = c.safe_search_read(
+                'account.analytic.account',
+                archived_dom + cc_company_dom,
+                ['id', 'name', 'display_name', 'code'],
+                order='name asc') or []
+        except Exception:
+            cc_list = []
+        ctx['all_analytic_accounts'] = [
+            {
+                'id':   r.get('id'),
+                'name': (r.get('display_name') if r.get('display_name')
+                         and r.get('display_name') is not False
+                         else r.get('name') or '#%s' % r.get('id')),
+                'code': (r.get('code') if r.get('code')
+                         and r.get('code') is not False else ''),
+            }
+            for r in cc_list if r.get('id')
+        ]
+
     return render_template('financial.html', **ctx)
 
 
@@ -2284,6 +2554,157 @@ def api_analytic_debug():
         'line_count_no_filter':      count_no_filter,
         'line_count_with_filter':    count_with_filter,
     })
+
+
+def _resolve_pnl_request_args():
+    """Parse + validate the inputs shared by the P&L JSON and export
+    endpoints. Returns (account_id:int, range_key, date_from, date_to,
+    error_response_or_None)."""
+    raw_id = (request.args.get('account_id', '') or '').strip()
+    if not raw_id.isdigit():
+        return 0, '', '', '', (jsonify({'error': 'account_id required'}), 400)
+    account_id = int(raw_id)
+    range_key = (request.args.get('range', 'ytd') or 'ytd').strip()
+    raw_from  = request.args.get('date_from', '')
+    raw_to    = request.args.get('date_to', '')
+    if range_key not in DATE_RANGE_KEYS:
+        range_key = 'ytd'
+    date_from, date_to, range_key = _resolve_date_range(
+        range_key, raw_from, raw_to)
+    return account_id, range_key, date_from, date_to, None
+
+
+def _resolve_cost_center_name(client, account_id):
+    """Return a display label for one analytic account: '[CODE] Name'."""
+    accs = client.safe_search_read(
+        'account.analytic.account', [['id', '=', int(account_id)]],
+        ['id', 'name', 'display_name', 'code']) or []
+    if not accs:
+        return '#%s' % account_id
+    a = accs[0]
+    dn = a.get('display_name')
+    nm = a.get('name')
+    label = (dn if dn and dn is not False
+             else (nm if nm and nm is not False else '#%s' % account_id))
+    code = a.get('code')
+    if code and code is not False:
+        return '[%s] %s' % (code, label)
+    return label
+
+
+@app.route('/financial/cost-center-pnl')
+@login_required
+def financial_cost_center_pnl():
+    """JSON endpoint for the Cost Center P&L Statement panel. Computes
+    revenue / expenses grouped by general_account_id (the accounting
+    account) for one analytic account over a period."""
+    account_id, range_key, date_from, date_to, err = _resolve_pnl_request_args()
+    if err:
+        return err
+
+    c = get_client()
+    try:
+        pnl = _compute_cost_center_pnl(c, account_id, date_from, date_to)
+    except Exception as e:
+        logger.exception("Cost-center P&L failed for account_id=%s", account_id)
+        return jsonify({'error': str(e)}), 500
+
+    return jsonify({
+        'account_id':       account_id,
+        'cost_center_name': _resolve_cost_center_name(c, account_id),
+        'range_key':        range_key,
+        'date_from':        date_from,
+        'date_to':          date_to,
+        'period_label':     _format_period_label(range_key, date_from, date_to),
+        **pnl,
+    })
+
+
+@app.route('/financial/cost-center-pnl/export/<fmt>')
+@login_required
+def export_cost_center_pnl(fmt):
+    """PDF or Excel export of the Cost Center P&L Statement."""
+    if fmt not in ('pdf', 'excel'):
+        flash('Invalid export format.', 'danger')
+        return redirect(url_for('financial', tab='analytic'))
+
+    account_id, range_key, date_from, date_to, err = _resolve_pnl_request_args()
+    if err:
+        # err is a (response, status) tuple from _resolve_pnl_request_args
+        return err
+
+    c = get_client()
+    try:
+        pnl = _compute_cost_center_pnl(c, account_id, date_from, date_to)
+    except Exception as e:
+        logger.exception("Cost-center P&L export failed for account_id=%s", account_id)
+        flash('Could not generate P&L: %s' % e, 'danger')
+        return redirect(url_for('financial', tab='analytic'))
+
+    cc_name      = _resolve_cost_center_name(c, account_id)
+    period_label = _format_period_label(range_key, date_from, date_to)
+    company_name = _pnl_company_or_none(c)
+    currency     = _pnl_currency_or_blank(c)
+
+    from exporters import export_pnl_pdf, export_pnl_excel
+    if fmt == 'pdf':
+        buf = export_pnl_pdf(
+            company_name=company_name,
+            cost_center_name=cc_name,
+            period_label=period_label,
+            currency=currency,
+            pnl=pnl,
+        )
+        return send_file(buf, mimetype='application/pdf',
+                         download_name='cost_center_pnl.pdf', as_attachment=True)
+    else:
+        buf = export_pnl_excel(
+            company_name=company_name,
+            cost_center_name=cc_name,
+            period_label=period_label,
+            currency=currency,
+            pnl=pnl,
+        )
+        return send_file(
+            buf,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            download_name='cost_center_pnl.xlsx', as_attachment=True,
+        )
+
+
+def _pnl_company_or_none(client):
+    cid = client.context.get('company_id') or 0
+    if not cid:
+        return ''
+    try:
+        rows = client.safe_search_read(
+            'res.company', [['id', '=', int(cid)]],
+            ['id', 'name']) or []
+        if rows:
+            return rows[0].get('name') or ''
+    except Exception:
+        pass
+    return ''
+
+
+def _pnl_currency_or_blank(client):
+    cid = client.context.get('company_id') or 0
+    if not cid:
+        return ''
+    try:
+        rows = client.safe_search_read(
+            'res.company', [['id', '=', int(cid)]],
+            ['currency_id']) or []
+        if rows and isinstance(rows[0].get('currency_id'), list):
+            cur_id = rows[0]['currency_id'][0]
+            cur_rows = client.safe_search_read(
+                'res.currency', [['id', '=', cur_id]],
+                ['name', 'symbol']) or []
+            if cur_rows:
+                return cur_rows[0].get('name') or cur_rows[0].get('symbol') or ''
+    except Exception:
+        pass
+    return ''
 
 
 @app.route('/financial/tax-summary')

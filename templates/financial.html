@@ -1547,6 +1547,327 @@
   </select>
 {%- endmacro %}
 
+<!-- ============ Cost Center P&L Statement ============ -->
+<style>
+  .pnl-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1.2fr) auto auto auto auto;
+    gap: .6rem;
+    align-items: end;
+    margin-bottom: .9rem;
+  }
+  .pnl-controls .form-control {
+    height: 34px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    padding: 0 .55rem;
+    font-size: .85rem;
+  }
+  .pnl-controls label {
+    display: block;
+    font-size: .68rem;
+    letter-spacing: .08em;
+    color: var(--text-muted);
+    font-weight: 700;
+    margin-bottom: .2rem;
+  }
+  .pnl-controls .pnl-date {
+    display: none;
+  }
+  .pnl-controls.is-custom .pnl-date {
+    display: block;
+  }
+  @media (max-width: 960px) {
+    .pnl-controls { grid-template-columns: 1fr 1fr; }
+    .pnl-controls .pnl-btn-cell { grid-column: span 2; display: flex; gap: .5rem; }
+  }
+  .pnl-output {
+    border-top: 1px dashed var(--border);
+    margin-top: .75rem;
+    padding-top: .75rem;
+    min-height: 60px;
+  }
+  .pnl-placeholder {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: .85rem;
+    padding: 1.2rem .5rem;
+  }
+  .pnl-meta {
+    font-size: .85rem;
+    color: var(--text-muted);
+    margin-bottom: .65rem;
+  }
+  .pnl-meta strong { color: var(--text); }
+  .pnl-section { margin: .9rem 0 .25rem; }
+  .pnl-section-title {
+    font-size: .72rem;
+    letter-spacing: .1em;
+    font-weight: 800;
+    margin-bottom: .35rem;
+  }
+  .pnl-section-title.rev { color: #16a34a; }
+  .pnl-section-title.exp { color: #dc2626; }
+  .pnl-line, .pnl-subtotal, .pnl-net {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: .35rem .25rem;
+    border-bottom: 1px solid var(--border);
+    font-size: .9rem;
+  }
+  .pnl-line .pnl-amt { font-variant-numeric: tabular-nums; }
+  .pnl-line .pnl-name { color: var(--text); }
+  .pnl-line .pnl-code {
+    color: var(--text-muted);
+    font-size: .78rem;
+    margin-right: .35rem;
+  }
+  .pnl-empty { color: var(--text-muted); font-style: italic; }
+  .pnl-subtotal {
+    background: var(--surface-2, rgba(148,163,184,.08));
+    font-weight: 700;
+    border-top: 1px solid var(--border);
+  }
+  .pnl-subtotal.rev .pnl-amt { color: #16a34a; }
+  .pnl-subtotal.exp .pnl-amt { color: #dc2626; }
+  .pnl-net {
+    margin-top: .8rem;
+    padding: .65rem .35rem;
+    border-top: 2px solid var(--border);
+    border-bottom: 2px solid var(--border);
+    font-size: 1rem;
+    font-weight: 800;
+  }
+  .pnl-net.pos { color: #2563eb; }
+  .pnl-net.neg { color: #dc2626; }
+  .pnl-margin {
+    display: flex;
+    justify-content: space-between;
+    padding: .4rem .35rem;
+    font-weight: 700;
+    color: var(--text);
+  }
+</style>
+
+<div class="analytic-section" id="pnlSection"
+     data-default-range="{{ range_key or 'ytd' }}"
+     data-default-from="{{ date_from }}"
+     data-default-to="{{ date_to }}"
+     data-currency="{{ ccy }}">
+  <div class="analytic-header">
+    <div class="analytic-title">
+      <i class="fa-solid fa-file-invoice-dollar" style="color:var(--primary)"></i>
+      COST CENTER P&amp;L STATEMENT
+    </div>
+  </div>
+
+  <div class="pnl-controls" id="pnlControls">
+    <div>
+      <label for="pnlAccount">Cost Center</label>
+      <select id="pnlAccount" class="form-control">
+        <option value="">— Select a cost center —</option>
+        {% for a in all_analytic_accounts or [] %}
+        <option value="{{ a.id }}">{% if a.code %}[{{ a.code }}] {% endif %}{{ a.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="pnlRange">Period</label>
+      {{ chart_period_select('pnlRange', range_key or 'ytd') }}
+    </div>
+    <div class="pnl-date">
+      <label for="pnlFrom">From</label>
+      <input type="date" id="pnlFrom" class="form-control" value="{{ date_from }}">
+    </div>
+    <div class="pnl-date">
+      <label for="pnlTo">To</label>
+      <input type="date" id="pnlTo" class="form-control" value="{{ date_to }}">
+    </div>
+    <div class="pnl-btn-cell" style="display:flex;gap:.4rem">
+      <button type="button" id="pnlGenerate" class="btn btn-primary btn-sm">
+        <i class="fa-solid fa-bolt"></i> Generate
+      </button>
+    </div>
+    <div class="pnl-btn-cell" style="display:flex;gap:.4rem">
+      <a href="#" id="pnlExportPdf" class="btn btn-secondary btn-sm"
+         style="pointer-events:none;opacity:.5" data-export>
+        <i class="fa-solid fa-file-pdf"></i> PDF
+      </a>
+      <a href="#" id="pnlExportExcel" class="btn btn-secondary btn-sm"
+         style="pointer-events:none;opacity:.5" data-export>
+        <i class="fa-solid fa-file-excel"></i> Excel
+      </a>
+    </div>
+  </div>
+
+  <div class="pnl-output" id="pnlOutput">
+    <div class="pnl-placeholder">
+      Pick a cost center and period, then click <strong>Generate</strong>.
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var section = document.getElementById('pnlSection');
+  if (!section) return;
+  var defaultRange = section.getAttribute('data-default-range') || 'ytd';
+  var currency = section.getAttribute('data-currency') || '';
+
+  var controls    = document.getElementById('pnlControls');
+  var acctSel     = document.getElementById('pnlAccount');
+  var rangeSel    = document.getElementById('pnlRange');
+  var fromInput   = document.getElementById('pnlFrom');
+  var toInput     = document.getElementById('pnlTo');
+  var genBtn      = document.getElementById('pnlGenerate');
+  var pdfBtn      = document.getElementById('pnlExportPdf');
+  var xlsBtn      = document.getElementById('pnlExportExcel');
+  var output      = document.getElementById('pnlOutput');
+
+  rangeSel.value = defaultRange;
+  function syncCustomVisible() {
+    controls.classList.toggle('is-custom', rangeSel.value === 'custom');
+  }
+  syncCustomVisible();
+  rangeSel.addEventListener('change', syncCustomVisible);
+
+  function fmtAmount(n) {
+    var v = Number(n || 0);
+    var s = v.toLocaleString(undefined, {
+      minimumFractionDigits: 2, maximumFractionDigits: 2,
+    });
+    return currency ? (currency + ' ' + s) : s;
+  }
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function setExportEnabled(on, params) {
+    [pdfBtn, xlsBtn].forEach(function (b) {
+      b.style.pointerEvents = on ? '' : 'none';
+      b.style.opacity = on ? '' : '.5';
+    });
+    if (on && params) {
+      pdfBtn.href = '/financial/cost-center-pnl/export/pdf?'   + params;
+      xlsBtn.href = '/financial/cost-center-pnl/export/excel?' + params;
+    }
+  }
+
+  function buildParams() {
+    var aid = acctSel.value;
+    if (!aid) return null;
+    var p = new URLSearchParams();
+    p.set('account_id', aid);
+    p.set('range', rangeSel.value);
+    if (rangeSel.value === 'custom') {
+      if (!fromInput.value || !toInput.value) return null;
+      p.set('date_from', fromInput.value);
+      p.set('date_to',   toInput.value);
+    }
+    return p;
+  }
+
+  function render(data) {
+    if (data.error) {
+      output.innerHTML = '<div class="pnl-placeholder">' +
+        '<i class="fa-solid fa-triangle-exclamation"></i> ' + esc(data.error) +
+        '</div>';
+      setExportEnabled(false);
+      return;
+    }
+    var revLines = (data.revenue_lines || []).map(function (l) {
+      return '<div class="pnl-line">' +
+        '<span class="pnl-name">' +
+        (l.code ? '<span class="pnl-code">[' + esc(l.code) + ']</span>' : '') +
+        esc(l.name || 'Unassigned') + '</span>' +
+        '<span class="pnl-amt">' + esc(fmtAmount(l.amount)) + '</span>' +
+        '</div>';
+    }).join('') || '<div class="pnl-line pnl-empty">No revenue lines</div>';
+    var expLines = (data.expense_lines || []).map(function (l) {
+      return '<div class="pnl-line">' +
+        '<span class="pnl-name">' +
+        (l.code ? '<span class="pnl-code">[' + esc(l.code) + ']</span>' : '') +
+        esc(l.name || 'Unassigned') + '</span>' +
+        '<span class="pnl-amt">' + esc(fmtAmount(l.amount)) + '</span>' +
+        '</div>';
+    }).join('') || '<div class="pnl-line pnl-empty">No expense lines</div>';
+    var netClass = (data.net || 0) >= 0 ? 'pos' : 'neg';
+    var netLabel = (data.net || 0) >= 0 ? 'NET PROFIT' : 'NET LOSS';
+
+    output.innerHTML = [
+      '<div class="pnl-meta">',
+      '<div>Cost Center: <strong>', esc(data.cost_center_name || ''), '</strong></div>',
+      '<div>Period: <strong>', esc(data.period_label || ''), '</strong></div>',
+      '</div>',
+      '<div class="pnl-section">',
+        '<div class="pnl-section-title rev">REVENUE</div>',
+        revLines,
+        '<div class="pnl-subtotal rev">',
+          '<span>Total Revenue</span>',
+          '<span class="pnl-amt">', esc(fmtAmount(data.total_revenue)), '</span>',
+        '</div>',
+      '</div>',
+      '<div class="pnl-section">',
+        '<div class="pnl-section-title exp">EXPENSES</div>',
+        expLines,
+        '<div class="pnl-subtotal exp">',
+          '<span>Total Expenses</span>',
+          '<span class="pnl-amt">', esc(fmtAmount(data.total_expenses)), '</span>',
+        '</div>',
+      '</div>',
+      '<div class="pnl-net ', netClass, '">',
+        '<span>', netLabel, '</span>',
+        '<span class="pnl-amt">', esc(fmtAmount(data.net)), '</span>',
+      '</div>',
+      '<div class="pnl-margin">',
+        '<span>Margin %</span>',
+        '<span>', esc(data.margin_display || '—'), '</span>',
+      '</div>',
+    ].join('');
+  }
+
+  function generate() {
+    var params = buildParams();
+    if (!params) {
+      output.innerHTML = '<div class="pnl-placeholder">' +
+        'Select a cost center first.</div>';
+      setExportEnabled(false);
+      return;
+    }
+    genBtn.disabled = true;
+    output.style.opacity = '.6';
+    fetch('/financial/cost-center-pnl?' + params.toString(), {
+      credentials: 'same-origin',
+      headers: { 'Accept': 'application/json' },
+    })
+      .then(function (r) {
+        if (!r.ok) return r.json().then(function (j) { throw j; });
+        return r.json();
+      })
+      .then(function (data) {
+        render(data);
+        setExportEnabled(true, params.toString());
+      })
+      .catch(function (err) {
+        render({ error: (err && err.error) || 'Could not generate P&L.' });
+      })
+      .finally(function () {
+        genBtn.disabled = false;
+        output.style.opacity = '';
+      });
+  }
+
+  genBtn.addEventListener('click', generate);
+  acctSel.addEventListener('change', function () { setExportEnabled(false); });
+  rangeSel.addEventListener('change', function () { setExportEnabled(false); });
+  fromInput.addEventListener('change', function () { setExportEnabled(false); });
+  toInput.addEventListener('change',   function () { setExportEnabled(false); });
+})();
+</script>
+
 <!-- Treemap -->
 <div class="analytic-section" id="treemapSection"
      data-default-range="{{ range_key or 'ytd' }}"
