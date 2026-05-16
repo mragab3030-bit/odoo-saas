@@ -1611,7 +1611,16 @@
   .pnl-section-title.rev { color: #16a34a; }
   .pnl-section-title.exp { color: #dc2626; }
   .pnl-section-title.oth { color: #64748b; }
-  .pnl-line, .pnl-subtotal, .pnl-net {
+  .pnl-line, .pnl-subtotal {
+    display: grid;
+    grid-template-columns: 1fr 64px 140px;
+    column-gap: .75rem;
+    align-items: baseline;
+    padding: .35rem .25rem;
+    border-bottom: 1px solid var(--border);
+    font-size: .9rem;
+  }
+  .pnl-net {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
@@ -1619,7 +1628,15 @@
     border-bottom: 1px solid var(--border);
     font-size: .9rem;
   }
-  .pnl-line .pnl-amt { font-variant-numeric: tabular-nums; }
+  .pnl-line .pnl-amt,
+  .pnl-subtotal .pnl-amt { font-variant-numeric: tabular-nums; text-align: right; }
+  .pnl-line .pnl-pct,
+  .pnl-subtotal .pnl-pct {
+    color: #9ca3af;
+    font-size: .8rem;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
   .pnl-line .pnl-name { color: var(--text); }
   .pnl-line .pnl-code {
     color: var(--text-muted);
@@ -1786,6 +1803,7 @@
           '<span class="pnl-name">' +
           (l.code ? '<span class="pnl-code">[' + esc(l.code) + ']</span>' : '') +
           esc(l.name || 'Unassigned') + '</span>' +
+          '<span class="pnl-pct">' + esc(l.pct_display || '—') + '</span>' +
           '<span class="pnl-amt">' + esc(fmtAmount(l.amount)) + '</span>' +
           '</div>';
       }).join('');
@@ -1808,6 +1826,7 @@
         revLines,
         '<div class="pnl-subtotal rev">',
           '<span>Total Revenue</span>',
+          '<span class="pnl-pct">', (data.total_revenue ? '100.0%' : '—'), '</span>',
           '<span class="pnl-amt">', esc(fmtAmount(data.total_revenue)), '</span>',
         '</div>',
       '</div>',
@@ -1816,6 +1835,7 @@
         expLines,
         '<div class="pnl-subtotal exp">',
           '<span>Total Expenses</span>',
+          '<span class="pnl-pct">', (data.total_expenses ? '100.0%' : '—'), '</span>',
           '<span class="pnl-amt">', esc(fmtAmount(data.total_expenses)), '</span>',
         '</div>',
       '</div>',
@@ -1827,6 +1847,7 @@
           othLines,
           '<div class="pnl-subtotal oth">',
             '<span>Total Other</span>',
+            '<span class="pnl-pct">', (data.total_other ? '100.0%' : '—'), '</span>',
             '<span class="pnl-amt">', esc(fmtAmount(data.total_other)), '</span>',
           '</div>',
         '</div>'

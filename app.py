@@ -1109,6 +1109,34 @@ def _compute_cost_center_pnl(client, account_id, date_from, date_to):
 
     total_revenue  = sum(x['amount'] for x in rev_lines)
     total_expenses = sum(x['amount'] for x in exp_lines)
+
+    # Each line carries pct = share of its own section's subtotal, so the
+    # template + exporters can render without re-summing. 1 decimal place.
+    def _attach_pct(lines, total):
+        if total <= 0:
+            for ln in lines:
+                ln['pct'] = 0.0
+                ln['pct_display'] = '—'
+            return
+        for ln in lines:
+            p = (ln['amount'] / total) * 100.0
+            ln['pct'] = p
+            ln['pct_display'] = '%.1f%%' % p
+
+    _attach_pct(rev_lines, total_revenue)
+    _attach_pct(exp_lines, total_expenses)
+    # Other section uses |amount| / |total_other| so signed amounts in
+    # opposite directions don't cancel out in the share calculation.
+    total_other_abs = sum(abs(x['amount']) for x in oth_lines)
+    if total_other_abs > 0:
+        for ln in oth_lines:
+            p = (abs(ln['amount']) / total_other_abs) * 100.0
+            ln['pct'] = p
+            ln['pct_display'] = '%.1f%%' % p
+    else:
+        for ln in oth_lines:
+            ln['pct'] = 0.0
+            ln['pct_display'] = '—'
     total_other    = sum(x['amount'] for x in oth_lines)
     net = total_revenue - total_expenses
     if total_revenue > 0:

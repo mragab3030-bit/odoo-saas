@@ -284,14 +284,20 @@ def export_pnl_pdf(company_name: str, cost_center_name: str,
                       datetime.now().strftime('%Y-%m-%d %H:%M'))
     elements.append(Paragraph('  |  '.join(meta_parts), sub_style))
 
-    # Two-column table: account name (60%) / amount (40%)
+    # Three-column table: account name (60%) / % (12%) / amount (28%)
     page_width = A4[0]
     available_width = page_width - 3.0 * cm
-    col_widths = [available_width * 0.66, available_width * 0.34]
+    section_col_widths = [
+        available_width * 0.60,
+        available_width * 0.12,
+        available_width * 0.28,
+    ]
+    pct_color = colors.HexColor('#9ca3af')
 
     def section_block(label, color, lines, total, total_label):
         table_data = [[
             cell(label, bold=True, color=color),
+            cell('', align='right'),
             cell('', align='right'),
         ]]
         for ln in lines:
@@ -301,21 +307,26 @@ def export_pnl_pdf(company_name: str, cost_center_name: str,
                 label_text = '[%s] %s' % (code, label_text)
             table_data.append([
                 cell('   ' + label_text),
+                cell(ln.get('pct_display') or '—', align='right',
+                     color=pct_color),
                 cell(_fmt_amount(ln.get('amount', 0), currency),
                      align='right'),
             ])
         if not lines:
             table_data.append([
                 cell('   (no lines)', color=colors.HexColor('#94a3b8')),
+                cell('—', align='right', color=pct_color),
                 cell('—', align='right',
                      color=colors.HexColor('#94a3b8')),
             ])
         table_data.append([
             cell(total_label, bold=True),
+            cell('100.0%' if total else '—', bold=True, align='right',
+                 color=pct_color),
             cell(_fmt_amount(total, currency), bold=True, align='right',
                  color=color),
         ])
-        t = Table(table_data, colWidths=col_widths, hAlign='LEFT')
+        t = Table(table_data, colWidths=section_col_widths, hAlign='LEFT')
         styles_list = [
             ('FONTNAME', (0, 0), (-1, -1), UNICODE_FONT),
             ('FONTSIZE', (0, 0), (-1, -1), 10),
@@ -356,15 +367,19 @@ def export_pnl_pdf(company_name: str, cost_center_name: str,
     net_value  = pnl.get('net') or 0
     net_color  = NET_BLUE if net_value >= 0 else NET_RED
     net_label  = 'NET PROFIT' if net_value >= 0 else 'NET LOSS'
+    # Three columns to align with the section tables above. NET / Margin
+    # rows leave the % column blank — per spec, no percentage on Net.
     summary_data = [
         [cell(net_label, bold=True, color=net_color),
+         cell('', align='right'),
          cell(_fmt_amount(net_value, currency), bold=True, align='right',
               color=net_color)],
         [cell('Margin %', bold=True),
+         cell('', align='right'),
          cell(pnl.get('margin_display') or '—', bold=True, align='right',
               color=net_color)],
     ]
-    summary = Table(summary_data, colWidths=col_widths)
+    summary = Table(summary_data, colWidths=section_col_widths)
     summary.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (-1, -1), UNICODE_FONT_BOLD),
         ('FONTSIZE', (0, 0), (-1, 0), 12),
@@ -408,8 +423,11 @@ def export_pnl_excel(company_name: str, cost_center_name: str,
     thin = Side(style='thin', color='E2E8F0')
     box  = Border(top=thin, bottom=thin, left=thin, right=thin)
 
-    # Title + meta
-    ws.merge_cells('A1:B1')
+    pct_color_font  = Font(color='9CA3AF', size=10)
+    pct_bold_font   = Font(bold=True, color='9CA3AF', size=10)
+
+    # Title + meta (span all 3 columns)
+    ws.merge_cells('A1:C1')
     cell = ws['A1']
     cell.value = 'COST CENTER P&L STATEMENT'
     cell.font = title_font
@@ -423,7 +441,7 @@ def export_pnl_excel(company_name: str, cost_center_name: str,
     meta_lines.append('Generated: ' + datetime.now().strftime('%Y-%m-%d %H:%M'))
     row = 2
     for line in meta_lines:
-        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=2)
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
         c = ws.cell(row=row, column=1, value=line)
         c.font = meta_font
         c.alignment = Alignment(horizontal='center')
@@ -432,8 +450,8 @@ def export_pnl_excel(company_name: str, cost_center_name: str,
 
     def write_section(label, lines, total_label, total, header_font, color):
         nonlocal row
-        # Section header row
-        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=2)
+        # Section header row — merge across all 3 columns
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
         c = ws.cell(row=row, column=1, value=label)
         c.font = header_font
         c.fill = header_fill
@@ -441,9 +459,10 @@ def export_pnl_excel(company_name: str, cost_center_name: str,
         c.border = box
         row += 1
         if not lines:
-            ws.cell(row=row, column=1, value='   (no lines)').font = Font(
-                color='94A3B8', italic=True)
+            empty = ws.cell(row=row, column=1, value='   (no lines)')
+            empty.font = Font(color='94A3B8', italic=True)
             ws.cell(row=row, column=2, value=None)
+            ws.cell(row=row, column=3, value=None)
             row += 1
         for ln in lines:
             label_text = ln.get('name') or 'Unassigned'
@@ -451,16 +470,39 @@ def export_pnl_excel(company_name: str, cost_center_name: str,
             if code:
                 label_text = '[%s] %s' % (code, label_text)
             ws.cell(row=row, column=1, value='   ' + label_text)
-            amt_cell = ws.cell(row=row, column=2, value=ln.get('amount') or 0)
+            # % column
+            pct_val = ln.get('pct')
+            pct_cell = ws.cell(row=row, column=2,
+                               value=(pct_val if pct_val is not None else None))
+            if pct_val is not None and pct_val != 0:
+                pct_cell.number_format = pct_fmt
+            elif (ln.get('pct_display') or '') == '—':
+                pct_cell.value = '—'
+            else:
+                pct_cell.number_format = pct_fmt
+            pct_cell.font = pct_color_font
+            pct_cell.alignment = Alignment(horizontal='right')
+            # Amount column
+            amt_cell = ws.cell(row=row, column=3, value=ln.get('amount') or 0)
             amt_cell.number_format = money_fmt
             amt_cell.alignment = Alignment(horizontal='right')
             row += 1
-        # Subtotal
+        # Subtotal row
         total_cell_label = ws.cell(row=row, column=1, value=total_label)
         total_cell_label.font = bold
         total_cell_label.fill = header_fill
         total_cell_label.border = box
-        total_cell = ws.cell(row=row, column=2, value=total or 0)
+        pct_sub = ws.cell(row=row, column=2,
+                          value=(100.0 if total else None))
+        if total:
+            pct_sub.number_format = pct_fmt
+        else:
+            pct_sub.value = '—'
+        pct_sub.font = pct_bold_font
+        pct_sub.fill = header_fill
+        pct_sub.border = box
+        pct_sub.alignment = Alignment(horizontal='right')
+        total_cell = ws.cell(row=row, column=3, value=total or 0)
         total_cell.font = Font(bold=True, color=color, size=11)
         total_cell.fill = header_fill
         total_cell.border = box
@@ -481,7 +523,7 @@ def export_pnl_excel(company_name: str, cost_center_name: str,
                       'Total Other', pnl.get('total_other') or 0,
                       other_font, '64748B')
 
-    # Net + margin summary
+    # Net + margin summary — % column blank, amount in column C.
     net_value = pnl.get('net') or 0
     net_color = '2563EB' if net_value >= 0 else 'DC2626'
     net_font  = net_font_pos if net_value >= 0 else net_font_neg
@@ -491,7 +533,10 @@ def export_pnl_excel(company_name: str, cost_center_name: str,
     net_label_cell.font = net_font
     net_label_cell.fill = header_fill
     net_label_cell.border = box
-    net_amt_cell = ws.cell(row=row, column=2, value=net_value)
+    blank_pct = ws.cell(row=row, column=2, value=None)
+    blank_pct.fill = header_fill
+    blank_pct.border = box
+    net_amt_cell = ws.cell(row=row, column=3, value=net_value)
     net_amt_cell.font = net_font
     net_amt_cell.fill = header_fill
     net_amt_cell.border = box
@@ -503,24 +548,29 @@ def export_pnl_excel(company_name: str, cost_center_name: str,
     margin_label_cell.font = bold
     margin_label_cell.fill = header_fill
     margin_label_cell.border = box
+    blank_pct2 = ws.cell(row=row, column=2, value=None)
+    blank_pct2.fill = header_fill
+    blank_pct2.border = box
     margin_value = pnl.get('margin_pct') or 0
     if (pnl.get('total_revenue') or 0) > 0:
-        m = ws.cell(row=row, column=2, value=margin_value)
+        m = ws.cell(row=row, column=3, value=margin_value)
         m.number_format = pct_fmt
     else:
-        m = ws.cell(row=row, column=2, value=pnl.get('margin_display') or '—')
+        m = ws.cell(row=row, column=3, value=pnl.get('margin_display') or '—')
     m.font = Font(bold=True, color=net_color, size=11)
     m.fill = header_fill
     m.border = box
     m.alignment = Alignment(horizontal='right')
 
     # Column widths
-    ws.column_dimensions['A'].width = 60
-    ws.column_dimensions['B'].width = 22
+    ws.column_dimensions['A'].width = 55
+    ws.column_dimensions['B'].width = 10
+    ws.column_dimensions['C'].width = 22
 
     if currency:
-        # Tag the second column with the currency in row 4 hint
-        pass  # money cells display the symbol via formatting elsewhere
+        # money cells use the formatting; symbol is shown in the on-screen
+        # currency dropdown in Excel. We keep this hook for future use.
+        pass
 
     buf = io.BytesIO()
     wb.save(buf)
