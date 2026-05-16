@@ -1178,6 +1178,11 @@
 <h2 style="margin:0 0 1rem 0;font-size:1.25rem;display:flex;align-items:center;gap:.5rem">
   <i class="fa-solid fa-boxes-packing" style="color:var(--primary)"></i>
   {{ asset_type_label or 'Assets' }}
+  {% if fully_dep_filter %}
+    <span class="badge" style="background:#fee2e2;color:#991b1b;font-size:.7rem;padding:.18rem .55rem;border-radius:999px;font-weight:600">
+      Filtered: Fully Depreciated
+    </span>
+  {% endif %}
 </h2>
 
 <div class="amount-format-toolbar" data-amount-toolbar>
@@ -1189,7 +1194,7 @@
   </div>
 </div>
 
-<div class="stat-grid">
+<div class="stat-grid {% if fully_dep_filter %}stat-grid--filtered{% endif %}">
   <div class="stat-card">
     <div class="stat-value">{{ stats.count }}</div>
     <div class="stat-label">{{ _count_lbl }}</div>

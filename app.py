@@ -2260,7 +2260,7 @@ def _pick_asset_category_field(client, model):
                  if f in fields), None)
 
 
-def _depreciation_ytd_methods(client):
+def _depreciation_ytd_methods(client, asset_ids=None):
     """Walk every known way to compute YTD depreciation and return a
     dict keyed by method name:
 
@@ -2270,6 +2270,13 @@ def _depreciation_ytd_methods(client):
         account_type is 'expense_depreciation' — most reliable fallback
         because it works on every version that supports the account
         type and doesn't depend on an FK whose name changes.
+
+    `asset_ids` (optional) narrows the result to a specific set of
+    assets — used when a card-driven filter (e.g. Fully Depreciated)
+    is active. Methods 1 and 2 honour the scope directly via an asset
+    FK; Method 3 is skipped under a scope because the expense-account
+    aggregate can't be cleanly attributed back to specific assets
+    (the same account collects depreciation for many assets).
 
     Each value is a float (0.0 when the method is unavailable / empty).
     The caller decides how to combine; the debug endpoint surfaces
@@ -2301,6 +2308,8 @@ def _depreciation_ytd_methods(client):
                    [date_field, '<=', today_iso]]
             if 'move_check' in legacy:
                 dom.append(['move_check', '=', True])
+            if asset_ids is not None and 'asset_id' in legacy:
+                dom.append(['asset_id', 'in', list(asset_ids) or [0]])
             try:
                 grp = client.safe_read_group(
                     'account.asset.depreciation.line', dom,
@@ -2319,9 +2328,12 @@ def _depreciation_ytd_methods(client):
                      if f in mline_fields), None)
     results['_meta']['asset_fk'] = asset_fk
     if asset_fk:
-        dom = [[asset_fk, '!=', False],
-               ['date', '>=', jan1_iso],
-               ['date', '<=', today_iso]]
+        if asset_ids is not None:
+            dom = [[asset_fk, 'in', list(asset_ids) or [0]]]
+        else:
+            dom = [[asset_fk, '!=', False]]
+        dom += [['date', '>=', jan1_iso],
+                ['date', '<=', today_iso]]
         if 'parent_state' in mline_fields:
             dom.append(['parent_state', '=', 'posted'])
         try:
@@ -2336,23 +2348,27 @@ def _depreciation_ytd_methods(client):
     # Most reliable cross-version path: depreciation expense always hits
     # an account whose account_type is 'expense_depreciation' (v16+);
     # for v15 we fall back to a user_type name match.
+    # Skipped when scoped to a specific asset set — a depreciation
+    # account aggregates many assets, so the result would over-count
+    # outside the requested scope.
     acct_fields = client.get_model_fields('account.account') or set()
     expense_acct_ids = []
-    try:
-        if 'account_type' in acct_fields:
-            expense_acct_ids = client.execute_kw(
-                'account.account', 'search',
-                [[['account_type', '=', 'expense_depreciation']]]) or []
-        elif 'user_type_id' in acct_fields:
-            type_ids = client.execute_kw(
-                'account.account.type', 'search',
-                [[['name', 'ilike', 'depreciation']]]) or []
-            if type_ids:
+    if asset_ids is None:
+        try:
+            if 'account_type' in acct_fields:
                 expense_acct_ids = client.execute_kw(
                     'account.account', 'search',
-                    [[['user_type_id', 'in', type_ids]]]) or []
-    except Exception as e:
-        logger.info("Method 3 account search failed: %s", e)
+                    [[['account_type', '=', 'expense_depreciation']]]) or []
+            elif 'user_type_id' in acct_fields:
+                type_ids = client.execute_kw(
+                    'account.account.type', 'search',
+                    [[['name', 'ilike', 'depreciation']]]) or []
+                if type_ids:
+                    expense_acct_ids = client.execute_kw(
+                        'account.account', 'search',
+                        [[['user_type_id', 'in', type_ids]]]) or []
+        except Exception as e:
+            logger.info("Method 3 account search failed: %s", e)
     results['_meta']['expense_acct_ids'] = expense_acct_ids
     if expense_acct_ids:
         dom = [['account_id', 'in', expense_acct_ids],
@@ -2371,15 +2387,18 @@ def _depreciation_ytd_methods(client):
     return results
 
 
-def _compute_asset_depreciation_ytd(client, asset_model, base_domain):
-    """Return the first non-zero YTD depreciation total from the
-    cascade of methods in `_depreciation_ytd_methods`.
+def _compute_asset_depreciation_ytd(client, asset_model, base_domain,
+                                    asset_ids=None):
+    """Return the first non-zero YTD depreciation total.
 
-    `base_domain` and `asset_model` are accepted for signature
-    compatibility but aren't applied — depreciation entries aren't
-    filterable by the asset-side company/status filters at this layer
-    (account_id is the natural anchor, not the asset)."""
-    by_method = _depreciation_ytd_methods(client)
+    When `asset_ids` is None (no card-driven scope active) we let the
+    helper roll through all three methods, including the
+    expense-account aggregate that covers all assets at once.
+
+    When `asset_ids` is a concrete list (e.g. user clicked Fully
+    Depreciated), only the per-asset methods run, so the YTD total
+    matches the assets actually shown in the table."""
+    by_method = _depreciation_ytd_methods(client, asset_ids=asset_ids)
     for k in ('legacy_dep_line',
               'move_line_asset_fk',
               'move_line_expense_acct'):
@@ -3016,11 +3035,25 @@ def financial():
                 # depreciated count). Both honour the same `domain`, so
                 # they respect the company filter and the status filter
                 # the user has already chosen.
+                #
+                # When the Fully Depreciated card-filter is active we
+                # scope the YTD depreciation to the assets that actually
+                # match the filtered domain. Without this, the YTD card
+                # would still show the whole-portfolio total — which
+                # contradicts what every other card on the page reports.
                 depr_ytd = 0
                 fully_dep_count = 0
                 if type_filter == 'purchase':
+                    scope_ids = None
+                    if fully_dep_only:
+                        try:
+                            scope_ids = c.execute_kw(
+                                asset_model, 'search', [domain]) or []
+                        except Exception as e:
+                            logger.info("Fully-dep scope id search failed: %s", e)
+                            scope_ids = []
                     depr_ytd = _compute_asset_depreciation_ytd(
-                        c, asset_model, domain)
+                        c, asset_model, domain, asset_ids=scope_ids)
                     fully_dep_count = _compute_fully_depreciated_count(
                         c, asset_model, domain)
 

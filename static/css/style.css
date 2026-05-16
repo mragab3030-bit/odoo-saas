@@ -1103,6 +1103,15 @@ a.amount-format-btn.active:focus {
   box-shadow: 0 0 0 3px rgba(230, 48, 48, .15);
 }
 
+/* When a card-driven filter is active (e.g. Assets > Fully Depreciated),
+   tint every card in the grid so the user can see the totals are scoped,
+   not portfolio-wide. The clicked card keeps its stronger .stat-card-active
+   highlight on top. */
+.stat-grid--filtered .stat-card {
+  border-color: rgba(230, 48, 48, .35);
+  background: rgba(230, 48, 48, .025);
+}
+
 /* ===== Tables ===== */
 .table-card { overflow-x: auto; }
 
