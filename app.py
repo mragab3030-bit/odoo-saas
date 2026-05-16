@@ -2260,6 +2260,69 @@ def _pick_asset_category_field(client, model):
                  if f in fields), None)
 
 
+def _resolve_asset_record_url_template(client, asset_model):
+    """Build a per-row deep-link template like '<base>/odoo/<segment>/{id}'.
+
+    v17+ exposes `path` on ir.actions.act_window — the canonical slug the
+    new web client routes on (e.g. 'accounting/assets'). We probe it live
+    so a renamed or module-specific menu still resolves; we cache the
+    answer on `session['asset_url_pattern']` keyed by `(company_id,
+    asset_model)` to avoid an extra RPC on every render.
+
+    v15/v16 (no `path` field, no /odoo/ router) fall back to the classic
+    hash route: '<base>/web#model=<model>&id={id}&view_type=form'.
+    """
+    odoo_base = (session.get('odoo_url') or '').rstrip('/')
+    company_id = session.get('company_id') or 0
+    ver = getattr(client, 'version_major', 0) or 0
+    cache_key = f'{company_id}:{asset_model}:{ver}'
+
+    cached = (session.get('asset_url_pattern') or {}).get(cache_key)
+    if cached:
+        # Refresh the base in case the user changed the Odoo URL — pattern
+        # stored without the base.
+        return f'{odoo_base}{cached}'
+
+    fallback = f'/web#model={asset_model}&id={{id}}&view_type=form'
+
+    if ver and ver >= 17:
+        # `path` only exists from v17. Query the act_window for this model
+        # and prefer the shortest / lowest-id hit (root menu over a custom
+        # filtered view).
+        try:
+            act_fields = client.get_model_fields('ir.actions.act_window')
+        except Exception:
+            act_fields = set()
+        if 'path' in act_fields:
+            try:
+                actions = client.execute_kw(
+                    'ir.actions.act_window', 'search_read',
+                    [[['res_model', '=', asset_model],
+                      ['path', '!=', False]]],
+                    {'fields': ['id', 'path'], 'limit': 5, 'order': 'id asc'}) or []
+            except Exception as e:
+                logger.info("act_window probe failed for %s: %s", asset_model, e)
+                actions = []
+            for act in actions:
+                slug = (act.get('path') or '').strip().strip('/')
+                if slug:
+                    pattern_path = f'/odoo/{slug}/{{id}}'
+                    break
+            else:
+                pattern_path = fallback
+        else:
+            pattern_path = fallback
+    else:
+        pattern_path = fallback
+
+    # Cache without the base so a re-login that changes odoo_url just works.
+    bucket = dict(session.get('asset_url_pattern') or {})
+    bucket[cache_key] = pattern_path
+    session['asset_url_pattern'] = bucket
+
+    return f'{odoo_base}{pattern_path}'
+
+
 # ---------------------------------------------------------------------------
 # Financial
 # ---------------------------------------------------------------------------
@@ -2808,21 +2871,16 @@ def financial():
                     ('sale',     'Deferred Revenue'),
                     ('all',      'All Types'),
                 ] if 'asset_type' in asset_fields else [])
-                # Deep-link to the Odoo record. v17+ uses the new web client
-                # routing (/odoo/<model-route>/<id>); v15/v16 use the legacy
-                # hash router. The model-route segment is the model name with
-                # dots → dashes (account.asset → account-asset).
+                # Deep-link to the Odoo record. v17+ probes the live
+                # ir.actions.act_window `path` so a custom menu still
+                # resolves; v15/v16 fall back to the classic hash router.
+                ctx['asset_record_path_template'] = \
+                    _resolve_asset_record_url_template(c, asset_model)
                 ver = getattr(c, 'version_major', 0) or 0
-                odoo_base = (session.get('odoo_url') or '').rstrip('/')
-                if ver and ver >= 17:
-                    ctx['asset_record_path_template'] = (
-                        f'{odoo_base}/odoo/accounting/assets/{{id}}')
-                else:
-                    ctx['asset_record_path_template'] = (
-                        f'{odoo_base}/web#model={asset_model}&id={{id}}&view_type=form')
                 logger.info(
-                    "Assets tab: model=%s ver=%s count=%d acq_field=%s net_field=%s",
-                    asset_model, ver, total, acq_field, net_field)
+                    "Assets tab: model=%s ver=%s count=%d acq_field=%s net_field=%s url=%s",
+                    asset_model, ver, total, acq_field, net_field,
+                    ctx['asset_record_path_template'])
             except Exception as e:
                 logger.warning("Assets tab failed for model %s: %s", asset_model, e)
                 ctx['error'] = 'Could not read assets from this Odoo instance.'
