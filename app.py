@@ -2654,6 +2654,11 @@ def financial():
         ctx['kpi_date_to']       = kpi_to
         ctx['kpi_period_label']  = kpi_payload['period_label']
         ctx['kpi_compare_yoy']   = kpi_compare_yoy
+
+        # Budget vs Actual availability — checked once here so the
+        # template can render the section in its disabled state (lock
+        # icon + helpful message) without an extra round-trip.
+        ctx['budget_available'] = _budget_available(c)
         # Probe the underlying model once — if it's missing or ACL-blocked we
         # render a clean "Not available in this version" notice instead of
         # crashing.
@@ -3300,6 +3305,225 @@ def _compute_cost_center_pnl_with_compare(client, account_id, range_key,
     return pnl
 
 
+# ---------------------------------------------------------------------------
+# Budget vs Actual (Odoo Budget module)
+# ---------------------------------------------------------------------------
+
+BUDGET_MODULES = ('account_budget', 'om_account_budget')
+BUDGET_MODEL   = 'crossovered.budget.lines'
+
+
+def _budget_available(client):
+    """Return True iff Odoo's budget module is installed and the line
+    model is readable for this user."""
+    installed = set(session.get('installed_modules') or [])
+    if not any(m in installed for m in BUDGET_MODULES):
+        # Cached module list may be stale on long sessions — fall back to
+        # a live model probe so a freshly-installed module lights up
+        # without a logout.
+        try:
+            fields = client.get_model_fields(BUDGET_MODEL)
+        except Exception:
+            fields = set()
+        return bool(fields)
+    try:
+        return bool(client.get_model_fields(BUDGET_MODEL))
+    except Exception:
+        return False
+
+
+def _empty_budget_payload():
+    return {
+        'available':       True,
+        'lines':           [],
+        'total_budget':    0.0,
+        'total_actual':    0.0,
+        'total_variance':  0.0,
+        'achievement_pct': 0.0,
+    }
+
+
+def _classify_budget_post_revenue(client, post_ids):
+    """For each account.budget.post id, return True if it tracks
+    revenue-side accounts (income / income_other), False otherwise.
+
+    We look at the linked account_ids and pick the section by majority;
+    when there's no clear signal, fall back to False (treat as expense
+    budget — by far the more common shape in practice)."""
+    if not post_ids:
+        return {}
+    try:
+        posts = client.execute_kw(
+            'account.budget.post', 'read',
+            [list(set(post_ids))],
+            {'fields': ['id', 'name', 'account_ids']}) or []
+    except Exception as e:
+        logger.info("Budget: account.budget.post read failed: %s", e)
+        return {pid: False for pid in post_ids}
+
+    all_account_ids = set()
+    for p in posts:
+        for a in (p.get('account_ids') or []):
+            all_account_ids.add(a)
+    account_types = (_classify_gl_accounts(client, all_account_ids)
+                     if all_account_ids else {})
+
+    out = {}
+    for p in posts:
+        pid = p.get('id')
+        if not pid:
+            continue
+        n_rev = n_exp = 0
+        for a in (p.get('account_ids') or []):
+            t = (account_types.get(a, {}).get('type') or '').lower()
+            if t in PNL_REVENUE_TYPES:
+                n_rev += 1
+            elif t in PNL_EXPENSE_TYPES:
+                n_exp += 1
+        is_revenue = n_rev > 0 and n_rev >= n_exp
+        out[pid] = is_revenue
+    return out
+
+
+def _compute_budget_vs_actual(client, account_id, date_from, date_to):
+    """Read crossovered.budget.lines for one analytic account inside the
+    date window. Each line carries:
+      • name (from the budget post or the parent crossovered.budget)
+      • budget (planned_amount)
+      • actual (practical_amount)
+      • variance = budget - actual
+      • variance_pct = variance / budget * 100   (0 when budget = 0)
+      • is_revenue  (per the post's linked GL accounts)
+      • status: 'on_track' | 'over' | 'under_utilized'
+
+    Lines whose date range overlaps the requested window are included.
+    """
+    aid = int(account_id)
+    line_fields = client.get_model_fields(BUDGET_MODEL)
+    if not line_fields:
+        return _empty_budget_payload()
+
+    has_planned       = 'planned_amount'       in line_fields
+    has_practical     = 'practical_amount'     in line_fields
+    has_general_post  = 'general_budget_id'    in line_fields
+    has_crossovered   = 'crossovered_budget_id' in line_fields
+    has_analytic      = 'analytic_account_id'  in line_fields
+    has_dfrom         = 'date_from'            in line_fields
+    has_dto           = 'date_to'              in line_fields
+
+    if not (has_analytic and has_planned):
+        logger.info(
+            "Budget: model %s missing analytic_account_id/planned_amount "
+            "(found fields: %d) — treating as unavailable", BUDGET_MODEL,
+            len(line_fields))
+        return _empty_budget_payload()
+
+    domain = [['analytic_account_id', '=', aid]]
+    # Include any budget line whose own range overlaps the requested
+    # window. Standard interval-overlap test.
+    if date_from and has_dto:
+        domain.append(['date_to',   '>=', date_from])
+    if date_to and has_dfrom:
+        domain.append(['date_from', '<=', date_to])
+    if 'company_id' in line_fields:
+        cid = client.context.get('company_id') or 0
+        if cid:
+            domain.append(['company_id', 'in', [int(cid), False]])
+
+    read_fields = ['id', 'analytic_account_id']
+    if has_planned:      read_fields.append('planned_amount')
+    if has_practical:    read_fields.append('practical_amount')
+    if has_general_post: read_fields.append('general_budget_id')
+    if has_crossovered:  read_fields.append('crossovered_budget_id')
+    if has_dfrom:        read_fields.append('date_from')
+    if has_dto:          read_fields.append('date_to')
+
+    try:
+        rows = client.safe_search_read(
+            BUDGET_MODEL, domain, read_fields,
+            order='date_from asc' if has_dfrom else None) or []
+    except Exception as e:
+        logger.warning("Budget: search failed for analytic_account=%s: %s",
+                       aid, e)
+        return _empty_budget_payload()
+
+    post_ids = []
+    for r in rows:
+        gb = r.get('general_budget_id')
+        if isinstance(gb, list) and gb:
+            post_ids.append(gb[0])
+    is_revenue_by_post = _classify_budget_post_revenue(client, post_ids)
+
+    out_lines = []
+    total_budget = 0.0
+    total_actual = 0.0
+    for r in rows:
+        budget = float(r.get('planned_amount')   or 0)
+        actual = float(r.get('practical_amount') or 0)
+        gb = r.get('general_budget_id')
+        post_id = gb[0] if (isinstance(gb, list) and gb
+                            and not isinstance(gb[0], bool)) else None
+        is_revenue = bool(is_revenue_by_post.get(post_id, False))
+
+        # Display name: prefer the post name, fall back to crossovered
+        # budget name, finally "Budget #id".
+        name = ''
+        if isinstance(gb, list) and len(gb) > 1 and gb[1] and gb[1] is not False:
+            name = gb[1]
+        if not name:
+            cb = r.get('crossovered_budget_id')
+            if isinstance(cb, list) and len(cb) > 1 and cb[1] and cb[1] is not False:
+                name = cb[1]
+        if not name:
+            name = 'Budget #%s' % r.get('id')
+
+        variance     = budget - actual
+        variance_pct = (variance / abs(budget) * 100.0) if budget else 0.0
+
+        if budget > 0 and actual > budget:
+            status = 'over'
+        elif budget > 0 and actual < 0.5 * budget:
+            status = 'under_utilized'
+        else:
+            status = 'on_track'
+
+        out_lines.append({
+            'id':            r.get('id'),
+            'name':          name,
+            'budget':        budget,
+            'actual':        actual,
+            'variance':      variance,
+            'variance_pct':  variance_pct,
+            'status':        status,
+            'is_revenue':    is_revenue,
+            'date_from':     r.get('date_from') if has_dfrom else None,
+            'date_to':       r.get('date_to')   if has_dto   else None,
+        })
+        total_budget += budget
+        total_actual += actual
+
+    total_variance  = total_budget - total_actual
+    achievement_pct = ((total_actual / total_budget) * 100.0
+                       if total_budget else 0.0)
+
+    out_lines.sort(key=lambda L: abs(L['variance']), reverse=True)
+
+    logger.info(
+        "Budget vs Actual: aid=%s rows=%d budget=%.2f actual=%.2f "
+        "variance=%.2f achievement=%.1f%%",
+        aid, len(out_lines), total_budget, total_actual,
+        total_variance, achievement_pct)
+
+    return {
+        'available':       True,
+        'lines':           out_lines,
+        'total_budget':    total_budget,
+        'total_actual':    total_actual,
+        'total_variance':  total_variance,
+        'achievement_pct': achievement_pct,
+    }
+
+
 def _resolve_cost_center_name(client, account_id):
     """Return a display label for one analytic account: '[CODE] Name'."""
     accs = client.safe_search_read(
@@ -3414,6 +3638,116 @@ def export_cost_center_pnl(fmt):
             buf,
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             download_name='cost_center_pnl.xlsx', as_attachment=True,
+        )
+
+
+@app.route('/financial/budget-vs-actual')
+@login_required
+def financial_budget_vs_actual():
+    """JSON endpoint for the Budget vs Actual section. Returns
+    {'available': False, 'reason': '...'} when the module isn't
+    installed (or the model isn't readable) so the front-end can
+    render a helpful empty state without an error."""
+    raw_id = (request.args.get('account_id', '') or '').strip()
+    if not raw_id.isdigit():
+        return jsonify({'error': 'account_id required'}), 400
+    account_id = int(raw_id)
+    range_key = (request.args.get('range', 'ytd') or 'ytd').strip()
+    if range_key not in DATE_RANGE_KEYS:
+        range_key = 'ytd'
+    raw_from = request.args.get('date_from', '')
+    raw_to   = request.args.get('date_to', '')
+    date_from, date_to, range_key = _resolve_date_range(
+        range_key, raw_from, raw_to)
+
+    c = get_client()
+    if not _budget_available(c):
+        return jsonify({
+            'available':    False,
+            'reason':       'Budget module not installed',
+            'period_label': _format_period_label(range_key, date_from, date_to),
+        })
+
+    try:
+        payload = _compute_budget_vs_actual(c, account_id, date_from, date_to)
+    except Exception as e:
+        logger.exception("Budget vs Actual failed for account_id=%s", account_id)
+        return jsonify({'error': str(e)}), 500
+
+    payload['range_key']        = range_key
+    payload['date_from']        = date_from
+    payload['date_to']          = date_to
+    payload['period_label']     = _format_period_label(range_key, date_from, date_to)
+    payload['cost_center_name'] = _resolve_cost_center_name(c, account_id)
+    payload['account_id']       = account_id
+    return jsonify(payload)
+
+
+@app.route('/financial/budget-vs-actual/export/<fmt>')
+@login_required
+def export_budget_vs_actual(fmt):
+    """PDF or Excel of the Budget vs Actual table."""
+    if fmt not in ('pdf', 'excel'):
+        flash('Invalid export format.', 'danger')
+        return redirect(url_for('financial', tab='analytic'))
+    raw_id = (request.args.get('account_id', '') or '').strip()
+    if not raw_id.isdigit():
+        flash('A cost center is required.', 'danger')
+        return redirect(url_for('financial', tab='analytic'))
+    account_id = int(raw_id)
+    range_key = (request.args.get('range', 'ytd') or 'ytd').strip()
+    if range_key not in DATE_RANGE_KEYS:
+        range_key = 'ytd'
+    raw_from = request.args.get('date_from', '')
+    raw_to   = request.args.get('date_to', '')
+    date_from, date_to, range_key = _resolve_date_range(
+        range_key, raw_from, raw_to)
+    unit = (request.args.get('unit', 'units') or 'units').lower()
+    if unit not in ('units', 'k', 'm'):
+        unit = 'units'
+
+    c = get_client()
+    if not _budget_available(c):
+        flash('Budget module is not installed on this Odoo instance.', 'warning')
+        return redirect(url_for('financial', tab='analytic'))
+
+    try:
+        payload = _compute_budget_vs_actual(c, account_id, date_from, date_to)
+    except Exception as e:
+        logger.exception("Budget vs Actual export failed for account_id=%s", account_id)
+        flash('Could not generate Budget vs Actual: %s' % e, 'danger')
+        return redirect(url_for('financial', tab='analytic'))
+
+    cc_name      = _resolve_cost_center_name(c, account_id)
+    period_label = _format_period_label(range_key, date_from, date_to)
+    company_name = _pnl_company_or_none(c)
+    currency     = _pnl_currency_or_blank(c)
+
+    from exporters import export_budget_pdf, export_budget_excel
+    if fmt == 'pdf':
+        buf = export_budget_pdf(
+            company_name=company_name,
+            cost_center_name=cc_name,
+            period_label=period_label,
+            currency=currency,
+            payload=payload,
+            unit=unit,
+        )
+        return send_file(buf, mimetype='application/pdf',
+                         download_name='budget_vs_actual.pdf', as_attachment=True)
+    else:
+        buf = export_budget_excel(
+            company_name=company_name,
+            cost_center_name=cc_name,
+            period_label=period_label,
+            currency=currency,
+            payload=payload,
+            unit=unit,
+        )
+        return send_file(
+            buf,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            download_name='budget_vs_actual.xlsx', as_attachment=True,
         )
 
 

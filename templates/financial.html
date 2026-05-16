@@ -2575,6 +2575,532 @@
 })();
 </script>
 
+<!-- =================== BUDGET vs ACTUAL =================== -->
+<style>
+  .budget-view-tabs {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    font-size: .78rem;
+    background: var(--surface);
+  }
+  .budget-view-tabs button {
+    border: 0; background: transparent; color: var(--text-muted);
+    padding: .35rem .75rem; cursor: pointer; font-weight: 600;
+  }
+  .budget-view-tabs button + button { border-left: 1px solid var(--border); }
+  .budget-view-tabs button.is-active { background: var(--primary); color: #fff; }
+  .budget-locked {
+    text-align: center; padding: 2rem 1rem;
+    color: var(--text-muted); font-size: .9rem;
+  }
+  .budget-locked .lock-icon {
+    display: inline-block; width: 56px; height: 56px;
+    border-radius: 50%; background: var(--surface-2, #f1f5f9);
+    color: #94a3b8; font-size: 24px;
+    line-height: 56px; margin-bottom: .75rem;
+  }
+  .budget-locked strong { color: var(--text); }
+  .budget-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: .75rem;
+    margin-top: .75rem;
+  }
+  @media (max-width: 900px) {
+    .budget-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  .budget-card {
+    background: var(--surface-2, #f8fafc);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: .75rem 1rem;
+    text-align: center;
+  }
+  .budget-card-label {
+    font-size: .68rem;
+    letter-spacing: .08em;
+    color: var(--text-muted);
+    font-weight: 700;
+    margin-bottom: .35rem;
+  }
+  .budget-card-value {
+    font-size: 1.3rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+  }
+  .budget-card-value.up   { color: #16a34a; }
+  .budget-card-value.down { color: #dc2626; }
+  .budget-card-value.amber{ color: #f59e0b; }
+  .budget-ring {
+    position: relative;
+    width: 80px; height: 80px;
+    margin: 0 auto;
+  }
+  .budget-ring svg { transform: rotate(-90deg); }
+  .budget-ring .pct {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 1.05rem; font-variant-numeric: tabular-nums;
+  }
+  .budget-table {
+    width: 100%; border-collapse: collapse; margin-top: .25rem;
+    font-size: .85rem;
+  }
+  .budget-table th, .budget-table td {
+    padding: .5rem .55rem;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+  }
+  .budget-table th {
+    font-size: .68rem;
+    letter-spacing: .08em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+  .budget-table td.num, .budget-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .budget-table td.status { text-align: center; }
+  .budget-status-badge {
+    display: inline-block;
+    padding: .15rem .55rem;
+    border-radius: 999px;
+    font-size: .72rem;
+    font-weight: 700;
+  }
+  .budget-status-badge.on    { background: rgba(22,163,74,.12); color: #16a34a; }
+  .budget-status-badge.over  { background: rgba(220,38,38,.12); color: #dc2626; }
+  .budget-status-badge.under { background: rgba(234,179,8,.15); color: #b45309; }
+  .budget-cell.up   { color: #16a34a; font-weight: 600; }
+  .budget-cell.down { color: #dc2626; font-weight: 600; }
+  .budget-cell.flat { color: var(--text-muted); }
+  .budget-chart-wrap { position: relative; height: 380px; margin-top: .5rem; }
+  .budget-view {
+    display: none;
+  }
+  .budget-view.is-active { display: block; }
+</style>
+
+<div class="analytic-section" id="budgetSection">
+  <div class="analytic-header">
+    <div class="analytic-title">
+      <i class="fa-solid fa-bullseye" style="color:var(--primary)"></i>
+      BUDGET VS ACTUAL
+    </div>
+    {% if budget_available %}
+    <div class="budget-view-tabs" role="tablist" aria-label="Budget view">
+      <button type="button" data-view="summary" class="is-active">Summary</button>
+      <button type="button" data-view="table">Detail Table</button>
+      <button type="button" data-view="chart">Chart</button>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if not budget_available %}
+  <div class="budget-locked">
+    <div class="lock-icon"><i class="fa-solid fa-lock"></i></div>
+    <p>
+      <strong>Budget module not installed</strong><br>
+      Install Odoo's <em>Budgets</em> app (technical name
+      <code>account_budget</code>) to track planned vs actual amounts per
+      cost center.
+    </p>
+  </div>
+  {% else %}
+  <div class="pnl-controls" id="budgetControls">
+    <div>
+      <label for="budgetAccount">Cost Center</label>
+      <select id="budgetAccount" class="form-control">
+        <option value="">— Select a cost center —</option>
+        {% for a in all_analytic_accounts or [] %}
+        <option value="{{ a.id }}">{% if a.code %}[{{ a.code }}] {% endif %}{{ a.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="budgetRange">Period</label>
+      {{ chart_period_select('budgetRange', range_key or 'ytd') }}
+    </div>
+    <div class="pnl-date">
+      <label for="budgetFrom">From</label>
+      <input type="date" id="budgetFrom" class="form-control" value="{{ date_from }}">
+    </div>
+    <div class="pnl-date">
+      <label for="budgetTo">To</label>
+      <input type="date" id="budgetTo" class="form-control" value="{{ date_to }}">
+    </div>
+    <div class="pnl-btn-cell" style="display:flex;gap:.4rem">
+      <button type="button" id="budgetGenerate" class="btn btn-primary btn-sm">
+        <i class="fa-solid fa-bolt"></i> Generate
+      </button>
+    </div>
+    <div class="pnl-btn-cell" style="display:flex;gap:.4rem">
+      <a href="#" id="budgetExportPdf" class="btn btn-secondary btn-sm"
+         style="pointer-events:none;opacity:.5" data-export>
+        <i class="fa-solid fa-file-pdf"></i> PDF
+      </a>
+      <a href="#" id="budgetExportExcel" class="btn btn-secondary btn-sm"
+         style="pointer-events:none;opacity:.5" data-export>
+        <i class="fa-solid fa-file-excel"></i> Excel
+      </a>
+    </div>
+  </div>
+
+  <div id="budgetOutput" style="margin-top:.5rem">
+    <div class="pnl-placeholder">
+      Pick a cost center and period, then click <strong>Generate</strong>.
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    var section   = document.getElementById('budgetSection');
+    var ccy       = document.getElementById('pnlSection') ?
+                    (document.getElementById('pnlSection').getAttribute('data-currency') || '') : '';
+    var acctSel   = document.getElementById('budgetAccount');
+    var rangeSel  = document.getElementById('budgetRange');
+    var fromInput = document.getElementById('budgetFrom');
+    var toInput   = document.getElementById('budgetTo');
+    var genBtn    = document.getElementById('budgetGenerate');
+    var pdfBtn    = document.getElementById('budgetExportPdf');
+    var xlsBtn    = document.getElementById('budgetExportExcel');
+    var output    = document.getElementById('budgetOutput');
+    var controls  = document.getElementById('budgetControls');
+    var tabs      = section.querySelectorAll('.budget-view-tabs button');
+
+    var unitMode = 'units';
+    // Honour the unit toggle in the P&L card so the two reports stay
+    // in sync visually.
+    var pnlRoot = document.getElementById('pnlSection');
+    if (pnlRoot) {
+      pnlRoot.addEventListener('click', function () { /* no-op for now */ });
+    }
+
+    function syncCustomVisible() {
+      controls.classList.toggle('is-custom', rangeSel.value === 'custom');
+    }
+    rangeSel.value = '{{ range_key or "ytd" }}';
+    syncCustomVisible();
+    rangeSel.addEventListener('change', syncCustomVisible);
+
+    function fmtAmount(n) {
+      var v = Number(n || 0);
+      var s;
+      if (unitMode === 'k')      s = (v/1000).toLocaleString(undefined, { minimumFractionDigits:1, maximumFractionDigits:1 }) + 'K';
+      else if (unitMode === 'm') s = (v/1000000).toLocaleString(undefined, { minimumFractionDigits:2, maximumFractionDigits:2 }) + 'M';
+      else                       s = v.toLocaleString(undefined, { minimumFractionDigits:2, maximumFractionDigits:2 });
+      return ccy ? (ccy + ' ' + s) : s;
+    }
+    function esc(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+    function pctStr(p) { return (p > 0 ? '+' : '') + Number(p || 0).toFixed(1) + '%'; }
+
+    var lastData = null;
+    var lastParams = null;
+    var activeView = 'summary';
+    var chart = null;
+
+    function setExportEnabled(on, params) {
+      [pdfBtn, xlsBtn].forEach(function (b) {
+        b.style.pointerEvents = on ? '' : 'none';
+        b.style.opacity = on ? '' : '.5';
+      });
+      if (on && params) {
+        lastParams = params;
+        pdfBtn.href = '/financial/budget-vs-actual/export/pdf?'   + params.toString();
+        xlsBtn.href = '/financial/budget-vs-actual/export/excel?' + params.toString();
+      } else if (!on) {
+        lastParams = null;
+      }
+    }
+
+    function buildParams() {
+      var aid = acctSel.value;
+      if (!aid) return null;
+      var p = new URLSearchParams();
+      p.set('account_id', aid);
+      p.set('range', rangeSel.value);
+      if (rangeSel.value === 'custom') {
+        if (!fromInput.value || !toInput.value) return null;
+        p.set('date_from', fromInput.value);
+        p.set('date_to',   toInput.value);
+      }
+      return p;
+    }
+
+    // Direction-aware colour for the variance cell. Per spec:
+    //   expense budgets: variance > 0 = green (under budget)
+    //   revenue budgets: variance > 0 = red   (under target)
+    function varianceClass(line) {
+      var v = Number(line.variance || 0);
+      if (v === 0) return 'flat';
+      if (line.is_revenue) return v > 0 ? 'down' : 'up';
+      return v > 0 ? 'up' : 'down';
+    }
+
+    function statusBadge(status) {
+      if (status === 'over')           return '<span class="budget-status-badge over">❌ Over Budget</span>';
+      if (status === 'under_utilized') return '<span class="budget-status-badge under">⚠️ Under Utilized</span>';
+      return '<span class="budget-status-badge on">✅ On Track</span>';
+    }
+
+    function achievementColor(p) {
+      if (p > 80) return '#16a34a';
+      if (p >= 50) return '#f59e0b';
+      return '#dc2626';
+    }
+
+    function ringSvg(pct) {
+      var r = 32, c = 2 * Math.PI * r;
+      var clamped = Math.max(0, Math.min(100, Number(pct || 0)));
+      var off = c * (1 - clamped / 100);
+      var col = achievementColor(clamped);
+      return [
+        '<svg width="80" height="80" viewBox="0 0 80 80">',
+          '<circle cx="40" cy="40" r="32" stroke="#e2e8f0" stroke-width="8" fill="none"/>',
+          '<circle cx="40" cy="40" r="32" stroke="', col, '" stroke-width="8" fill="none"',
+          ' stroke-dasharray="', c.toFixed(2), '" stroke-dashoffset="', off.toFixed(2), '"',
+          ' stroke-linecap="round"/>',
+        '</svg>',
+      ].join('');
+    }
+
+    function renderSummary(d) {
+      var ach = Number(d.achievement_pct || 0);
+      var tv  = Number(d.total_variance  || 0);
+      var lines = d.lines || [];
+      var revCount = lines.filter(function (l) { return l.is_revenue; }).length;
+      var expCount = lines.length - revCount;
+      var revBias = revCount > expCount;
+      var varCls;
+      if (tv === 0) varCls = '';
+      else if (revBias) varCls = (tv > 0 ? 'down' : 'up');
+      else              varCls = (tv > 0 ? 'up'   : 'down');
+      var achCls = ach > 80 ? 'up' : (ach >= 50 ? 'amber' : 'down');
+      return [
+        '<div class="budget-summary-grid">',
+          '<div class="budget-card">',
+            '<div class="budget-card-label">TOTAL BUDGET</div>',
+            '<div class="budget-card-value">', esc(fmtAmount(d.total_budget)), '</div>',
+          '</div>',
+          '<div class="budget-card">',
+            '<div class="budget-card-label">TOTAL ACTUAL</div>',
+            '<div class="budget-card-value">', esc(fmtAmount(d.total_actual)), '</div>',
+          '</div>',
+          '<div class="budget-card">',
+            '<div class="budget-card-label">VARIANCE</div>',
+            '<div class="budget-card-value ', varCls, '">',
+              (tv > 0 ? '+' : ''),
+              esc(fmtAmount(tv)),
+            '</div>',
+          '</div>',
+          '<div class="budget-card">',
+            '<div class="budget-card-label">ACHIEVEMENT</div>',
+            '<div class="budget-ring">',
+              ringSvg(ach),
+              '<div class="pct" style="color:', achievementColor(ach), '">',
+                ach.toFixed(0), '%',
+              '</div>',
+            '</div>',
+          '</div>',
+        '</div>',
+      ].join('');
+    }
+
+    function renderTable(d) {
+      var lines = d.lines || [];
+      if (!lines.length) {
+        return '<div class="pnl-placeholder">' +
+               'No budget lines for this cost center and period.</div>';
+      }
+      var rows = lines.map(function (l) {
+        var vcls = varianceClass(l);
+        var vSign = (l.variance > 0 ? '+' : (l.variance < 0 ? '' : ''));
+        var pctText = l.budget ? pctStr(l.variance_pct) : '—';
+        return [
+          '<tr>',
+            '<td>', esc(l.name || '—'), '</td>',
+            '<td class="num">', esc(fmtAmount(l.budget)),  '</td>',
+            '<td class="num">', esc(fmtAmount(l.actual)),  '</td>',
+            '<td class="num budget-cell ', vcls, '">',
+              vSign, esc(fmtAmount(l.variance)),
+            '</td>',
+            '<td class="num budget-cell ', vcls, '">',
+              esc(pctText),
+            '</td>',
+            '<td class="status">', statusBadge(l.status), '</td>',
+          '</tr>',
+        ].join('');
+      }).join('');
+      return [
+        '<table class="budget-table">',
+          '<thead><tr>',
+            '<th>Budget Line</th>',
+            '<th class="num">Budget</th>',
+            '<th class="num">Actual</th>',
+            '<th class="num">Variance</th>',
+            '<th class="num">Variance %</th>',
+            '<th>Status</th>',
+          '</tr></thead>',
+          '<tbody>', rows, '</tbody>',
+        '</table>',
+      ].join('');
+    }
+
+    function buildChart(d) {
+      if (chart) { chart.destroy(); chart = null; }
+      var canvas = document.getElementById('budgetChart');
+      if (!canvas || !window.Chart) return;
+      var lines = (d.lines || []).slice(0, 30); // cap to keep readable
+      var labels = lines.map(function (l) { return l.name; });
+      var budgets = lines.map(function (l) { return Number(l.budget || 0); });
+      var actuals = lines.map(function (l) { return Number(l.actual || 0); });
+      var actualColors = lines.map(function (l) {
+        var over = Number(l.actual || 0) > Number(l.budget || 0);
+        return over ? '#dc2626' : '#16a34a';
+      });
+      chart = new Chart(canvas.getContext('2d'), {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'Budget',
+              data: budgets,
+              backgroundColor: '#3b82f6',
+              borderRadius: 4,
+            },
+            {
+              label: 'Actual',
+              data: actuals,
+              backgroundColor: actualColors,
+              borderRadius: 4,
+            },
+          ],
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'bottom' },
+            tooltip: {
+              callbacks: {
+                label: function (ctx) {
+                  return ctx.dataset.label + ': ' + fmtAmount(ctx.parsed.x);
+                },
+              },
+            },
+          },
+          scales: {
+            x: { ticks: { callback: function (v) { return fmtAmount(v); } } },
+            y: { ticks: { autoSkip: false } },
+          },
+        },
+      });
+    }
+
+    function render(d) {
+      lastData = d;
+      if (d.error) {
+        output.innerHTML = '<div class="pnl-placeholder">' +
+          '<i class="fa-solid fa-triangle-exclamation"></i> ' + esc(d.error) +
+          '</div>';
+        setExportEnabled(false);
+        return;
+      }
+      if (d.available === false) {
+        output.innerHTML = '<div class="budget-locked">' +
+          '<div class="lock-icon"><i class="fa-solid fa-lock"></i></div>' +
+          '<p><strong>' + esc(d.reason || 'Budget module not installed') + '</strong></p></div>';
+        setExportEnabled(false);
+        return;
+      }
+      var meta = [
+        '<div class="pnl-meta">',
+          '<div>Cost Center: <strong>', esc(d.cost_center_name || ''), '</strong></div>',
+          '<div>Period: <strong>', esc(d.period_label || ''), '</strong></div>',
+        '</div>',
+      ].join('');
+      var html = [
+        meta,
+        '<div class="budget-view ', (activeView === 'summary' ? 'is-active' : ''), '" data-view="summary">',
+          renderSummary(d),
+        '</div>',
+        '<div class="budget-view ', (activeView === 'table' ? 'is-active' : ''), '" data-view="table">',
+          renderTable(d),
+        '</div>',
+        '<div class="budget-view ', (activeView === 'chart' ? 'is-active' : ''), '" data-view="chart">',
+          '<div class="budget-chart-wrap"><canvas id="budgetChart"></canvas></div>',
+        '</div>',
+      ].join('');
+      output.innerHTML = html;
+      if (activeView === 'chart') buildChart(d);
+    }
+
+    function generate() {
+      var params = buildParams();
+      if (!params) {
+        output.innerHTML = '<div class="pnl-placeholder">Select a cost center first.</div>';
+        setExportEnabled(false);
+        return;
+      }
+      genBtn.disabled = true;
+      output.style.opacity = '.6';
+      fetch('/financial/budget-vs-actual?' + params.toString(), {
+        credentials: 'same-origin',
+        headers: { 'Accept': 'application/json' },
+      })
+        .then(function (r) {
+          if (!r.ok) return r.json().then(function (j) { throw j; });
+          return r.json();
+        })
+        .then(function (data) {
+          render(data);
+          if (data.available !== false) setExportEnabled(true, params);
+        })
+        .catch(function (err) {
+          render({ error: (err && err.error) || 'Could not load budget data.' });
+        })
+        .finally(function () {
+          genBtn.disabled = false;
+          output.style.opacity = '';
+        });
+    }
+
+    tabs.forEach(function (b) {
+      b.addEventListener('click', function () {
+        var v = b.getAttribute('data-view');
+        if (v === activeView) return;
+        activeView = v;
+        tabs.forEach(function (x) {
+          x.classList.toggle('is-active', x === b);
+        });
+        if (lastData) {
+          var views = output.querySelectorAll('.budget-view');
+          views.forEach(function (vEl) {
+            vEl.classList.toggle('is-active',
+              vEl.getAttribute('data-view') === activeView);
+          });
+          if (activeView === 'chart') buildChart(lastData);
+        }
+      });
+    });
+
+    genBtn.addEventListener('click', generate);
+    acctSel.addEventListener('change',  function () { setExportEnabled(false); });
+    rangeSel.addEventListener('change', function () { setExportEnabled(false); });
+    fromInput.addEventListener('change',function () { setExportEnabled(false); });
+    toInput.addEventListener('change',  function () { setExportEnabled(false); });
+  })();
+  </script>
+  {% endif %}
+</div>
+
 <!-- Treemap -->
 <div class="analytic-section" id="treemapSection"
      data-default-range="{{ range_key or 'ytd' }}"

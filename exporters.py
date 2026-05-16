@@ -1067,6 +1067,390 @@ def export_pnl_excel(company_name: str, cost_center_name: str,
     return buf
 
 
+# ---------------------------------------------------------------------------
+# Budget vs Actual exports
+# ---------------------------------------------------------------------------
+
+STATUS_LABEL = {
+    'on_track':       'On Track',
+    'over':           'Over Budget',
+    'under_utilized': 'Under Utilized',
+}
+STATUS_COLOUR_HEX = {
+    'on_track':       '16A34A',
+    'over':           'DC2626',
+    'under_utilized': 'EAB308',
+}
+
+
+def _budget_variance_colour(line):
+    """Pick a green/red HEX for the variance cell. Spec:
+      • Expense budgets: variance > 0 (under budget) = green; < 0 = red
+      • Revenue budgets: variance > 0 (under target) = red;   < 0 = green
+    """
+    v = line.get('variance') or 0
+    if v == 0:
+        return '9CA3AF'
+    is_revenue = bool(line.get('is_revenue'))
+    if is_revenue:
+        return 'DC2626' if v > 0 else '16A34A'
+    return '16A34A' if v > 0 else 'DC2626'
+
+
+def export_budget_pdf(company_name: str, cost_center_name: str,
+                      period_label: str, currency: str,
+                      payload: dict, unit: str = 'units') -> io.BytesIO:
+    """Render the Budget vs Actual table as a PDF.
+
+    Layout: header band → summary row (Budget / Actual / Variance /
+    Achievement %) → 6-column line table (Budget Line / Budget / Actual /
+    Variance / Variance % / Status). Variance cells coloured per the
+    revenue/expense rule above. Status cells coloured by status.
+    """
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        rightMargin=1.2 * cm, leftMargin=1.2 * cm,
+        topMargin=1.5 * cm, bottomMargin=1.2 * cm,
+    )
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        'Title', parent=styles['Title'],
+        fontName=UNICODE_FONT_BOLD, fontSize=18,
+        textColor=BRAND_DARK, alignment=TA_CENTER, spaceAfter=6,
+    )
+    sub_style = ParagraphStyle(
+        'Sub', parent=styles['Normal'],
+        fontName=UNICODE_FONT, fontSize=10,
+        textColor=colors.HexColor('#64748b'),
+        alignment=TA_CENTER, spaceAfter=14,
+    )
+
+    def cell(text, bold=False, align='left', color=BRAND_DARK, size=9):
+        style = ParagraphStyle(
+            'C', parent=styles['Normal'],
+            fontName=UNICODE_FONT_BOLD if bold else UNICODE_FONT,
+            fontSize=size, textColor=color, leading=12,
+            alignment={'left': TA_LEFT, 'right': TA_RIGHT,
+                       'center': TA_CENTER}[align],
+        )
+        text = '' if text is None else str(text)
+        if _has_arabic(text):
+            text = _shape_arabic(text)
+        return Paragraph(_esc(text), style)
+
+    elements = [Paragraph('BUDGET VS ACTUAL', title_style)]
+    meta_parts = []
+    if company_name:     meta_parts.append(company_name)
+    if cost_center_name: meta_parts.append('Cost Center: %s' % cost_center_name)
+    if period_label:     meta_parts.append('Period: %s' % period_label)
+    meta_parts.append('Generated %s' % datetime.now().strftime('%Y-%m-%d %H:%M'))
+    elements.append(Paragraph('  |  '.join(meta_parts), sub_style))
+
+    page_width = A4[0]
+    avail = page_width - 2.4 * cm
+
+    # ---- Summary row (4 KPI cards as a single table) -------------------
+    achievement = payload.get('achievement_pct') or 0
+    if achievement >= 80:
+        ach_color = colors.HexColor('#16a34a')
+    elif achievement >= 50:
+        ach_color = colors.HexColor('#f59e0b')
+    else:
+        ach_color = colors.HexColor('#dc2626')
+
+    total_variance = payload.get('total_variance') or 0
+    # Section-level variance colour: assume the cost center is
+    # expense-biased unless the lines are clearly revenue-heavy.
+    rev_lines = sum(1 for L in (payload.get('lines') or []) if L.get('is_revenue'))
+    exp_lines = sum(1 for L in (payload.get('lines') or []) if not L.get('is_revenue'))
+    section_revenue_bias = rev_lines > exp_lines
+    if total_variance == 0:
+        var_color = colors.HexColor('#64748b')
+    elif section_revenue_bias:
+        var_color = colors.HexColor('#dc2626' if total_variance > 0 else '#16a34a')
+    else:
+        var_color = colors.HexColor('#16a34a' if total_variance > 0 else '#dc2626')
+
+    kpi_data = [[
+        cell('Total Budget', bold=True, align='center',
+             color=colors.HexColor('#64748b'), size=8),
+        cell('Total Actual', bold=True, align='center',
+             color=colors.HexColor('#64748b'), size=8),
+        cell('Variance', bold=True, align='center',
+             color=colors.HexColor('#64748b'), size=8),
+        cell('Achievement %', bold=True, align='center',
+             color=colors.HexColor('#64748b'), size=8),
+    ], [
+        cell(_fmt_amount(payload.get('total_budget') or 0, currency, unit),
+             bold=True, align='center', color=BRAND_DARK, size=14),
+        cell(_fmt_amount(payload.get('total_actual') or 0, currency, unit),
+             bold=True, align='center', color=BRAND_DARK, size=14),
+        cell(('+' if total_variance > 0 else '') +
+             _fmt_amount(total_variance, currency, unit),
+             bold=True, align='center', color=var_color, size=14),
+        cell('%.1f%%' % achievement,
+             bold=True, align='center', color=ach_color, size=14),
+    ]]
+    kpi_widths = [avail * 0.25] * 4
+    kpi_table = Table(kpi_data, colWidths=kpi_widths)
+    kpi_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), LIGHT_GREY),
+        ('LINEABOVE',  (0, 0), (-1, 0), 0.5, MID_GREY),
+        ('LINEBELOW',  (0, -1), (-1, -1), 0.5, MID_GREY),
+        ('LINEAFTER',  (0, 0), (-2, -1), 0.5, MID_GREY),
+        ('TOPPADDING',    (0, 0), (-1, -1), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+    ]))
+    elements.append(kpi_table)
+    elements.append(Spacer(1, 0.6 * cm))
+
+    # ---- Detail table --------------------------------------------------
+    headers = ['Budget Line', 'Budget', 'Actual', 'Variance',
+               'Variance %', 'Status']
+    col_widths = [avail * 0.32, avail * 0.13, avail * 0.13,
+                  avail * 0.15, avail * 0.12, avail * 0.15]
+    table_data = [[cell(h, bold=True, align='center',
+                        color=colors.white, size=9) for h in headers]]
+    for ln in (payload.get('lines') or []):
+        v_color = colors.HexColor('#' + _budget_variance_colour(ln))
+        status = ln.get('status') or 'on_track'
+        status_color = colors.HexColor('#' + STATUS_COLOUR_HEX.get(status, '64748B'))
+        table_data.append([
+            cell(ln.get('name') or '—'),
+            cell(_fmt_amount(ln.get('budget') or 0, currency, unit), align='right'),
+            cell(_fmt_amount(ln.get('actual') or 0, currency, unit), align='right'),
+            cell(('+' if (ln.get('variance') or 0) > 0 else '') +
+                 _fmt_amount(ln.get('variance') or 0, currency, unit),
+                 align='right', color=v_color, bold=True),
+            cell(('%+.1f%%' % (ln.get('variance_pct') or 0))
+                 if ln.get('budget') else '—',
+                 align='right', color=v_color),
+            cell(STATUS_LABEL.get(status, status),
+                 align='center', color=status_color, bold=True),
+        ])
+    if not payload.get('lines'):
+        table_data.append([
+            cell('No budget lines for this cost center and period.',
+                 align='center', color=colors.HexColor('#94a3b8'), size=9),
+            cell(''), cell(''), cell(''), cell(''), cell(''),
+        ])
+
+    t = Table(table_data, colWidths=col_widths, repeatRows=1)
+    t.setStyle(TableStyle([
+        ('BACKGROUND',    (0, 0), (-1, 0), BRAND_BLUE),
+        ('TEXTCOLOR',     (0, 0), (-1, 0), colors.white),
+        ('FONTNAME',      (0, 0), (-1, 0), UNICODE_FONT_BOLD),
+        ('FONTSIZE',      (0, 0), (-1, 0), 9),
+        ('ALIGN',         (0, 0), (-1, 0), 'CENTER'),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+        ('TOPPADDING',    (0, 0), (-1, 0), 8),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, LIGHT_GREY]),
+        ('FONTNAME',      (0, 1), (-1, -1), UNICODE_FONT),
+        ('FONTSIZE',      (0, 1), (-1, -1), 9),
+        ('VALIGN',        (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING',    (0, 1), (-1, -1), 5),
+        ('BOTTOMPADDING', (0, 1), (-1, -1), 5),
+        ('LEFTPADDING',   (0, 0), (-1, -1), 4),
+        ('RIGHTPADDING',  (0, 0), (-1, -1), 4),
+        ('GRID',          (0, 0), (-1, -1), 0.4, MID_GREY),
+    ]))
+    elements.append(t)
+
+    doc.build(elements)
+    buf.seek(0)
+    return buf
+
+
+def export_budget_excel(company_name: str, cost_center_name: str,
+                        period_label: str, currency: str,
+                        payload: dict, unit: str = 'units') -> io.BytesIO:
+    """Render the Budget vs Actual table to a single-sheet workbook."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'Budget vs Actual'[:31]
+
+    u = (unit or 'units').lower()
+    if u == 'k':
+        money_fmt = '#,##0.0,"K"'
+    elif u == 'm':
+        money_fmt = '#,##0.00,,"M"'
+    else:
+        money_fmt = '#,##0.00'
+    pct_fmt = '0.0"%"'
+    diff_fmt = '"+"#,##0.00;"-"#,##0.00;0.00'
+    if u == 'k':
+        diff_fmt = '"+"#,##0.0,"K";"-"#,##0.0,"K";"0.0K"'
+    elif u == 'm':
+        diff_fmt = '"+"#,##0.00,,"M";"-"#,##0.00,,"M";"0.00M"'
+    diff_pct_fmt = '"+"0.0"%";"-"0.0"%";"0.0%"'
+
+    bold       = Font(bold=True, size=11)
+    title_font = Font(bold=True, size=14, color='1E293B')
+    meta_font  = Font(color='64748B', size=9, italic=True)
+    sub_font   = Font(bold=True, size=10, color='64748B')
+
+    header_fill = PatternFill(start_color='2563EB', end_color='2563EB',
+                              fill_type='solid')
+    header_font = Font(bold=True, color='FFFFFF', size=11)
+    light_fill  = PatternFill(start_color='F8FAFC', end_color='F8FAFC',
+                              fill_type='solid')
+    thin = Side(style='thin', color='E2E8F0')
+    box  = Border(top=thin, bottom=thin, left=thin, right=thin)
+
+    # Title + meta
+    ws.merge_cells('A1:F1')
+    c = ws['A1']
+    c.value = 'BUDGET VS ACTUAL'
+    c.font = title_font
+    c.alignment = Alignment(horizontal='center')
+    ws.row_dimensions[1].height = 26
+
+    meta_lines = []
+    if company_name:     meta_lines.append('Company: ' + company_name)
+    if cost_center_name: meta_lines.append('Cost Center: ' + cost_center_name)
+    if period_label:     meta_lines.append('Period: ' + period_label)
+    meta_lines.append('Generated: ' + datetime.now().strftime('%Y-%m-%d %H:%M'))
+    row = 2
+    for line in meta_lines:
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+        m = ws.cell(row=row, column=1, value=line)
+        m.font = meta_font
+        m.alignment = Alignment(horizontal='center')
+        row += 1
+    row += 1
+
+    # Summary KPI row
+    summary_labels = ['Total Budget', 'Total Actual', 'Variance', 'Achievement %']
+    for col, lbl in enumerate(summary_labels, 1):
+        h = ws.cell(row=row, column=col, value=lbl)
+        h.font = sub_font
+        h.fill = light_fill
+        h.border = box
+        h.alignment = Alignment(horizontal='center')
+    row += 1
+    tb  = payload.get('total_budget') or 0
+    ta  = payload.get('total_actual') or 0
+    tv  = payload.get('total_variance') or 0
+    ach = payload.get('achievement_pct') or 0
+    rev_lines = sum(1 for L in (payload.get('lines') or []) if L.get('is_revenue'))
+    exp_lines = sum(1 for L in (payload.get('lines') or []) if not L.get('is_revenue'))
+    section_revenue_bias = rev_lines > exp_lines
+    if tv == 0:
+        var_colour = '64748B'
+    elif section_revenue_bias:
+        var_colour = 'DC2626' if tv > 0 else '16A34A'
+    else:
+        var_colour = '16A34A' if tv > 0 else 'DC2626'
+    if ach >= 80:
+        ach_colour = '16A34A'
+    elif ach >= 50:
+        ach_colour = 'F59E0B'
+    else:
+        ach_colour = 'DC2626'
+
+    c1 = ws.cell(row=row, column=1, value=tb)
+    c1.font = Font(bold=True, size=12)
+    c1.number_format = money_fmt
+    c1.alignment = Alignment(horizontal='center')
+    c1.fill = light_fill; c1.border = box
+
+    c2 = ws.cell(row=row, column=2, value=ta)
+    c2.font = Font(bold=True, size=12)
+    c2.number_format = money_fmt
+    c2.alignment = Alignment(horizontal='center')
+    c2.fill = light_fill; c2.border = box
+
+    c3 = ws.cell(row=row, column=3, value=tv)
+    c3.font = Font(bold=True, size=12, color=var_colour)
+    c3.number_format = diff_fmt
+    c3.alignment = Alignment(horizontal='center')
+    c3.fill = light_fill; c3.border = box
+
+    c4 = ws.cell(row=row, column=4, value=ach / 100.0)   # percent format
+    c4.font = Font(bold=True, size=12, color=ach_colour)
+    c4.number_format = '0.0%'
+    c4.alignment = Alignment(horizontal='center')
+    c4.fill = light_fill; c4.border = box
+
+    ws.cell(row=row, column=5, value=None).fill = light_fill
+    ws.cell(row=row, column=6, value=None).fill = light_fill
+    row += 2
+
+    # Detail table
+    headers = ['Budget Line', 'Budget', 'Actual', 'Variance',
+               'Variance %', 'Status']
+    for col, h in enumerate(headers, 1):
+        cell_h = ws.cell(row=row, column=col, value=h)
+        cell_h.font = header_font
+        cell_h.fill = header_fill
+        cell_h.alignment = Alignment(horizontal='center')
+        cell_h.border = box
+    row += 1
+
+    for ln in (payload.get('lines') or []):
+        v_colour = _budget_variance_colour(ln)
+        status = ln.get('status') or 'on_track'
+        status_colour = STATUS_COLOUR_HEX.get(status, '64748B')
+        name_cell = ws.cell(row=row, column=1, value=ln.get('name') or '—')
+        name_cell.border = box
+
+        budget_cell = ws.cell(row=row, column=2, value=ln.get('budget') or 0)
+        budget_cell.number_format = money_fmt
+        budget_cell.alignment = Alignment(horizontal='right')
+        budget_cell.border = box
+
+        actual_cell = ws.cell(row=row, column=3, value=ln.get('actual') or 0)
+        actual_cell.number_format = money_fmt
+        actual_cell.alignment = Alignment(horizontal='right')
+        actual_cell.border = box
+
+        diff_cell = ws.cell(row=row, column=4, value=ln.get('variance') or 0)
+        diff_cell.number_format = diff_fmt
+        diff_cell.alignment = Alignment(horizontal='right')
+        diff_cell.font = Font(bold=True, color=v_colour)
+        diff_cell.border = box
+
+        pct_cell = ws.cell(row=row, column=5)
+        if ln.get('budget'):
+            pct_cell.value = ln.get('variance_pct') or 0
+            pct_cell.number_format = diff_pct_fmt
+        else:
+            pct_cell.value = '—'
+        pct_cell.font = Font(color=v_colour)
+        pct_cell.alignment = Alignment(horizontal='right')
+        pct_cell.border = box
+
+        status_cell = ws.cell(row=row, column=6,
+                              value=STATUS_LABEL.get(status, status))
+        status_cell.font = Font(bold=True, color=status_colour)
+        status_cell.alignment = Alignment(horizontal='center')
+        status_cell.border = box
+        row += 1
+
+    if not payload.get('lines'):
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+        e = ws.cell(row=row, column=1,
+                    value='No budget lines for this cost center and period.')
+        e.font = Font(color='94A3B8', italic=True)
+        e.alignment = Alignment(horizontal='center')
+        e.border = box
+
+    # Column widths
+    ws.column_dimensions['A'].width = 42
+    ws.column_dimensions['B'].width = 16
+    ws.column_dimensions['C'].width = 16
+    ws.column_dimensions['D'].width = 18
+    ws.column_dimensions['E'].width = 14
+    ws.column_dimensions['F'].width = 16
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+
 def export_excel(title: str, headers: list, rows: list) -> io.BytesIO:
     wb = openpyxl.Workbook()
     ws = wb.active
