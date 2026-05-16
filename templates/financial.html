@@ -1496,77 +1496,309 @@
   {% endif %}
 {%- endmacro %}
 
-<div class="kpi-row">
-  <div class="kpi-group">
-    <div class="stat-card">
-      <div class="stat-value stat-value-num">{{ stats.count }}</div>
-      <div class="stat-label">Cost Centers</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-value stat-value-num" style="color:var(--success)">
-        <span class="amount-display" data-amount="{{ stats.revenue or 0 }}" data-currency="{{ ccy }}">
-          {{ ccy }} {{ stats.revenue | fmt_currency_int }}
-        </span>
-      </div>
-      <div class="stat-label">Total Revenue</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-value stat-value-num" style="color:var(--danger)">
-        <span class="amount-display" data-amount="{{ stats.costs or 0 }}" data-currency="{{ ccy }}">
-          {{ ccy }} {{ stats.costs | fmt_currency_int }}
-        </span>
-      </div>
-      <div class="stat-label">Total Costs</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-value stat-value-num"
-           style="color:{% if (stats.net or 0) >= 0 %}var(--success){% else %}var(--danger){% endif %}">
-        <span class="amount-display" data-amount="{{ stats.net or 0 }}" data-currency="{{ ccy }}">
-          {{ ccy }} {{ stats.net | fmt_currency_int }}
-        </span>
-      </div>
-      <div class="stat-label">Net Profit / Loss</div>
-    </div>
-  </div>
-
-  {% if compare_stats is defined %}
-  <div class="cards-separator"></div>
-  <div class="kpi-group">
-    <div class="stat-card compare-card">
-      <div class="stat-value stat-value-num compare-value">{{ compare_stats.count }}</div>
-      <div class="compare-meta">{{ compare_pill(compare_pct.count) }} <span class="compare-vs">{{ compare_label }}</span></div>
-      <div class="stat-label">Cost Centers</div>
-    </div>
-    <div class="stat-card compare-card">
-      <div class="stat-value stat-value-num compare-value">
-        <span class="amount-display" data-amount="{{ compare_stats.revenue or 0 }}" data-currency="{{ ccy }}">
-          {{ ccy }} {{ compare_stats.revenue | fmt_currency_int }}
-        </span>
-      </div>
-      <div class="compare-meta">{{ compare_pill(compare_pct.revenue) }} <span class="compare-vs">{{ compare_label }}</span></div>
-      <div class="stat-label">Revenue</div>
-    </div>
-    <div class="stat-card compare-card">
-      <div class="stat-value stat-value-num compare-value">
-        <span class="amount-display" data-amount="{{ compare_stats.costs or 0 }}" data-currency="{{ ccy }}">
-          {{ ccy }} {{ compare_stats.costs | fmt_currency_int }}
-        </span>
-      </div>
-      <div class="compare-meta">{{ compare_pill(compare_pct.costs) }} <span class="compare-vs">{{ compare_label }}</span></div>
-      <div class="stat-label">Costs</div>
-    </div>
-    <div class="stat-card compare-card">
-      <div class="stat-value stat-value-num compare-value">
-        <span class="amount-display" data-amount="{{ compare_stats.net or 0 }}" data-currency="{{ ccy }}">
-          {{ ccy }} {{ compare_stats.net | fmt_currency_int }}
-        </span>
-      </div>
-      <div class="compare-meta">{{ compare_pill(compare_pct.net) }} <span class="compare-vs">{{ compare_label }}</span></div>
-      <div class="stat-label">Net P/L</div>
-    </div>
-  </div>
+{# Inverted variant for costs: an INCREASE is bad (red), a decrease is good (green). #}
+{% macro compare_pill_inv(pct) -%}
+  {% if pct is none %}
+    <span class="compare-pill neutral"><i class="fa-solid fa-minus"></i> —</span>
+  {% elif pct > 0.05 %}
+    <span class="compare-pill down"><i class="fa-solid fa-arrow-up"></i> {{ '%.1f' % pct }}%</span>
+  {% elif pct < -0.05 %}
+    <span class="compare-pill up"><i class="fa-solid fa-arrow-down"></i> {{ '%.1f' % (pct | abs) }}%</span>
+  {% else %}
+    <span class="compare-pill neutral"><i class="fa-solid fa-equals"></i> 0%</span>
   {% endif %}
+{%- endmacro %}
+
+<div class="kpi-section" id="analyticKpiSection"
+     data-default-range="{{ kpi_range or 'ytd' }}"
+     data-default-from="{{ kpi_date_from }}"
+     data-default-to="{{ kpi_date_to }}">
+  <div class="kpi-section-header">
+    <div class="kpi-section-title">OVERVIEW PERIOD</div>
+    <div class="kpi-section-controls">
+      <select id="analyticKpiRange" class="kpi-range-select">
+        <option value="today">Today</option>
+        <option value="this_month">This Month</option>
+        <option value="last_month">Last Month</option>
+        <option value="this_quarter">This Quarter</option>
+        <option value="last_quarter">Last Quarter</option>
+        <option value="ytd">Year to Date</option>
+        <option value="last_year">Last Year</option>
+        <option value="all_time">All Time</option>
+        <option value="custom">Custom</option>
+      </select>
+      <input type="date" id="analyticKpiDateFrom" style="display:none">
+      <input type="date" id="analyticKpiDateTo"   style="display:none">
+      <label class="compare-yoy compare-yoy--inline">
+        <input type="checkbox" id="analyticKpiCompareYoy" {% if kpi_compare_yoy %}checked{% endif %}>
+        <span>Compare with same period last year</span>
+      </label>
+    </div>
+  </div>
+  <div class="kpi-section-period-label" id="analyticKpiPeriodLabel">{{ kpi_period_label or '' }}</div>
+
+  <div class="kpi-row">
+    <div class="kpi-group">
+      <div class="stat-card">
+        <div class="stat-value stat-value-num" id="aKpiCount">{{ kpi_stats.count }}</div>
+        <div class="stat-label">Cost Centers</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value stat-value-num" style="color:var(--success)">
+          <span class="amount-display" id="aKpiRevenue"
+                data-amount="{{ kpi_stats.revenue or 0 }}" data-currency="{{ ccy }}">
+            {{ ccy }} {{ kpi_stats.revenue | fmt_currency_int }}
+          </span>
+        </div>
+        <div class="stat-label">Total Revenue</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value stat-value-num" style="color:var(--danger)">
+          <span class="amount-display" id="aKpiCosts"
+                data-amount="{{ kpi_stats.costs or 0 }}" data-currency="{{ ccy }}">
+            {{ ccy }} {{ kpi_stats.costs | fmt_currency_int }}
+          </span>
+        </div>
+        <div class="stat-label">Total Costs</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value stat-value-num"
+             style="color:{% if (kpi_stats.net or 0) >= 0 %}var(--success){% else %}var(--danger){% endif %}">
+          <span class="amount-display" id="aKpiNet"
+                data-amount="{{ kpi_stats.net or 0 }}" data-currency="{{ ccy }}">
+            {{ ccy }} {{ kpi_stats.net | fmt_currency_int }}
+          </span>
+        </div>
+        <div class="stat-label">Net Profit / Loss</div>
+      </div>
+    </div>
+
+    {% if kpi_compare_stats %}
+    <div class="cards-separator"></div>
+    <div class="kpi-group" id="aKpiCompareGroup">
+      <div class="stat-card compare-card">
+        <div class="stat-value stat-value-num compare-value" id="aCmpCount">{{ kpi_compare_stats.count }}</div>
+        <div class="compare-meta">
+          <span id="aCmpPillCount">{{ compare_pill(kpi_compare_pct.count) }}</span>
+          <span class="compare-vs" id="aCmpLabelCount">{{ kpi_compare_label }}</span>
+        </div>
+        <div class="stat-label">Cost Centers</div>
+      </div>
+      <div class="stat-card compare-card">
+        <div class="stat-value stat-value-num compare-value">
+          <span class="amount-display" id="aCmpRevenue"
+                data-amount="{{ kpi_compare_stats.revenue or 0 }}" data-currency="{{ ccy }}">
+            {{ ccy }} {{ kpi_compare_stats.revenue | fmt_currency_int }}
+          </span>
+        </div>
+        <div class="compare-meta">
+          <span id="aCmpPillRevenue">{{ compare_pill(kpi_compare_pct.revenue) }}</span>
+          <span class="compare-vs" id="aCmpLabelRevenue">{{ kpi_compare_label }}</span>
+        </div>
+        <div class="stat-label">Revenue</div>
+      </div>
+      <div class="stat-card compare-card">
+        <div class="stat-value stat-value-num compare-value">
+          <span class="amount-display" id="aCmpCosts"
+                data-amount="{{ kpi_compare_stats.costs or 0 }}" data-currency="{{ ccy }}">
+            {{ ccy }} {{ kpi_compare_stats.costs | fmt_currency_int }}
+          </span>
+        </div>
+        <div class="compare-meta">
+          <span id="aCmpPillCosts">{{ compare_pill_inv(kpi_compare_pct.costs) }}</span>
+          <span class="compare-vs" id="aCmpLabelCosts">{{ kpi_compare_label }}</span>
+        </div>
+        <div class="stat-label">Costs</div>
+      </div>
+      <div class="stat-card compare-card">
+        <div class="stat-value stat-value-num compare-value">
+          <span class="amount-display" id="aCmpNet"
+                data-amount="{{ kpi_compare_stats.net or 0 }}" data-currency="{{ ccy }}">
+            {{ ccy }} {{ kpi_compare_stats.net | fmt_currency_int }}
+          </span>
+        </div>
+        <div class="compare-meta">
+          <span id="aCmpPillNet">{{ compare_pill(kpi_compare_pct.net) }}</span>
+          <span class="compare-vs" id="aCmpLabelNet">{{ kpi_compare_label }}</span>
+        </div>
+        <div class="stat-label">Net P/L</div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
 </div>
+
+<script>
+(function () {
+  var section = document.getElementById('analyticKpiSection');
+  if (!section) return;
+  var rangeSel = document.getElementById('analyticKpiRange');
+  var fromIn   = document.getElementById('analyticKpiDateFrom');
+  var toIn     = document.getElementById('analyticKpiDateTo');
+  var yoyCb    = document.getElementById('analyticKpiCompareYoy');
+  var perLbl   = document.getElementById('analyticKpiPeriodLabel');
+  var compareGroup = document.getElementById('aKpiCompareGroup');
+
+  var initRange = section.getAttribute('data-default-range') || 'ytd';
+  rangeSel.value = initRange;
+  if (initRange === 'custom') {
+    fromIn.style.display = '';
+    toIn.style.display   = '';
+    fromIn.value = section.getAttribute('data-default-from') || '';
+    toIn.value   = section.getAttribute('data-default-to')   || '';
+  }
+
+  function pill(pct, inverse) {
+    if (pct === null || pct === undefined) {
+      return '<span class="compare-pill neutral"><i class="fa-solid fa-minus"></i> —</span>';
+    }
+    if (pct > 0.05) {
+      var cls = inverse ? 'down' : 'up';
+      return '<span class="compare-pill ' + cls + '"><i class="fa-solid fa-arrow-up"></i> ' + pct.toFixed(1) + '%</span>';
+    }
+    if (pct < -0.05) {
+      var cls2 = inverse ? 'up' : 'down';
+      return '<span class="compare-pill ' + cls2 + '"><i class="fa-solid fa-arrow-down"></i> ' + Math.abs(pct).toFixed(1) + '%</span>';
+    }
+    return '<span class="compare-pill neutral"><i class="fa-solid fa-equals"></i> 0%</span>';
+  }
+
+  function setAmount(id, val) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.setAttribute('data-amount', val == null ? 0 : val);
+    var ccy = el.getAttribute('data-currency') || '';
+    el.textContent = (ccy ? ccy + ' ' : '') + Math.round(Number(val) || 0).toLocaleString();
+  }
+  function setText(id, txt) {
+    var el = document.getElementById(id); if (el) el.textContent = txt;
+  }
+  function setHTML(id, html) {
+    var el = document.getElementById(id); if (el) el.innerHTML = html;
+  }
+
+  var busy = false;
+  function fetchData() {
+    var range = rangeSel.value;
+    if (range === 'custom' && (!fromIn.value || !toIn.value)) return;
+    if (busy) return;
+    busy = true;
+    section.style.opacity = '0.65';
+    var params = new URLSearchParams();
+    params.set('range', range);
+    if (range === 'custom') {
+      params.set('date_from', fromIn.value);
+      params.set('date_to',   toIn.value);
+    }
+    if (yoyCb && yoyCb.checked) params.set('compare_yoy', '1');
+
+    fetch('{{ url_for("financial_analytic_kpi_stats") }}?' + params.toString(), {
+      credentials: 'same-origin',
+      headers: { 'Accept': 'application/json' },
+    })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r); })
+      .then(function (d) {
+        var s = d.stats || {}, cs = d.compare_stats || null, cp = d.compare_pct || {};
+        setText('aKpiCount', s.count || 0);
+        setAmount('aKpiRevenue', s.revenue || 0);
+        setAmount('aKpiCosts',   s.costs   || 0);
+        setAmount('aKpiNet',     s.net     || 0);
+
+        if (cs && yoyCb && yoyCb.checked) {
+          // If the compare group doesn't yet exist in the DOM (because
+          // the page loaded without compare_yoy), build it once.
+          if (!document.getElementById('aKpiCompareGroup')) {
+            buildCompareGroup();
+          }
+          setText('aCmpCount',     cs.count || 0);
+          setAmount('aCmpRevenue', cs.revenue || 0);
+          setAmount('aCmpCosts',   cs.costs   || 0);
+          setAmount('aCmpNet',     cs.net     || 0);
+          setHTML('aCmpPillCount',   pill(cp.count));
+          setHTML('aCmpPillRevenue', pill(cp.revenue));
+          setHTML('aCmpPillCosts',   pill(cp.costs, true));   // inverted
+          setHTML('aCmpPillNet',     pill(cp.net));
+          var lbl = d.compare_label || '';
+          setText('aCmpLabelCount',   lbl);
+          setText('aCmpLabelRevenue', lbl);
+          setText('aCmpLabelCosts',   lbl);
+          setText('aCmpLabelNet',     lbl);
+          var grp = document.getElementById('aKpiCompareGroup');
+          if (grp) grp.style.display = '';
+          var sep = section.querySelector('.cards-separator');
+          if (sep) sep.style.display = '';
+        } else {
+          var grp = document.getElementById('aKpiCompareGroup');
+          if (grp) grp.style.display = 'none';
+          var sep = section.querySelector('.cards-separator');
+          if (sep) sep.style.display = 'none';
+        }
+        if (perLbl) perLbl.textContent = d.period_label || '';
+        if (window.odooDashRefreshAmounts) window.odooDashRefreshAmounts();
+      })
+      .catch(function () {})
+      .finally(function () { busy = false; section.style.opacity = ''; });
+  }
+
+  // Build the compare group lazily when the user enables Compare-YoY
+  // mid-session — saves the server from sending compare HTML up-front
+  // when the checkbox is off.
+  function buildCompareGroup() {
+    var row = section.querySelector('.kpi-row');
+    if (!row || document.getElementById('aKpiCompareGroup')) return;
+    var sep = document.createElement('div');
+    sep.className = 'cards-separator';
+    row.appendChild(sep);
+    var grp = document.createElement('div');
+    grp.className = 'kpi-group';
+    grp.id = 'aKpiCompareGroup';
+    grp.innerHTML = [
+      '<div class="stat-card compare-card">',
+        '<div class="stat-value stat-value-num compare-value" id="aCmpCount">0</div>',
+        '<div class="compare-meta"><span id="aCmpPillCount"></span> <span class="compare-vs" id="aCmpLabelCount"></span></div>',
+        '<div class="stat-label">Cost Centers</div>',
+      '</div>',
+      '<div class="stat-card compare-card">',
+        '<div class="stat-value stat-value-num compare-value">',
+          '<span class="amount-display" id="aCmpRevenue" data-amount="0" data-currency="{{ ccy }}">0</span>',
+        '</div>',
+        '<div class="compare-meta"><span id="aCmpPillRevenue"></span> <span class="compare-vs" id="aCmpLabelRevenue"></span></div>',
+        '<div class="stat-label">Revenue</div>',
+      '</div>',
+      '<div class="stat-card compare-card">',
+        '<div class="stat-value stat-value-num compare-value">',
+          '<span class="amount-display" id="aCmpCosts" data-amount="0" data-currency="{{ ccy }}">0</span>',
+        '</div>',
+        '<div class="compare-meta"><span id="aCmpPillCosts"></span> <span class="compare-vs" id="aCmpLabelCosts"></span></div>',
+        '<div class="stat-label">Costs</div>',
+      '</div>',
+      '<div class="stat-card compare-card">',
+        '<div class="stat-value stat-value-num compare-value">',
+          '<span class="amount-display" id="aCmpNet" data-amount="0" data-currency="{{ ccy }}">0</span>',
+        '</div>',
+        '<div class="compare-meta"><span id="aCmpPillNet"></span> <span class="compare-vs" id="aCmpLabelNet"></span></div>',
+        '<div class="stat-label">Net P/L</div>',
+      '</div>',
+    ].join('');
+    row.appendChild(grp);
+  }
+
+  rangeSel.addEventListener('change', function () {
+    var isCustom = rangeSel.value === 'custom';
+    fromIn.style.display = isCustom ? '' : 'none';
+    toIn.style.display   = isCustom ? '' : 'none';
+    if (!isCustom) fetchData();
+    else if (fromIn.value && toIn.value) fetchData();
+  });
+  fromIn.addEventListener('change', function () {
+    if (rangeSel.value === 'custom' && fromIn.value && toIn.value) fetchData();
+  });
+  toIn.addEventListener('change', function () {
+    if (rangeSel.value === 'custom' && fromIn.value && toIn.value) fetchData();
+  });
+  if (yoyCb) yoyCb.addEventListener('change', fetchData);
+})();
+</script>
 
 {% set period_options = [
   ('today',         'Today'),

@@ -2630,6 +2630,30 @@ def financial():
             ('balance', ACCOUNT_VIEW_LABELS['balance']),
             ('all',     ACCOUNT_VIEW_LABELS['all']),
         ]
+
+        # ---- Independent KPI period (default YTD). Driven by its own
+        # set of query params so the main Search/Period filter below
+        # never touches the KPI cards.
+        kpi_range = (request.args.get('kpi_range', 'ytd') or 'ytd').strip()
+        if kpi_range not in DATE_RANGE_KEYS:
+            kpi_range = 'ytd'
+        kpi_from_raw = request.args.get('kpi_date_from', '')
+        kpi_to_raw   = request.args.get('kpi_date_to', '')
+        kpi_from, kpi_to, kpi_range = _resolve_date_range(
+            kpi_range, kpi_from_raw, kpi_to_raw)
+        kpi_compare_yoy = request.args.get('kpi_compare_yoy') == '1'
+        kpi_payload = _compute_analytic_kpi_payload(
+            c, kpi_from, kpi_to, kpi_range, kpi_compare_yoy,
+            account_view=account_view_active)
+        ctx['kpi_stats']         = kpi_payload['stats']
+        ctx['kpi_compare_stats'] = kpi_payload.get('compare_stats')
+        ctx['kpi_compare_pct']   = kpi_payload.get('compare_pct', {}) or {}
+        ctx['kpi_compare_label'] = kpi_payload.get('compare_label', '')
+        ctx['kpi_range']         = kpi_range
+        ctx['kpi_date_from']     = kpi_from
+        ctx['kpi_date_to']       = kpi_to
+        ctx['kpi_period_label']  = kpi_payload['period_label']
+        ctx['kpi_compare_yoy']   = kpi_compare_yoy
         # Probe the underlying model once — if it's missing or ACL-blocked we
         # render a clean "Not available in this version" notice instead of
         # crashing.
@@ -2758,6 +2782,76 @@ def financial_kpi_stats():
     payload['date_to']      = date_to
     payload['period_label'] = _format_period_label(range_key, date_from, date_to)
     payload['compare_yoy']  = compare_yoy
+    return jsonify(payload)
+
+
+def _compute_analytic_kpi_payload(client, date_from, date_to, range_key,
+                                  compare_yoy, account_view='all'):
+    """Build the Analytic Overview Period KPI payload.
+
+    Mirrors _compute_kpi for the Invoices/Bills tabs: returns the four
+    headline metrics (Cost Centers, Revenue, Costs, Net P/L) for the
+    requested range, plus a year-over-year comparison when compare_yoy
+    is on. Both the current and previous windows honour the Account View
+    filter so cards stay consistent with the rest of the analytic page."""
+    rows = _compute_analytic(
+        client, date_from, date_to, account_view=account_view)
+    summary = _analytic_summary(rows)
+
+    payload = {
+        'stats':         summary,
+        'range_key':     range_key,
+        'date_from':     date_from,
+        'date_to':       date_to,
+        'period_label':  _format_period_label(range_key, date_from, date_to),
+        'compare_yoy':   bool(compare_yoy),
+        'compare_pct':   {},
+    }
+    if compare_yoy and date_from and date_to:
+        prev_from, prev_to, prev_label = _previous_date_range(
+            range_key, date_from, date_to, year_over_year=True)
+        if prev_from and prev_to:
+            try:
+                prev_rows = _compute_analytic(
+                    client, prev_from, prev_to, account_view=account_view)
+            except Exception:
+                prev_rows = []
+            prev_summary = _analytic_summary(prev_rows)
+            payload['compare_stats'] = prev_summary
+            payload['compare_pct'] = {
+                'count':   _pct_change(summary['count'],   prev_summary['count']),
+                'revenue': _pct_change(summary['revenue'], prev_summary['revenue']),
+                'costs':   _pct_change(summary['costs'],   prev_summary['costs']),
+                'net':     _pct_change(summary['net'],     prev_summary['net']),
+            }
+            payload['compare_label'] = 'vs %s' % prev_label
+            payload['compare_from']  = prev_from
+            payload['compare_to']    = prev_to
+    return payload
+
+
+@app.route('/financial/analytic/kpi-stats')
+@login_required
+def financial_analytic_kpi_stats():
+    """JSON endpoint for the Analytic tab's Overview Period selector.
+    Independent of the main Search/Period filter — the analytic page's
+    KPI cards respond only to this endpoint's range."""
+    range_key = (request.args.get('range', 'ytd') or 'ytd').strip()
+    if range_key not in DATE_RANGE_KEYS:
+        range_key = 'ytd'
+    raw_from = request.args.get('date_from', '')
+    raw_to   = request.args.get('date_to', '')
+    date_from, date_to, range_key = _resolve_date_range(
+        range_key, raw_from, raw_to)
+    compare_yoy = request.args.get('compare_yoy') == '1'
+
+    c = get_client()
+    account_view = _current_account_view()
+    payload = _compute_analytic_kpi_payload(
+        c, date_from, date_to, range_key, compare_yoy,
+        account_view=account_view)
+    payload['account_view']       = account_view
+    payload['account_view_label'] = ACCOUNT_VIEW_LABELS[account_view]
     return jsonify(payload)
 
 
