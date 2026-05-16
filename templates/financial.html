@@ -1220,18 +1220,36 @@
   </div>
 </div>
 
+{% if asset_type_options %}
+{# Carry the user's current search/state filter when they switch type
+   so the pills behave like an in-place tab swap rather than a reset.
+   We URL-encode by hand because Jinja2's `combine` filter is Ansible-
+   only; building the query string manually is shorter than threading
+   a Python helper for this. #}
+<div class="amount-format-toolbar" style="margin-bottom:.9rem">
+  <span class="amount-format-label">Show</span>
+  <div class="amount-format-group" role="group" aria-label="Asset type">
+    {% for val, lbl in asset_type_options %}
+      {% set _href -%}
+        {{ url_for('financial') }}?tab=assets&asset_type={{ val }}
+        {%- if search %}&search={{ search | urlencode }}{% endif -%}
+        {%- if asset_state_filter and asset_state_filter != 'all' %}&state_filter={{ asset_state_filter }}{% endif -%}
+      {%- endset %}
+      <a href="{{ _href }}"
+         class="amount-format-btn {% if asset_type_filter == val %}active{% endif %}"
+         style="text-decoration:none;display:inline-flex;align-items:center"
+         role="tab"
+         aria-pressed="{{ 'true' if asset_type_filter == val else 'false' }}">
+        {{ lbl }}
+      </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 <form method="GET" action="{{ url_for('financial') }}" class="filter-bar">
   <input type="hidden" name="tab" value="assets">
-  {% if asset_type_options %}
-  <div class="filter-group">
-    <label>Type</label>
-    <select name="asset_type" class="form-control form-control-sm" onchange="this.form.submit()">
-      {% for val, lbl in asset_type_options %}
-        <option value="{{ val }}" {% if asset_type_filter == val %}selected{% endif %}>{{ lbl }}</option>
-      {% endfor %}
-    </select>
-  </div>
-  {% endif %}
+  <input type="hidden" name="asset_type" value="{{ asset_type_filter }}">
   <div class="filter-group">
     <label>Search</label>
     <input type="text" name="search" class="form-control form-control-sm" placeholder="Name…" value="{{ search }}">

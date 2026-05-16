@@ -2863,14 +2863,38 @@ def financial():
                 ]
                 ctx['asset_type_filter']  = type_filter
                 ctx['asset_type_label']   = ASSET_TYPE_LABELS[type_filter][0]
-                # Hide the Type dropdown entirely when the model doesn't
-                # carry `asset_type` (very old or stripped installs).
-                ctx['asset_type_options'] = ([
-                    ('purchase', 'Fixed Assets'),
-                    ('expense',  'Deferred Expenses'),
-                    ('sale',     'Deferred Revenue'),
-                    ('all',      'All Types'),
-                ] if 'asset_type' in asset_fields else [])
+                # Per-type counts so the selector can hide empty kinds.
+                # Reuse the *base* domain (everything EXCEPT the type
+                # filter itself), otherwise we'd always see zero counts
+                # for the non-selected types.
+                type_options = []
+                if 'asset_type' in asset_fields:
+                    base_dom = [d for d in domain
+                                if not (isinstance(d, list)
+                                        and len(d) == 3
+                                        and d[0] == 'asset_type')]
+                    type_counts = {}
+                    try:
+                        grp = c.safe_read_group(
+                            asset_model, base_dom,
+                            ['asset_type'], ['asset_type'])
+                        for g in (grp or []):
+                            type_counts[g.get('asset_type')] = g.get('asset_type_count') or g.get('__count') or 0
+                    except Exception as e:
+                        logger.info("asset_type read_group failed: %s", e)
+                    ordered = (
+                        ('purchase', 'Fixed Assets'),
+                        ('expense',  'Deferred Expenses'),
+                        ('sale',     'Deferred Revenue'),
+                    )
+                    non_empty = [(v, lbl, type_counts.get(v, 0))
+                                 for v, lbl in ordered
+                                 if type_counts.get(v, 0) > 0]
+                    # Hide the selector entirely when ≤1 kind has data.
+                    if len(non_empty) > 1:
+                        type_options = [(v, lbl) for v, lbl, _ in non_empty]
+                        type_options.append(('all', 'All Types'))
+                ctx['asset_type_options'] = type_options
                 # Deep-link to the Odoo record. v17+ probes the live
                 # ir.actions.act_window `path` so a custom menu still
                 # resolves; v15/v16 fall back to the classic hash router.
