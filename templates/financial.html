@@ -1173,11 +1173,21 @@
 {% set _acq_lbl    = 'Initial Amount' if _is_expense or _is_sale else 'Acquisition Cost' %}
 {% set _net_lbl    = 'Remaining Amount' if _is_expense or _is_sale else 'Net Book Value' %}
 {% set _dep_lbl    = 'Recognised'      if _is_expense or _is_sale else 'Accumulated Dep.' %}
+{% set assets_ccy = (selected_company.currency_name if selected_company else '') or '' %}
 
 <h2 style="margin:0 0 1rem 0;font-size:1.25rem;display:flex;align-items:center;gap:.5rem">
   <i class="fa-solid fa-boxes-packing" style="color:var(--primary)"></i>
   {{ asset_type_label or 'Assets' }}
 </h2>
+
+<div class="amount-format-toolbar" data-amount-toolbar>
+  <span class="amount-format-label">Show amounts in</span>
+  <div class="amount-format-group" role="group" aria-label="Amount format">
+    <button type="button" class="amount-format-btn" data-format="units">Units</button>
+    <button type="button" class="amount-format-btn" data-format="k">K</button>
+    <button type="button" class="amount-format-btn" data-format="m">M</button>
+  </div>
+</div>
 
 <div class="stat-grid">
   <div class="stat-card">
@@ -1185,15 +1195,27 @@
     <div class="stat-label">{{ _count_lbl }}</div>
   </div>
   <div class="stat-card">
-    <div class="stat-value">{{ stats.get('original_value', 0) | fmt_currency }}</div>
+    <div class="stat-value">
+      <span class="amount-display" data-amount="{{ stats.get('original_value', 0) or 0 }}" data-currency="{{ assets_ccy }}">
+        {{ assets_ccy }} {{ stats.get('original_value', 0) | fmt_currency }}
+      </span>
+    </div>
     <div class="stat-label">{{ _acq_lbl }}</div>
   </div>
   <div class="stat-card">
-    <div class="stat-value" style="color:var(--success)">{{ stats.get('residual_value', 0) | fmt_currency }}</div>
+    <div class="stat-value" style="color:var(--success)">
+      <span class="amount-display" data-amount="{{ stats.get('residual_value', 0) or 0 }}" data-currency="{{ assets_ccy }}">
+        {{ assets_ccy }} {{ stats.get('residual_value', 0) | fmt_currency }}
+      </span>
+    </div>
     <div class="stat-label">{{ _net_lbl }}</div>
   </div>
   <div class="stat-card">
-    <div class="stat-value" style="color:var(--danger)">{{ stats.get('depreciated', 0) | fmt_currency }}</div>
+    <div class="stat-value" style="color:var(--danger)">
+      <span class="amount-display" data-amount="{{ stats.get('depreciated', 0) or 0 }}" data-currency="{{ assets_ccy }}">
+        {{ assets_ccy }} {{ stats.get('depreciated', 0) | fmt_currency }}
+      </span>
+    </div>
     <div class="stat-label">{{ _dep_lbl }}</div>
   </div>
 </div>
