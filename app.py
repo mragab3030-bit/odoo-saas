@@ -701,12 +701,162 @@ def _compute_analytic(client, date_from, date_to):
             continue
         _row(aid)['count'] = g.get('__count', 0)
 
+    # ---- Step 4: fallback for v18 + Analytic Plans -----------------
+    # On servers using Odoo's Analytic Plans, BOTH account_id and
+    # auto_account_id can be False on every line — the real link is in
+    # the JSON `analytic_distribution` field ({"51": 100, "93": 50}),
+    # with custom plan m2o fields (x_plan*_id, plan*_id) as a secondary
+    # signal. read_group can't aggregate through a JSON column, so when
+    # the primary path produces nothing usable we read the raw lines
+    # and split amounts client-side by percentage.
+    primary_groups_produced_rows = bool(accounts)
+    has_distribution = 'analytic_distribution' in line_fields
+    plan_account_fields = sorted(
+        f for f in line_fields
+        if (f.startswith('x_plan') or f.startswith('plan'))
+           and f.endswith('_id')
+           and f not in (account_field, 'auto_account_id', 'account_id')
+    )
+    if (not primary_groups_produced_rows) and (has_distribution or plan_account_fields):
+        logger.info(
+            "Analytic: primary group path produced no rows — falling back "
+            "to analytic_distribution / plan-account-field walk "
+            "(has_distribution=%s plan_fields=%s)",
+            has_distribution, plan_account_fields)
+        accounts = _compute_analytic_via_distribution(
+            client, base_dom, account_index,
+            has_distribution=has_distribution,
+            plan_account_fields=plan_account_fields)
+
     rows = list(accounts.values())
     for a in rows:
         a['net'] = a['revenue'] - a['costs']
         a['margin_pct'], a['margin_display'] = _margin_pct_and_display(
             a['net'], a['revenue'], a['costs'])
     return rows
+
+
+def _compute_analytic_via_distribution(client, base_dom, account_index,
+                                       has_distribution, plan_account_fields):
+    """Fallback aggregator for Odoo's Analytic Plans architecture.
+
+    Each line carries a JSON `analytic_distribution` like {"51": 100} or
+    {"51,93": 50} (multi-plan composite keys). The total amount is
+    distributed across the referenced accounts by percentage. If the
+    JSON is empty, a plan-specific m2o (x_plan4_id, plan2_id, …) holds
+    the account — full amount attributes to it.
+    """
+    read_fields = ['id', 'amount', 'date']
+    if has_distribution:
+        read_fields.append('analytic_distribution')
+    read_fields.extend(plan_account_fields)
+
+    lines = client.safe_search_read(
+        'account.analytic.line', base_dom, read_fields) or []
+    logger.info(
+        "Analytic fallback: scanned %d raw lines (fields=%s sample=%s)",
+        len(lines), read_fields, lines[:1])
+
+    accounts = {}
+
+    def _row(aid):
+        a = accounts.get(aid)
+        if a is None:
+            meta = account_index.get(aid) or {}
+            a = {
+                'id': aid,
+                'name':      meta.get('name')      or 'Unassigned',
+                'code':      meta.get('code')      or '',
+                'plan_id':   meta.get('plan_id'),
+                'plan_name': meta.get('plan_name') or '',
+                'revenue':   0,
+                'costs':     0,
+                'count':     0,
+            }
+            accounts[aid] = a
+        return a
+
+    # Backfill the index for any account id we encounter that wasn't in
+    # the original company-scoped account read (e.g. cross-company plan
+    # accounts). One bulk read at the end, after we know the set of ids.
+    missing_ids = set()
+
+    def _shares(line):
+        """Yield (account_id, amount_share) pairs for a single line."""
+        amount = line.get('amount') or 0
+        dist = line.get('analytic_distribution') if has_distribution else None
+        emitted = False
+        if isinstance(dist, dict) and dist:
+            for key, pct in dist.items():
+                try:
+                    pct_f = float(pct or 0) / 100.0
+                except (TypeError, ValueError):
+                    continue
+                # Composite multi-plan keys look like "51,93" — Odoo
+                # records the SAME amount × pct under each id, not split.
+                for tok in str(key).split(','):
+                    tok = tok.strip()
+                    if not tok:
+                        continue
+                    try:
+                        aid = int(tok)
+                    except ValueError:
+                        continue
+                    yield aid, amount * pct_f
+                    emitted = True
+        if emitted:
+            return
+        # No distribution data — try plan-specific m2o fields.
+        for f in plan_account_fields:
+            v = line.get(f)
+            if isinstance(v, bool):
+                continue
+            if isinstance(v, list) and v and not isinstance(v[0], bool):
+                yield v[0], amount
+                return
+            if isinstance(v, int):
+                yield v, amount
+                return
+
+    for ln in lines:
+        for aid, share in _shares(ln):
+            if not aid:
+                continue
+            row = _row(aid)
+            if aid not in account_index:
+                missing_ids.add(aid)
+            if share > 0:
+                row['revenue'] += share
+            elif share < 0:
+                row['costs'] += abs(share)
+            row['count'] += 1
+
+    # Backfill names for any account id we touched but didn't see in the
+    # initial scoped read (e.g. company-shared analytic accounts).
+    if missing_ids:
+        try:
+            extras = client.execute_kw(
+                'account.analytic.account', 'read',
+                [list(missing_ids)],
+                {'fields': ['id', 'name', 'display_name', 'code']}) or []
+        except Exception as e:
+            logger.warning("Analytic fallback: failed to read %d extra accounts: %s",
+                           len(missing_ids), e)
+            extras = []
+        for r in extras:
+            a = accounts.get(r.get('id'))
+            if not a:
+                continue
+            dn = r.get('display_name')
+            nm = r.get('name')
+            if dn and dn is not False:
+                a['name'] = dn
+            elif nm and nm is not False:
+                a['name'] = nm
+            if r.get('code'):
+                a['code'] = r['code']
+
+    return accounts
 
 
 def _margin_pct_and_display(net, revenue, costs):
@@ -2019,6 +2169,16 @@ def api_analytic_debug():
     account_like_fields = sorted(
         f for f in line_fields_set if 'account' in f.lower())
 
+    # Analytic Plans path: detect the JSON distribution field + any
+    # plan-specific m2o columns (x_plan*_id / plan*_id).
+    has_distribution = 'analytic_distribution' in line_fields_set
+    plan_account_fields = sorted(
+        f for f in line_fields_set
+        if (f.startswith('x_plan') or f.startswith('plan'))
+           and f.endswith('_id')
+           and f not in ('account_id', 'auto_account_id')
+    )
+
     # Sample 3 raw lines pulling both candidate fields. Pulling a missing
     # field would error — only request the ones that exist.
     line_sample_fields = ['id', 'amount', 'date', 'name']
@@ -2112,6 +2272,8 @@ def api_analytic_debug():
         'account_like_line_fields':  account_like_fields,
         'analytic_line_field_count': len(line_fields_set),
         'analytic_line_fields_err':  line_fields_err,
+        'has_analytic_distribution': has_distribution,
+        'plan_account_fields':       plan_account_fields,
         'sample_lines':              sample_lines,
         'sample_lines_full':         sample_lines_full,
         'sample_accounts':           sample_accounts,
