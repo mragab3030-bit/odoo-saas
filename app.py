@@ -3075,6 +3075,72 @@ def financial():
                         type_options = [(v, lbl) for v, lbl, _ in non_empty]
                         type_options.append(('all', 'All Types'))
                 ctx['asset_type_options'] = type_options
+
+                # If the default ('purchase') isn't one of the rendered
+                # pills (i.e. the tenant has zero fixed assets), shift
+                # the active selection to the first rendered pill so
+                # exactly one pill always shows the active highlight.
+                # We also re-run the type-filter constraint on `domain`
+                # so the table + KPIs match the highlighted pill.
+                rendered_vals = {v for v, _ in type_options}
+                if (type_options
+                        and type_filter not in rendered_vals
+                        and not request.args.get('asset_type')):
+                    type_filter = type_options[0][0]
+                    ctx['asset_type_filter'] = type_filter
+                    ctx['asset_type_label']  = ASSET_TYPE_LABELS[type_filter][0]
+                    # Strip the previous asset_type clause and re-add
+                    # the new one so the domain matches the new pill.
+                    domain = [d for d in domain
+                              if not (isinstance(d, list)
+                                      and len(d) == 3
+                                      and d[0] == 'asset_type')]
+                    if type_filter != 'all' and 'asset_type' in asset_fields:
+                        domain.append(['asset_type', '=', type_filter])
+                    # Re-fetch totals + records on the corrected domain.
+                    total = c.safe_count(asset_model, domain)
+                    records = c.safe_search_read(
+                        asset_model, domain, read_fields,
+                        limit=PAGE_SIZE, offset=(page - 1) * PAGE_SIZE,
+                        order=order_clause)
+                    for r in records:
+                        r['acquisition_date_display'] = (
+                            r.get('acquisition_date')
+                            or r.get('first_depreciation_date')
+                            or r.get('date')
+                            or r.get('prorata_date') or '')
+                        r['original_value_display'] = (
+                            r.get('original_value')
+                            or r.get('value')
+                            or r.get('gross_value') or 0)
+                        r['net_value_display'] = (
+                            r.get('book_value')
+                            or r.get('value_residual')
+                            or r.get('net_book_value') or 0)
+                        r['category_display'] = ''
+                        for cf in ('category_id', 'asset_category_id',
+                                   'account_asset_id', 'account_id'):
+                            v = r.get(cf)
+                            if v and isinstance(v, (list, tuple)) and len(v) >= 2:
+                                r['category_display'] = v[1]
+                                break
+                        st = r.get('state') or ''
+                        r['state_label'] = ASSET_STATE_LABELS.get(st, st or '—')
+                    if grp_fields:
+                        grps = c.safe_read_group(asset_model, domain,
+                                                 grp_fields, [])
+                        totals = grps[0] if grps else {}
+                    total_acq = (totals.get(acq_field) if acq_field else 0) or 0
+                    total_net = (totals.get(net_field) if net_field else 0) or 0
+                    ctx['records']     = records
+                    ctx['total_pages'] = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+                    ctx['total_count'] = total
+                    ctx['stats'].update({
+                        'count':          total,
+                        'original_value': total_acq,
+                        'residual_value': total_net,
+                        'depreciated':    total_acq - total_net,
+                    })
                 # Deep-link to the Odoo record. v17+ probes the live
                 # ir.actions.act_window `path` so a custom menu still
                 # resolves; v15/v16 fall back to the classic hash router.
