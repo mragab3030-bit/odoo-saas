@@ -1112,6 +1112,64 @@ a.amount-format-btn.active:focus {
   background: rgba(230, 48, 48, .025);
 }
 
+/* ===== Assets-page category charts ===== */
+.asset-charts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+@media (max-width: 900px) {
+  .asset-charts-grid { grid-template-columns: 1fr; }
+}
+.asset-chart-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem 1.15rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 340px;
+}
+.asset-chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  margin-bottom: .5rem;
+}
+.asset-chart-title {
+  font-size: .78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-muted);
+  margin: 0;
+}
+.asset-chart-clear {
+  font-size: .75rem;
+  color: var(--danger);
+  text-decoration: none;
+}
+.asset-chart-clear:hover { text-decoration: underline; }
+.asset-chart-body {
+  position: relative;
+  flex: 1;
+  min-height: 300px;
+}
+.asset-chart-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: .82rem;
+  gap: .35rem;
+}
+.asset-chart-empty i { font-size: 1.6rem; opacity: .55; }
+
 /* ===== Tables ===== */
 .table-card { overflow-x: auto; }
 

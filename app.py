@@ -2487,6 +2487,82 @@ def _compute_fully_depreciated_count(client, asset_model, base_domain):
     return client.safe_count(asset_model, list(base_domain) + dom_parts)
 
 
+def _compute_assets_by_category(client, asset_model, domain):
+    """Group the assets matching `domain` by their category-ish field
+    and return one row per category:
+        {id, name, count, net_value, original_value}
+
+    The category field name varies across versions — v15/v16 use
+    `category_id`, v17+ swapped it for `account_asset_id` (with
+    `account_id` / `asset_category_id` on customised installs). We use
+    the same resolver as the table row display so the chart labels
+    match what the user sees in the table.
+
+    Assets with no category land under a synthetic 'Uncategorized'
+    row with id=0 so the donut still accounts for them."""
+    cat_field = _pick_asset_category_field(client, asset_model)
+    acq_field, net_field = _pick_asset_value_fields(client, asset_model)
+    if not cat_field:
+        return []
+
+    # Count per category (always available).
+    count_grp = []
+    try:
+        count_grp = client.safe_read_group(
+            asset_model, domain, [cat_field], [cat_field]) or []
+    except Exception as e:
+        logger.info("Assets-by-category count read_group failed: %s", e)
+
+    # Sums per category. Skip cleanly when the version lacks the fields.
+    sum_fields = []
+    if acq_field:
+        sum_fields.append(acq_field + ':sum')
+    if net_field:
+        sum_fields.append(net_field + ':sum')
+    sum_grp = []
+    if sum_fields:
+        try:
+            sum_grp = client.safe_read_group(
+                asset_model, domain, sum_fields, [cat_field]) or []
+        except Exception as e:
+            logger.info("Assets-by-category sum read_group failed: %s", e)
+
+    # Index the sum group by category id (or 0 for Uncategorized).
+    def _cat_key(row):
+        v = row.get(cat_field)
+        if isinstance(v, (list, tuple)) and v:
+            return v[0]
+        return 0
+
+    sums_by_id = {}
+    for row in sum_grp:
+        sums_by_id[_cat_key(row)] = {
+            'original_value': (row.get(acq_field) if acq_field else 0) or 0,
+            'net_value':      (row.get(net_field) if net_field else 0) or 0,
+        }
+
+    out = []
+    for row in count_grp:
+        cat = row.get(cat_field)
+        if isinstance(cat, (list, tuple)) and len(cat) >= 2:
+            cid, name = int(cat[0]), cat[1]
+        else:
+            cid, name = 0, 'Uncategorized'
+        sums = sums_by_id.get(cid, {})
+        out.append({
+            'id':             cid,
+            'name':           name,
+            'count':          row.get(cat_field + '_count') or row.get('__count') or 0,
+            'original_value': sums.get('original_value', 0),
+            'net_value':      sums.get('net_value', 0),
+        })
+
+    # Sort by net value descending (the bar chart wants that order); the
+    # donut renders fine in any order since it lays out by share.
+    out.sort(key=lambda r: r['net_value'] or 0, reverse=True)
+    return out
+
+
 def _resolve_asset_record_url_template(client, asset_model):
     """Build a per-row deep-link template like '<base>/odoo/<segment>/{id}'.
 
@@ -2968,6 +3044,9 @@ def financial():
             ctx['asset_type_filter']  = 'purchase'
             ctx['asset_type_label']   = 'Assets'
             ctx['asset_type_options'] = []
+            ctx['assets_by_category']     = []
+            ctx['category_filter_id']     = None
+            ctx['category_filter_active'] = False
         else:
             asset_fields = c.get_model_fields(asset_model)
             read_fields  = _build_asset_fields(c, asset_model)
@@ -2982,6 +3061,13 @@ def financial():
             # clicked, the URL gains fully_dep=1 and the table is
             # narrowed to rows that satisfy that OR-clause.
             fully_dep_only = request.args.get('fully_dep') == '1'
+            # Chart-driven filter: clicking a slice/bar appends
+            # ?category_id=<id> to the URL. 0 means Uncategorized.
+            try:
+                category_filter_id = int(request.args.get('category_id', '') or 0)
+            except (TypeError, ValueError):
+                category_filter_id = 0
+            category_filter_active = 'category_id' in request.args
 
             # account.asset multiplexes three record kinds via `asset_type`:
             # 'purchase' (fixed assets), 'expense' (deferred expenses), and
@@ -3022,6 +3108,17 @@ def financial():
                     domain.append(['state', '=', state_filter])
             if fully_dep_only and type_filter == 'purchase':
                 domain.extend(_fully_depreciated_domain(c, asset_model))
+            # Snapshot the domain BEFORE adding the category filter — the
+            # category charts need to show every category, otherwise
+            # picking one slice would collapse the chart to that slice.
+            chart_domain = list(domain)
+            if category_filter_active and cat_field:
+                # 0 → assets with no category at all (the Uncategorized
+                # slice). Use `=, False` for that case.
+                if category_filter_id == 0:
+                    domain.append([cat_field, '=', False])
+                else:
+                    domain.append([cat_field, '=', category_filter_id])
 
             try:
                 total = c.safe_count(asset_model, domain)
@@ -3125,6 +3222,13 @@ def financial():
                 ctx['fully_dep_filter']   = fully_dep_only
                 ctx['asset_type_filter']  = type_filter
                 ctx['asset_type_label']   = ASSET_TYPE_LABELS[type_filter][0]
+                # Charts use the same domain as the page (sans the
+                # category filter itself) so every slice/bar stays
+                # visible after the user clicks one.
+                ctx['assets_by_category'] = _compute_assets_by_category(
+                    c, asset_model, chart_domain)
+                ctx['category_filter_id']     = category_filter_id if category_filter_active else None
+                ctx['category_filter_active'] = category_filter_active
                 # Per-type counts so the selector can hide empty kinds.
                 # Reuse the *base* domain (everything EXCEPT the type
                 # filter itself), otherwise we'd always see zero counts
@@ -3245,6 +3349,9 @@ def financial():
                 ctx['asset_type_filter']  = type_filter
                 ctx['asset_type_label']   = ASSET_TYPE_LABELS[type_filter][0]
                 ctx['asset_type_options'] = []
+                ctx['assets_by_category']     = []
+                ctx['category_filter_id']     = None
+                ctx['category_filter_active'] = False
 
     elif tab == 'expenses':
         domain = []

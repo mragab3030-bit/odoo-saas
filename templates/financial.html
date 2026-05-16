@@ -1252,6 +1252,62 @@
   {% endif %}
 </div>
 
+{# Asset breakdown charts — donut (count by category) + horizontal bar
+   (net value by category). Both share the same dataset and react to
+   the Units/K/M global toggle. Clicking a slice or bar narrows the
+   table to that category. #}
+{% set _ac_clear_qs -%}
+  {{ url_for('financial') }}?tab=assets
+  {%- if asset_type_filter %}&asset_type={{ asset_type_filter }}{% endif -%}
+  {%- if search %}&search={{ search | urlencode }}{% endif -%}
+  {%- if asset_state_filter and asset_state_filter != 'all' %}&state_filter={{ asset_state_filter }}{% endif -%}
+  {%- if fully_dep_filter %}&fully_dep=1{% endif -%}
+{%- endset %}
+{% set _ac_base_qs -%}
+  {{ _ac_clear_qs }}&category_id=
+{%- endset %}
+<div class="asset-charts-grid">
+  <div class="card asset-chart-card">
+    <div class="asset-chart-header">
+      <h3 class="asset-chart-title">Assets by Category</h3>
+      {% if category_filter_active %}
+        <a class="asset-chart-clear" href="{{ _ac_clear_qs }}">
+          <i class="fa-solid fa-circle-xmark"></i> Clear filter
+        </a>
+      {% endif %}
+    </div>
+    <div class="asset-chart-body" id="assetCategoryCountWrap">
+      <canvas id="assetCategoryCountChart"></canvas>
+      <div class="asset-chart-empty" id="assetCategoryCountEmpty" style="display:none">
+        <i class="fa-solid fa-chart-pie"></i>
+        <p>No category data to chart</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="card asset-chart-card">
+    <div class="asset-chart-header">
+      <h3 class="asset-chart-title">Net Book Value by Category</h3>
+    </div>
+    <div class="asset-chart-body" id="assetCategoryNetWrap">
+      <canvas id="assetCategoryNetChart"></canvas>
+      <div class="asset-chart-empty" id="assetCategoryNetEmpty" style="display:none">
+        <i class="fa-solid fa-chart-column"></i>
+        <p>No net value data to chart</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="application/json" id="assetCategoryData">
+  {{ {
+    'rows':              assets_by_category or [],
+    'currency':          assets_ccy,
+    'base_qs':           _ac_base_qs,
+    'active_category_id': category_filter_id,
+  } | tojson | safe }}
+</script>
+
 <form method="GET" action="{{ url_for('financial') }}" class="filter-bar">
   <input type="hidden" name="tab" value="assets">
   {% if asset_type_options %}
@@ -1329,6 +1385,167 @@
   </table>
   {% include '_pagination.html' %}
 </div>
+
+<script>
+(function () {
+  var dataEl = document.getElementById('assetCategoryData');
+  if (!dataEl) return;
+  var payload;
+  try { payload = JSON.parse(dataEl.textContent || '{}'); } catch (e) { return; }
+  var rows = (payload.rows || []).slice();
+  var ccy  = payload.currency || '';
+  var baseQs = payload.base_qs || '';
+  var activeId = payload.active_category_id;
+
+  // Fixed palette — repeats if categories exceed 12, but the donut
+  // stays legible because colours cycle, not collide.
+  var palette = [
+    '#2563eb', '#16a34a', '#ea580c', '#9333ea', '#dc2626',
+    '#0891b2', '#65a30d', '#db2777', '#f59e0b', '#475569',
+    '#7c3aed', '#0d9488'
+  ];
+  function colorFor(i) { return palette[i % palette.length]; }
+
+  function fmtCount(n) { return Number(n || 0).toLocaleString(); }
+  function fmtAmount(n) {
+    var mode = (window.odooDashAmountMode && window.odooDashAmountMode()) || 'units';
+    var formatted = window.odooDashFormatAmount
+      ? window.odooDashFormatAmount(n, mode)
+      : Math.round(Number(n) || 0).toLocaleString();
+    return (ccy ? ccy + ' ' : '') + formatted;
+  }
+  function tickFmt(v) {
+    var mode = (window.odooDashAmountMode && window.odooDashAmountMode()) || 'units';
+    return window.odooDashFormatAmount
+      ? window.odooDashFormatAmount(v, mode)
+      : Math.round(v).toLocaleString();
+  }
+
+  function gotoCategory(id) {
+    // id===0 means Uncategorized; the backend accepts category_id=0
+    // and translates that to (field, =, False).
+    window.location.href = baseQs + encodeURIComponent(String(id));
+  }
+
+  // ----- Donut: count per category -----------------------------------
+  var donutCanvas = document.getElementById('assetCategoryCountChart');
+  var donutEmpty  = document.getElementById('assetCategoryCountEmpty');
+  var hasCount = rows.some(function (r) { return (r.count || 0) > 0; });
+  if (donutCanvas && hasCount) {
+    var donutColors = rows.map(function (r, i) {
+      return r.id === activeId ? '#e63030' : colorFor(i);
+    });
+    var donutChart = new Chart(donutCanvas.getContext('2d'), {
+      type: 'doughnut',
+      data: {
+        labels: rows.map(function (r) { return r.name; }),
+        datasets: [{
+          data: rows.map(function (r) { return r.count || 0; }),
+          backgroundColor: donutColors,
+          borderColor: '#fff',
+          borderWidth: 2,
+          hoverOffset: 14,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        cutout: '58%',
+        plugins: {
+          legend: { position: 'bottom', labels: { boxWidth: 12 } },
+          tooltip: {
+            callbacks: {
+              label: function (ctx) {
+                var total = ctx.dataset.data.reduce(function (a, b) { return a + (b || 0); }, 0);
+                var v = ctx.parsed || 0;
+                var pct = total ? (v / total * 100) : 0;
+                return ctx.label + ': ' + fmtCount(v) +
+                       ' (' + pct.toFixed(1) + '%)';
+              },
+            },
+          },
+        },
+        onClick: function (evt, items) {
+          if (!items || !items.length) return;
+          var idx = items[0].index;
+          var r = rows[idx];
+          if (r) gotoCategory(r.id);
+        },
+      },
+    });
+  } else if (donutEmpty) {
+    donutEmpty.style.display = '';
+  }
+
+  // ----- Horizontal bar: net value per category ----------------------
+  var barCanvas = document.getElementById('assetCategoryNetChart');
+  var barEmpty  = document.getElementById('assetCategoryNetEmpty');
+  var hasNet = rows.some(function (r) { return (r.net_value || 0) !== 0; });
+  if (barCanvas && hasNet) {
+    var barColors = rows.map(function (r) {
+      if (r.id === activeId) return '#e63030';
+      return (r.net_value || 0) >= 0 ? '#16a34a' : '#dc2626';
+    });
+    var barChart = new Chart(barCanvas.getContext('2d'), {
+      type: 'bar',
+      data: {
+        labels: rows.map(function (r) { return r.name; }),
+        datasets: [{
+          label: 'Net Book Value',
+          data: rows.map(function (r) { return r.net_value || 0; }),
+          backgroundColor: barColors,
+          borderColor: barColors,
+          borderWidth: 1,
+        }],
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function (ctx) {
+                var r = rows[ctx.dataIndex] || {};
+                return [
+                  'Net Value: ' + fmtAmount(ctx.parsed.x),
+                  'Assets: '    + fmtCount(r.count),
+                ];
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            beginAtZero: true,
+            ticks: { callback: function (v) { return tickFmt(v); } },
+          },
+          y: {
+            ticks: {
+              autoSkip: false,
+              callback: function (v) {
+                var lbl = this.getLabelForValue(v) || '';
+                return lbl.length > 28 ? lbl.slice(0, 27) + '…' : lbl;
+              },
+            },
+          },
+        },
+        onClick: function (evt, items) {
+          if (!items || !items.length) return;
+          var idx = items[0].index;
+          var r = rows[idx];
+          if (r) gotoCategory(r.id);
+        },
+      },
+    });
+
+    document.addEventListener('odoo:amount-mode-change', function () {
+      barChart.update('none');
+    });
+  } else if (barEmpty) {
+    barEmpty.style.display = '';
+  }
+})();
+</script>
 
 {% elif tab == 'expenses' %}
 
