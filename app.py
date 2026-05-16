@@ -507,16 +507,36 @@ def _compute_analytic(client, date_from, date_to):
     Field-rename note: v17 renamed the line's m2o from `account_id` to
     `auto_account_id`; `pick_field` resolves whichever exists.
     """
-    account_field = client.pick_field('account.analytic.line', 'account_id',
-                                      default='account_id')
+    # Field resolution: on Odoo 17+ multi-plan the canonical relation is
+    # `auto_account_id`. The legacy `account_id` column may still exist on
+    # the model but read as False for every row (it's only populated under
+    # the single-plan compatibility path). So PREFER auto_account_id when
+    # present, falling back to account_id for v15/v16.
+    line_fields = client.get_model_fields('account.analytic.line')
+    if 'auto_account_id' in line_fields:
+        account_field = 'auto_account_id'
+    elif 'account_id' in line_fields:
+        account_field = 'account_id'
+    else:
+        account_field = 'account_id'
     plan_field = client.pick_field('account.analytic.account', 'plan_id')
 
     # ---- Step 1: id → name map for every analytic account.
     acc_read_fields = ['id', 'name', 'display_name', 'code']
     if plan_field:
         acc_read_fields.append(plan_field)
+    # Include archived accounts — lines often reference them, and Odoo's
+    # default search filter hides active=False unless we ask explicitly.
     all_accounts = client.safe_search_read(
-        'account.analytic.account', [], acc_read_fields) or []
+        'account.analytic.account',
+        [['active', 'in', [True, False]]],
+        acc_read_fields) or []
+    # If the access-bypass domain returns 0 rows it may be that the
+    # `active` field doesn't exist on this version — fall back to plain
+    # all-records search.
+    if not all_accounts:
+        all_accounts = client.safe_search_read(
+            'account.analytic.account', [], acc_read_fields) or []
 
     def _str_or_none(v):
         # Odoo encodes "no value" as Python False, not '' or None.
@@ -564,18 +584,28 @@ def _compute_analytic(client, date_from, date_to):
     # Diagnostic: log the field name + first few raw rows so any future
     # field-shape surprise (new Odoo version, installed extension) is
     # visible in server logs without a debugger.
-    if rev_grps or cost_grps:
-        logger.info(
-            "Analytic _compute_analytic: account_field=%s account_count=%d sample_groups=%s",
-            account_field, len(account_index),
-            (rev_grps or cost_grps)[:3])
+    logger.info(
+        "Analytic _compute_analytic: line_field=%s plan_field=%s indexed_accounts=%d rev_groups=%d cost_groups=%d sample_groups=%s",
+        account_field, plan_field, len(account_index),
+        len(rev_grps), len(cost_grps),
+        (rev_grps or cost_grps or count_grps)[:3])
+    if not account_index:
+        logger.warning(
+            "Analytic: account_index is EMPTY — search_read on account.analytic.account "
+            "returned no rows (access rights or company filter?). All rows will be 'Unassigned'.")
 
     def _aid(grp):
         # In v17 multi-plan setups read_group can return the bare integer
-        # id (no display tuple) — handle both shapes.
+        # id (no display tuple) — handle both shapes. Critically: bool is a
+        # subclass of int in Python, so we must reject False explicitly,
+        # otherwise an "empty" group (account_id=False) collapses every
+        # row into one fake account.
         pair = grp.get(account_field)
+        if isinstance(pair, bool):
+            return None
         if isinstance(pair, list) and pair:
-            return pair[0]
+            first = pair[0]
+            return None if isinstance(first, bool) else first
         if isinstance(pair, int):
             return pair
         return None
@@ -1904,46 +1934,100 @@ def financial_analytic_aggregate():
 @login_required
 def api_analytic_debug():
     """Dump raw Odoo records so we can see the exact field shape. Returns
-    the resolved analytic-line field, the first 3 raw lines, the first 3
-    accounts, and the first read_group output. Useful for diagnosing
-    name-resolution issues without log access."""
+    the resolved analytic-line field, the first 3 raw lines (with both
+    account_id AND auto_account_id when present), the first 3 accounts,
+    and read_group results for whichever line-account fields exist —
+    so we can compare which one actually holds the data on this server."""
     c = get_client()
-    account_field = c.pick_field('account.analytic.line', 'account_id',
-                                 default='account_id')
-    plan_field = c.pick_field('account.analytic.account', 'plan_id')
     try:
-        line_fields = sorted(c.get_model_fields('account.analytic.line'))
+        line_fields_set = c.get_model_fields('account.analytic.line')
     except Exception as e:
-        line_fields = ['(error: %s)' % e]
+        line_fields_set = set()
+        line_fields_err = str(e)
+    else:
+        line_fields_err = None
+
+    has_account_id      = 'account_id' in line_fields_set
+    has_auto_account_id = 'auto_account_id' in line_fields_set
+
+    # Resolution the dashboard uses (prefer auto_account_id when present)
+    if has_auto_account_id:
+        resolved_field = 'auto_account_id'
+    elif has_account_id:
+        resolved_field = 'account_id'
+    else:
+        resolved_field = None
+    plan_field = c.pick_field('account.analytic.account', 'plan_id')
+
+    # Surface every line-field whose name mentions 'account' so we can spot
+    # variants like analytic_account_id on customised installs.
+    account_like_fields = sorted(
+        f for f in line_fields_set if 'account' in f.lower())
+
+    # Sample 3 raw lines pulling both candidate fields. Pulling a missing
+    # field would error — only request the ones that exist.
+    line_sample_fields = ['id', 'amount', 'date', 'name']
+    if has_account_id:      line_sample_fields.append('account_id')
+    if has_auto_account_id: line_sample_fields.append('auto_account_id')
     try:
         sample_lines = c.safe_search_read(
-            'account.analytic.line', [],
-            [account_field, 'amount', 'date', 'name'], limit=3) or []
+            'account.analytic.line', [], line_sample_fields, limit=3) or []
     except Exception as e:
         sample_lines = [{'error': str(e)}]
+
+    # First 5 accounts (active + archived) so we can verify search_read
+    # against account.analytic.account actually returns data.
+    acc_fields = ['id', 'name', 'display_name', 'code', 'active']
+    if plan_field:
+        acc_fields.append(plan_field)
     try:
         sample_accounts = c.safe_search_read(
-            'account.analytic.account', [],
-            ['id', 'name', 'display_name', 'code'] +
-            ([plan_field] if plan_field else []),
-            limit=3) or []
+            'account.analytic.account',
+            [['active', 'in', [True, False]]],
+            acc_fields, limit=5) or []
+        if not sample_accounts:
+            sample_accounts = c.safe_search_read(
+                'account.analytic.account', [], acc_fields, limit=5) or []
     except Exception as e:
         sample_accounts = [{'error': str(e)}]
+
+    # Count accounts the dashboard can see (mirrors the index used by
+    # _compute_analytic). If this is 0, names will all be "Unassigned".
     try:
-        sample_groups = c.safe_read_group(
-            'account.analytic.line', [], ['amount:sum'],
-            [account_field]) or []
-        sample_groups = sample_groups[:3]
-    except Exception as e:
-        sample_groups = [{'error': str(e)}]
+        account_count = c.safe_count(
+            'account.analytic.account',
+            [['active', 'in', [True, False]]])
+    except Exception:
+        account_count = -1
+
+    # read_group with both candidates so we can compare which one has
+    # non-False keys.
+    def _try_group(field):
+        if field not in line_fields_set:
+            return {'skipped': 'field not on model'}
+        try:
+            rows = c.safe_read_group(
+                'account.analytic.line', [], ['amount:sum'], [field]) or []
+            return rows[:5]
+        except Exception as e:
+            return [{'error': str(e)}]
+
     return jsonify({
-        'odoo_version':         getattr(c, 'version_string', None),
-        'account_field':        account_field,
-        'plan_field':           plan_field,
-        'analytic_line_fields': line_fields,
-        'sample_lines':         sample_lines,
-        'sample_accounts':      sample_accounts,
-        'sample_groups':        sample_groups,
+        'odoo_version':              getattr(c, 'version_string', None),
+        'odoo_version_major':        getattr(c, 'version_major', None),
+        'edition':                   session.get('odoo_edition'),
+        'resolved_line_field':       resolved_field,
+        'has_account_id':            has_account_id,
+        'has_auto_account_id':       has_auto_account_id,
+        'plan_field':                plan_field,
+        'account_like_line_fields':  account_like_fields,
+        'analytic_line_field_count': len(line_fields_set),
+        'analytic_line_fields_err':  line_fields_err,
+        'sample_lines':              sample_lines,
+        'sample_accounts':           sample_accounts,
+        'account_count_visible':     account_count,
+        'group_by_account_id':       _try_group('account_id'),
+        'group_by_auto_account_id':  _try_group('auto_account_id'),
     })
 
 
