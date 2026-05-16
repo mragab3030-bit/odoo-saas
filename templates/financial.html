@@ -2159,20 +2159,9 @@
           data.total_expenses_change_pct_display, 'exp'),
       '</div>',
     ];
-    if (hasOther) {
-      html.push(
-        '<div class="pnl-section', compareCls, '">',
-          '<div class="pnl-section-title oth">OTHER MOVEMENTS <span style="opacity:.6;font-weight:400">(non-P&amp;L: assets / liabilities / equity)</span></div>',
-          headerRow(),
-          othBody,
-          renderSubtotal(
-            'Total Other', data.total_other,
-            (data.total_other ? '100.0%' : '—'),
-            data.previous_total_other, data.total_other_change,
-            data.total_other_change_pct_display, 'oth'),
-        '</div>'
-      );
-    }
+    // Net Profit/Loss + Margin come right after Expenses — they're the
+    // headline of the P&L. Balance-sheet movements sit at the bottom so
+    // they don't visually compete with the result.
     if (isCompare) {
       var netDiff = data.net_change || 0;
       var netCls  = netChangeClass(netDiff);
@@ -2212,6 +2201,20 @@
         '<div class="pnl-margin">',
           '<span>Margin %</span>',
           '<span>', esc(data.margin_display || '—'), '</span>',
+        '</div>'
+      );
+    }
+    if (hasOther) {
+      html.push(
+        '<div class="pnl-section', compareCls, '" style="margin-top:1rem">',
+          '<div class="pnl-section-title oth">OTHER MOVEMENTS <span style="opacity:.6;font-weight:400">(non-P&amp;L: assets / liabilities / equity)</span></div>',
+          headerRow(),
+          othBody,
+          renderSubtotal(
+            'Total Other', data.total_other,
+            (data.total_other ? '100.0%' : '—'),
+            data.previous_total_other, data.total_other_change,
+            data.total_other_change_pct_display, 'oth'),
         '</div>'
       );
     }

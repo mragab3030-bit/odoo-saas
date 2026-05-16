@@ -528,16 +528,6 @@ def export_pnl_pdf(company_name: str, cost_center_name: str,
         pnl.get('expense_groups') or [],
         pnl.get('expense_lines') or [],
         pnl.get('total_expenses') or 0, 'Total Expenses', 'exp'))
-    other_lines = pnl.get('other_lines') or []
-    if other_lines:
-        elements.append(Spacer(1, 0.4 * cm))
-        elements.append(section_block(
-            'OTHER MOVEMENTS (non-P&amp;L)',
-            colors.HexColor('#64748b'),
-            None,  # other section has no sub-grouping
-            other_lines,
-            pnl.get('total_other') or 0,
-            'Total Other', 'oth'))
     elements.append(Spacer(1, 0.6 * cm))
 
     net_value  = pnl.get('net') or 0
@@ -593,6 +583,19 @@ def export_pnl_pdf(company_name: str, cost_center_name: str,
         ('LINEBELOW', (0, -1), (-1, -1), 1.2, net_color),
     ]))
     elements.append(summary)
+
+    # Balance-sheet movements live at the bottom so they don't visually
+    # compete with the Net result.
+    other_lines = pnl.get('other_lines') or []
+    if other_lines:
+        elements.append(Spacer(1, 0.6 * cm))
+        elements.append(section_block(
+            'OTHER MOVEMENTS (non-P&amp;L)',
+            colors.HexColor('#64748b'),
+            None,  # other section has no sub-grouping
+            other_lines,
+            pnl.get('total_other') or 0,
+            'Total Other', 'oth'))
 
     doc.build(elements)
     buf.seek(0)
@@ -950,21 +953,6 @@ def export_pnl_excel(company_name: str, cost_center_name: str,
         section_change=pnl.get('total_expenses_change'),
         section_change_pct=pnl.get('total_expenses_change_pct'),
     )
-    other_lines = pnl.get('other_lines') or []
-    if other_lines:
-        other_font = Font(bold=True, color='64748B', size=11)
-        write_section(
-            'OTHER MOVEMENTS (non-P&L)',
-            [],  # no sub-grouping for balance-sheet movements
-            other_lines,
-            'Total Other', pnl.get('total_other') or 0,
-            other_font, '64748B',
-            pct_color_neutral, pct_bold_neutral, 'oth',
-            section_prev_total=pnl.get('previous_total_other'),
-            section_change=pnl.get('total_other_change'),
-            section_change_pct=pnl.get('total_other_change_pct'),
-        )
-
     # ---- Net + margin summary ----
     net_value = pnl.get('net') or 0
     net_color = '2563EB' if net_value >= 0 else 'DC2626'
@@ -1037,6 +1025,24 @@ def export_pnl_excel(company_name: str, cost_center_name: str,
     m.fill = header_fill
     m.border = box
     m.alignment = Alignment(horizontal='right')
+    row += 2  # spacer between Net/Margin and the Other section below
+
+    # Balance-sheet movements sit at the bottom so they don't visually
+    # compete with the Net result.
+    other_lines = pnl.get('other_lines') or []
+    if other_lines:
+        other_font = Font(bold=True, color='64748B', size=11)
+        write_section(
+            'OTHER MOVEMENTS (non-P&L)',
+            [],  # no sub-grouping for balance-sheet movements
+            other_lines,
+            'Total Other', pnl.get('total_other') or 0,
+            other_font, '64748B',
+            pct_color_neutral, pct_bold_neutral, 'oth',
+            section_prev_total=pnl.get('previous_total_other'),
+            section_change=pnl.get('total_other_change'),
+            section_change_pct=pnl.get('total_other_change_pct'),
+        )
 
     # Column widths
     if is_compare:
