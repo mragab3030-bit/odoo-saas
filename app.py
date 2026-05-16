@@ -2698,6 +2698,20 @@ def financial():
             prev_rows = []
         prev_summary = _analytic_summary(prev_rows)
 
+        # Revenue Contribution % — each row's share of the total revenue
+        # across the currently-visible cost centres. Recomputed AFTER the
+        # search filter so the denominator reflects what the user sees.
+        total_revenue_visible = sum((r.get('revenue') or 0) for r in rows)
+        for r in rows:
+            rev = r.get('revenue') or 0
+            if rev > 0 and total_revenue_visible > 0:
+                pct = (rev / total_revenue_visible) * 100.0
+                r['revenue_contribution_pct']     = pct
+                r['revenue_contribution_display'] = '%.1f%%' % pct
+            else:
+                r['revenue_contribution_pct']     = 0.0
+                r['revenue_contribution_display'] = '—'
+
         # Two Top-5 lists:
         #   profitable: net > 0 (revenue must exist for net to be positive)
         #   loss:       net < 0 — includes pure cost centres (revenue=0,
@@ -2710,6 +2724,7 @@ def financial():
             key=lambda r: r['net'])[:5]
 
         ctx['records']       = rows
+        ctx['total_revenue_visible'] = total_revenue_visible
         ctx['total_count']   = len(rows)
         ctx['total_pages']   = 1
         ctx['stats']         = summary

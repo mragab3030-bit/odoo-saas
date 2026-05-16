@@ -1390,6 +1390,43 @@
   .analytic-table tbody tr { cursor: pointer; }
   .analytic-table tbody tr:hover { background: #f1f5f9; }
   .analytic-table tbody tr.active-filter { background: #dbeafe; }
+  /* Revenue Contribution column — inline progress bar inside the cell. */
+  .rc-cell {
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .rc-cell .rc-bar {
+    display: inline-block;
+    width: 56px;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--surface-2, #f1f5f9);
+    overflow: hidden;
+    vertical-align: middle;
+    margin-right: .4rem;
+  }
+  .rc-cell .rc-bar-fill {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+  }
+  .rc-cell.rc-high   .rc-bar-fill,
+  .rc-cell.rc-high   .rc-value { color: #16a34a; }
+  .rc-cell.rc-high   .rc-bar-fill { background: #16a34a; }
+  .rc-cell.rc-mid    .rc-bar-fill,
+  .rc-cell.rc-mid    .rc-value { color: #2563eb; }
+  .rc-cell.rc-mid    .rc-bar-fill { background: #2563eb; }
+  .rc-cell.rc-low    .rc-bar-fill { background: #94a3b8; }
+  .rc-cell.rc-low    .rc-value { color: var(--text-muted); }
+  .rc-cell.rc-zero   .rc-value { color: var(--text-muted); }
+  .rc-cell .rc-value { font-weight: 600; }
+  /* Totals row — sits inside <tfoot> so it stays put when sorting. */
+  .analytic-table tfoot td {
+    font-weight: 700;
+    background: var(--surface-2, #f8fafc);
+    border-top: 2px solid var(--border, #e5e7eb);
+  }
 </style>
 
 <div class="amount-format-toolbar" data-amount-toolbar>
@@ -3276,13 +3313,26 @@
         <th class="sortable" data-key="plan_name">Plan / Group <span class="sort-ind">⇅</span></th>
         <th class="sortable" data-key="revenue" style="text-align:right">Revenue <span class="sort-ind">⇅</span></th>
         <th class="sortable" data-key="costs" style="text-align:right">Costs <span class="sort-ind">⇅</span></th>
-        <th class="sortable sort-desc" data-key="net" style="text-align:right">Net <span class="sort-ind">↓</span></th>
+        <th class="sortable" data-key="net" style="text-align:right">Net <span class="sort-ind">⇅</span></th>
         <th class="sortable" data-key="margin_pct" style="text-align:right">Margin % <span class="sort-ind">⇅</span></th>
+        <th class="sortable sort-desc" data-key="revenue_contribution_pct" style="text-align:right">
+          Revenue Contribution % <span class="sort-ind">↓</span>
+        </th>
         <th class="sortable" data-key="count" style="text-align:right"># Tx <span class="sort-ind">⇅</span></th>
       </tr>
     </thead>
     <tbody id="analyticTableBody">
-      {% for r in records | sort(attribute='net', reverse=true) %}
+      {% for r in records | sort(attribute='revenue_contribution_pct', reverse=true) %}
+      {% set rc_pct = r.revenue_contribution_pct or 0 %}
+      {% if rc_pct >= 20 %}
+        {% set rc_cls = 'rc-high' %}
+      {% elif rc_pct >= 10 %}
+        {% set rc_cls = 'rc-mid' %}
+      {% elif rc_pct > 0 %}
+        {% set rc_cls = 'rc-low' %}
+      {% else %}
+        {% set rc_cls = 'rc-zero' %}
+      {% endif %}
       <tr data-id="{{ r.id }}" data-name="{{ r.name }}">
         <td>{{ r.name }}{% if r.code %} <small style="color:var(--text-muted)">[{{ r.code }}]</small>{% endif %}</td>
         <td>{{ r.plan_name or '—' }}</td>
@@ -3302,12 +3352,54 @@
           </span>
         </td>
         <td style="text-align:right">{{ r.margin_display or '—' }}</td>
+        <td class="rc-cell {{ rc_cls }}">
+          {% if (r.revenue or 0) > 0 %}
+            <span class="rc-bar"
+                  title="{{ '%.1f' % rc_pct }}% of total revenue">
+              <span class="rc-bar-fill"
+                    style="width: {{ '%.1f' % (rc_pct if rc_pct <= 100 else 100) }}%"></span>
+            </span>
+            <span class="rc-value">{{ r.revenue_contribution_display }}</span>
+          {% else %}
+            <span class="rc-value">—</span>
+          {% endif %}
+        </td>
         <td style="text-align:right">{{ r.count }}</td>
       </tr>
       {% else %}
-      <tr><td colspan="7"><div class="empty-state"><i class="fa-solid fa-diagram-project"></i><p>No analytic accounts found</p></div></td></tr>
+      <tr><td colspan="8"><div class="empty-state"><i class="fa-solid fa-diagram-project"></i><p>No analytic accounts found</p></div></td></tr>
       {% endfor %}
     </tbody>
+    {% if records %}
+    <tfoot>
+      <tr>
+        <td colspan="2">Total ({{ records | length }} cost centers)</td>
+        <td style="text-align:right">
+          <span class="amount-display" data-amount="{{ stats.revenue or 0 }}" data-currency="{{ ccy }}">
+            {{ ccy }} {{ stats.revenue | fmt_currency_int }}
+          </span>
+        </td>
+        <td style="text-align:right">
+          <span class="amount-display" data-amount="{{ stats.costs or 0 }}" data-currency="{{ ccy }}">
+            {{ ccy }} {{ stats.costs | fmt_currency_int }}
+          </span>
+        </td>
+        <td class="{{ 'net-pos' if (stats.net or 0) >= 0 else 'net-neg' }}" style="text-align:right">
+          <span class="amount-display" data-amount="{{ stats.net or 0 }}" data-currency="{{ ccy }}">
+            {{ ccy }} {{ stats.net | fmt_currency_int }}
+          </span>
+        </td>
+        <td style="text-align:right">—</td>
+        <td class="rc-cell rc-high">
+          <span class="rc-bar" title="100% of total revenue">
+            <span class="rc-bar-fill" style="width:100%"></span>
+          </span>
+          <span class="rc-value">{{ '100.0%' if (total_revenue_visible or 0) > 0 else '—' }}</span>
+        </td>
+        <td style="text-align:right">{{ records | sum(attribute='count') }}</td>
+      </tr>
+    </tfoot>
+    {% endif %}
   </table>
 </div>
 
