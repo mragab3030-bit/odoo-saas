@@ -1,8 +1,11 @@
 import concurrent.futures
 import json
+import logging
 import os
 from datetime import datetime, date, timedelta
 from functools import wraps
+
+logger = logging.getLogger(__name__)
 
 from flask import (
     Flask, render_template, request, redirect,
@@ -493,13 +496,55 @@ def _compute_analytic(client, date_from, date_to):
     Returns a list of dicts with revenue / costs / net / margin / count / plan.
     Costs are stored as positive numbers (absolute value of negative amounts).
 
-    Field-rename note: in Odoo 17+ the analytic line points at the canonical
-    account via `auto_account_id` (multi-plan support); older versions used
-    `account_id`. `pick_field` resolves whichever exists on the running server.
+    Strategy (resilient to the v17+ field rename):
+      1. Load every analytic account up-front into an id → {name, plan, code}
+         dict. This is the source of truth for names — read_group's m2o pair
+         often returns `False` for the display_name part on certain Odoo
+         deployments, so we never trust it.
+      2. Read-group the lines to get revenue / cost / count per account.
+      3. Match groups to accounts by id and copy the canonical name across.
+
+    Field-rename note: v17 renamed the line's m2o from `account_id` to
+    `auto_account_id`; `pick_field` resolves whichever exists.
     """
     account_field = client.pick_field('account.analytic.line', 'account_id',
                                       default='account_id')
+    plan_field = client.pick_field('account.analytic.account', 'plan_id')
 
+    # ---- Step 1: id → name map for every analytic account.
+    acc_read_fields = ['id', 'name', 'display_name', 'code']
+    if plan_field:
+        acc_read_fields.append(plan_field)
+    all_accounts = client.safe_search_read(
+        'account.analytic.account', [], acc_read_fields) or []
+
+    def _str_or_none(v):
+        # Odoo encodes "no value" as Python False, not '' or None.
+        if v is False or v is None or v == '':
+            return None
+        return v
+
+    account_index = {}
+    for r in all_accounts:
+        aid = r.get('id')
+        if not aid:
+            continue
+        # Prefer display_name (parent-prefixed) then plain name.
+        nm = _str_or_none(r.get('display_name')) or _str_or_none(r.get('name'))
+        plan = r.get(plan_field) if plan_field else None
+        plan_id = None
+        plan_name = ''
+        if isinstance(plan, list) and len(plan) > 1:
+            plan_id = plan[0]
+            plan_name = _str_or_none(plan[1]) or ''
+        account_index[aid] = {
+            'name':      nm or 'Unassigned',
+            'code':      _str_or_none(r.get('code')) or '',
+            'plan_id':   plan_id,
+            'plan_name': plan_name,
+        }
+
+    # ---- Step 2: read-group lines.
     base_dom = []
     if date_from:
         base_dom.append(['date', '>=', date_from])
@@ -516,98 +561,60 @@ def _compute_analytic(client, date_from, date_to):
         'account.analytic.line', base_dom,
         [], [account_field]) or []
 
-    # One-time diagnostic: dump the first few raw groups so the exact field
-    # shape (which key holds the [id, name] tuple, whether name comes back
-    # False, etc.) is visible in server logs without needing a debugger.
+    # Diagnostic: log the field name + first few raw rows so any future
+    # field-shape surprise (new Odoo version, installed extension) is
+    # visible in server logs without a debugger.
     if rev_grps or cost_grps:
-        sample = (rev_grps or cost_grps)[:3]
         logger.info(
-            "Analytic _compute_analytic: account_field=%s sample_groups=%s",
-            account_field, sample)
+            "Analytic _compute_analytic: account_field=%s account_count=%d sample_groups=%s",
+            account_field, len(account_index),
+            (rev_grps or cost_grps)[:3])
 
     def _aid(grp):
-        # read_group returns many2one as [id, display_name]. display_name can
-        # come back False (broken name_get / empty record) — treat that as
-        # "name missing" so the search_read backfill below can fix it.
+        # In v17 multi-plan setups read_group can return the bare integer
+        # id (no display tuple) — handle both shapes.
         pair = grp.get(account_field)
         if isinstance(pair, list) and pair:
-            aid = pair[0]
-            name = pair[1] if len(pair) > 1 else None
-            if not name or name is False:
-                name = None
-            return aid, name
+            return pair[0]
         if isinstance(pair, int):
-            return pair, None
-        return None, None
+            return pair
+        return None
 
+    # ---- Step 3: stitch groups → account rows.
     accounts = {}
 
-    def _ensure(aid, name):
+    def _row(aid):
         a = accounts.get(aid)
         if a is None:
-            a = {'id': aid, 'name': name or '',
-                 'revenue': 0, 'costs': 0, 'count': 0,
-                 'plan_id': None, 'plan_name': ''}
+            meta = account_index.get(aid) or {}
+            a = {
+                'id': aid,
+                'name':      meta.get('name')      or 'Unassigned',
+                'code':      meta.get('code')      or '',
+                'plan_id':   meta.get('plan_id'),
+                'plan_name': meta.get('plan_name') or '',
+                'revenue':   0,
+                'costs':     0,
+                'count':     0,
+            }
             accounts[aid] = a
-        elif not a['name'] and name:
-            a['name'] = name
         return a
 
     for g in rev_grps:
-        aid, name = _aid(g)
+        aid = _aid(g)
         if aid is None:
             continue
-        _ensure(aid, name)['revenue'] = g.get('amount', 0) or 0
+        _row(aid)['revenue'] = g.get('amount', 0) or 0
     for g in cost_grps:
-        aid, name = _aid(g)
+        aid = _aid(g)
         if aid is None:
             continue
-        _ensure(aid, name)['costs'] = abs(g.get('amount', 0) or 0)
+        _row(aid)['costs'] = abs(g.get('amount', 0) or 0)
     for g in count_grps:
-        aid, name = _aid(g)
+        aid = _aid(g)
         if aid is None:
             continue
-        _ensure(aid, name)['count'] = g.get('__count', 0)
-
-    aids = list(accounts.keys())
-    if aids:
-        # `plan_id` was added with the v17 multi-plan rework; older versions
-        # still expose `group_id`. Read whichever exists.
-        plan_field = client.pick_field('account.analytic.account', 'plan_id')
-        # Always pull `name` and `display_name` so we can backfill rows
-        # where read_group returned [id, False] for the m2o pair.
-        read_fields = ['id', 'name', 'display_name', 'code']
-        if plan_field:
-            read_fields.append(plan_field)
-        recs = client.safe_search_read(
-            'account.analytic.account',
-            [['id', 'in', aids]],
-            read_fields)
-        for r in recs:
-            a = accounts.get(r.get('id'))
-            if not a:
-                continue
-            plan = r.get(plan_field) if plan_field else None
-            if isinstance(plan, list) and len(plan) > 1:
-                a['plan_id'] = plan[0]
-                a['plan_name'] = plan[1]
-            a['code'] = r.get('code') or ''
-            if not a['name']:
-                # Prefer display_name (resolves hierarchy/parent prefix),
-                # then fall back to plain name. Either can be False on
-                # archived/orphan records.
-                dn = r.get('display_name')
-                nm = r.get('name')
-                if dn and dn is not False:
-                    a['name'] = dn
-                elif nm and nm is not False:
-                    a['name'] = nm
-
-    # Final safety net: anything still without a label gets a friendly
-    # placeholder. Prevents "#False" / "#<id>" leaking into the UI or charts.
-    for a in accounts.values():
-        if not a['name']:
-            a['name'] = 'Unassigned'
+        _row(aid)['count'] = g.get('__count', 0)
 
     rows = list(accounts.values())
     for a in rows:
@@ -1890,6 +1897,53 @@ def financial_analytic_aggregate():
         'period_label': _format_period_label(range_key, date_from, date_to),
         'rows':         rows,
         'summary':      summary,
+    })
+
+
+@app.route('/api/analytic/debug')
+@login_required
+def api_analytic_debug():
+    """Dump raw Odoo records so we can see the exact field shape. Returns
+    the resolved analytic-line field, the first 3 raw lines, the first 3
+    accounts, and the first read_group output. Useful for diagnosing
+    name-resolution issues without log access."""
+    c = get_client()
+    account_field = c.pick_field('account.analytic.line', 'account_id',
+                                 default='account_id')
+    plan_field = c.pick_field('account.analytic.account', 'plan_id')
+    try:
+        line_fields = sorted(c.get_model_fields('account.analytic.line'))
+    except Exception as e:
+        line_fields = ['(error: %s)' % e]
+    try:
+        sample_lines = c.safe_search_read(
+            'account.analytic.line', [],
+            [account_field, 'amount', 'date', 'name'], limit=3) or []
+    except Exception as e:
+        sample_lines = [{'error': str(e)}]
+    try:
+        sample_accounts = c.safe_search_read(
+            'account.analytic.account', [],
+            ['id', 'name', 'display_name', 'code'] +
+            ([plan_field] if plan_field else []),
+            limit=3) or []
+    except Exception as e:
+        sample_accounts = [{'error': str(e)}]
+    try:
+        sample_groups = c.safe_read_group(
+            'account.analytic.line', [], ['amount:sum'],
+            [account_field]) or []
+        sample_groups = sample_groups[:3]
+    except Exception as e:
+        sample_groups = [{'error': str(e)}]
+    return jsonify({
+        'odoo_version':         getattr(c, 'version_string', None),
+        'account_field':        account_field,
+        'plan_field':           plan_field,
+        'analytic_line_fields': line_fields,
+        'sample_lines':         sample_lines,
+        'sample_accounts':      sample_accounts,
+        'sample_groups':        sample_groups,
     })
 
 
