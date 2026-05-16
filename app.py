@@ -2796,10 +2796,11 @@ def api_analytic_debug():
 def _resolve_pnl_request_args():
     """Parse + validate the inputs shared by the P&L JSON and export
     endpoints. Returns (account_id:int, range_key, date_from, date_to,
-    error_response_or_None)."""
+    compare_mode, error_response_or_None)."""
     raw_id = (request.args.get('account_id', '') or '').strip()
     if not raw_id.isdigit():
-        return 0, '', '', '', (jsonify({'error': 'account_id required'}), 400)
+        return (0, '', '', '', 'none',
+                (jsonify({'error': 'account_id required'}), 400))
     account_id = int(raw_id)
     range_key = (request.args.get('range', 'ytd') or 'ytd').strip()
     raw_from  = request.args.get('date_from', '')
@@ -2808,7 +2809,190 @@ def _resolve_pnl_request_args():
         range_key = 'ytd'
     date_from, date_to, range_key = _resolve_date_range(
         range_key, raw_from, raw_to)
-    return account_id, range_key, date_from, date_to, None
+    compare_mode = (request.args.get('compare', 'none') or 'none').lower()
+    if compare_mode not in ('none', 'yoy', 'prev'):
+        compare_mode = 'none'
+    return account_id, range_key, date_from, date_to, compare_mode, None
+
+
+def _pnl_friendly_date(iso):
+    """Render an ISO date string as 'May 16, 2025' for the comparison label."""
+    try:
+        return date.fromisoformat(iso).strftime('%b %-d, %Y')
+    except (ValueError, TypeError):
+        try:
+            # Windows/Linux without %-d support — fall back to zero-padded.
+            return date.fromisoformat(iso).strftime('%b %d, %Y')
+        except Exception:
+            return iso or ''
+
+
+def _resolve_pnl_compare_range(compare_mode, range_key, date_from, date_to):
+    """Return (prev_from, prev_to, label) for the chosen comparison.
+
+    compare_mode:
+      'none' → ('', '', '')
+      'yoy'  → same window shifted back one year (Same Period Last Year)
+      'prev' → the same-duration window immediately before the current
+               (Jan-May 2026 → Aug-Dec 2025)
+    """
+    if compare_mode == 'none' or not date_from or not date_to:
+        return '', '', ''
+    if compare_mode == 'yoy':
+        pf, pt, _lbl = _previous_date_range(
+            range_key, date_from, date_to, year_over_year=True)
+        if not pf or not pt:
+            return '', '', ''
+        return pf, pt, '%s – %s' % (
+            _pnl_friendly_date(pf), _pnl_friendly_date(pt))
+    # 'prev' — same-duration immediately preceding window.
+    try:
+        df = date.fromisoformat(date_from)
+        dt = date.fromisoformat(date_to)
+    except (ValueError, TypeError):
+        return '', '', ''
+    duration_days = (dt - df).days + 1  # inclusive
+    prev_to = df - timedelta(days=1)
+    prev_from = prev_to - timedelta(days=duration_days - 1)
+    return (prev_from.isoformat(), prev_to.isoformat(),
+            '%s – %s' % (_pnl_friendly_date(prev_from.isoformat()),
+                         _pnl_friendly_date(prev_to.isoformat())))
+
+
+def _pnl_change_strings(cur, prev):
+    """Return (change_amount, change_pct, change_pct_display).
+
+    change_pct uses |prev| as denominator so a swing from -100 to +100 is
+    +200% rather than -200%. Falls back to '—' when prev is 0 (division
+    is undefined; the line is "new").
+    """
+    cur = cur or 0
+    prev = prev or 0
+    diff = cur - prev
+    if prev:
+        pct = (diff / abs(prev)) * 100.0
+        return diff, pct, '%+.1f%%' % pct
+    # No previous baseline — emerging or one-shot line. Keep change in
+    # SAR (still meaningful) but blank the pct.
+    return diff, None, '—'
+
+
+def _stitch_pnl_comparison(current_pnl, previous_pnl):
+    """Mutate `current_pnl` in place to add previous_amount + change +
+    change_pct at line, sub-group, section, and net levels.
+
+    For accounts that existed in the previous window but not the current
+    one, we inject zero-current rows so the comparison surfaces the
+    decline rather than silently dropping the account.
+    """
+    # ---- 1. Augment current line lists with previous-only accounts.
+    def _index_lines(lines):
+        return {ln.get('id'): ln for ln in (lines or []) if ln.get('id')}
+
+    def _augment(section_key, current_pnl, prev_pnl):
+        cur_lines = current_pnl.get(section_key) or []
+        cur_ids = {ln.get('id') for ln in cur_lines}
+        for prev in prev_pnl.get(section_key) or []:
+            pid = prev.get('id')
+            if pid and pid not in cur_ids:
+                cur_lines.append({
+                    'id':            pid,
+                    'name':          prev.get('name'),
+                    'code':          prev.get('code'),
+                    'type':          prev.get('type'),
+                    'amount':        0.0,
+                    'pct':           0.0,
+                    'pct_display':   '—',
+                })
+        current_pnl[section_key] = cur_lines
+
+    _augment('revenue_lines', current_pnl, previous_pnl)
+    _augment('expense_lines', current_pnl, previous_pnl)
+    _augment('other_lines',   current_pnl, previous_pnl)
+
+    # Rebuild groups so newly-injected zero rows land in the right
+    # sub-bucket. Totals are unchanged (added rows are 0).
+    current_pnl['revenue_groups'] = _build_section_groups(
+        current_pnl['revenue_lines'], PNL_REVENUE_SUBTYPES,
+        current_pnl.get('total_revenue') or 0)
+    current_pnl['expense_groups'] = _build_section_groups(
+        current_pnl['expense_lines'], PNL_EXPENSE_SUBTYPES,
+        current_pnl.get('total_expenses') or 0)
+
+    # ---- 2. Annotate every line with previous_amount + change.
+    def _annotate_lines(cur_lines, prev_index):
+        for ln in cur_lines:
+            prev_amt = (prev_index.get(ln.get('id')) or {}).get('amount') or 0
+            d, p, s = _pnl_change_strings(ln.get('amount') or 0, prev_amt)
+            ln['previous_amount']     = prev_amt
+            ln['change']              = d
+            ln['change_pct']          = p
+            ln['change_pct_display']  = s
+
+    _annotate_lines(current_pnl['revenue_lines'],
+                    _index_lines(previous_pnl.get('revenue_lines')))
+    _annotate_lines(current_pnl['expense_lines'],
+                    _index_lines(previous_pnl.get('expense_lines')))
+    _annotate_lines(current_pnl['other_lines'],
+                    _index_lines(previous_pnl.get('other_lines')))
+
+    # ---- 3. Annotate each sub-group's subtotal.
+    def _group_index(groups):
+        return {(g.get('label') or ''): (g.get('subtotal') or 0)
+                for g in (groups or [])}
+
+    def _annotate_groups(cur_groups, prev_subtotals):
+        for g in cur_groups:
+            prev = prev_subtotals.get(g.get('label') or '', 0)
+            d, p, s = _pnl_change_strings(g.get('subtotal') or 0, prev)
+            g['previous_subtotal']    = prev
+            g['change']               = d
+            g['change_pct']           = p
+            g['change_pct_display']   = s
+
+    _annotate_groups(current_pnl.get('revenue_groups') or [],
+                     _group_index(previous_pnl.get('revenue_groups')))
+    _annotate_groups(current_pnl.get('expense_groups') or [],
+                     _group_index(previous_pnl.get('expense_groups')))
+
+    # ---- 4. Section totals + Net.
+    def _set_change(prefix, cur_total, prev_total):
+        d, p, s = _pnl_change_strings(cur_total, prev_total)
+        current_pnl['previous_' + prefix] = prev_total
+        current_pnl[prefix + '_change']             = d
+        current_pnl[prefix + '_change_pct']         = p
+        current_pnl[prefix + '_change_pct_display'] = s
+
+    _set_change('total_revenue',  current_pnl.get('total_revenue'),
+                                  previous_pnl.get('total_revenue'))
+    _set_change('total_expenses', current_pnl.get('total_expenses'),
+                                  previous_pnl.get('total_expenses'))
+    _set_change('total_other',    current_pnl.get('total_other'),
+                                  previous_pnl.get('total_other'))
+    _set_change('net',            current_pnl.get('net'),
+                                  previous_pnl.get('net'))
+
+
+def _compute_cost_center_pnl_with_compare(client, account_id, range_key,
+                                          date_from, date_to, compare_mode):
+    """Compute the P&L for one cost center, optionally stitched against
+    a Same-Period-Last-Year or Previous-Period window."""
+    pnl = _compute_cost_center_pnl(client, account_id, date_from, date_to)
+    pnl['compare_mode']  = 'none'
+    pnl['compare_label'] = ''
+
+    if compare_mode in ('yoy', 'prev'):
+        prev_from, prev_to, label = _resolve_pnl_compare_range(
+            compare_mode, range_key, date_from, date_to)
+        if prev_from and prev_to:
+            prev_pnl = _compute_cost_center_pnl(
+                client, account_id, prev_from, prev_to)
+            _stitch_pnl_comparison(pnl, prev_pnl)
+            pnl['compare_mode']  = compare_mode
+            pnl['compare_label'] = label
+            pnl['compare_from']  = prev_from
+            pnl['compare_to']    = prev_to
+    return pnl
 
 
 def _resolve_cost_center_name(client, account_id):
@@ -2834,14 +3018,20 @@ def _resolve_cost_center_name(client, account_id):
 def financial_cost_center_pnl():
     """JSON endpoint for the Cost Center P&L Statement panel. Computes
     revenue / expenses grouped by general_account_id (the accounting
-    account) for one analytic account over a period."""
-    account_id, range_key, date_from, date_to, err = _resolve_pnl_request_args()
+    account) for one analytic account over a period.
+
+    Optional `compare=yoy|prev` runs a second pass for Same-Period-Last-
+    Year or Previous-Period and stitches the result so each line carries
+    previous_amount + change + change_pct."""
+    (account_id, range_key, date_from, date_to, compare_mode,
+     err) = _resolve_pnl_request_args()
     if err:
         return err
 
     c = get_client()
     try:
-        pnl = _compute_cost_center_pnl(c, account_id, date_from, date_to)
+        pnl = _compute_cost_center_pnl_with_compare(
+            c, account_id, range_key, date_from, date_to, compare_mode)
     except Exception as e:
         logger.exception("Cost-center P&L failed for account_id=%s", account_id)
         return jsonify({'error': str(e)}), 500
@@ -2865,14 +3055,16 @@ def export_cost_center_pnl(fmt):
         flash('Invalid export format.', 'danger')
         return redirect(url_for('financial', tab='analytic'))
 
-    account_id, range_key, date_from, date_to, err = _resolve_pnl_request_args()
+    (account_id, range_key, date_from, date_to, compare_mode,
+     err) = _resolve_pnl_request_args()
     if err:
         # err is a (response, status) tuple from _resolve_pnl_request_args
         return err
 
     c = get_client()
     try:
-        pnl = _compute_cost_center_pnl(c, account_id, date_from, date_to)
+        pnl = _compute_cost_center_pnl_with_compare(
+            c, account_id, range_key, date_from, date_to, compare_mode)
     except Exception as e:
         logger.exception("Cost-center P&L export failed for account_id=%s", account_id)
         flash('Could not generate P&L: %s' % e, 'danger')

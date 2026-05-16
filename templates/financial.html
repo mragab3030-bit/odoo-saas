@@ -1683,6 +1683,88 @@
   .pnl-unit-toggle button + button {
     border-left: 1px solid var(--border);
   }
+
+  /* ----- Comparison mode ----- */
+  .pnl-compare-bar {
+    display: flex;
+    align-items: center;
+    gap: .9rem;
+    flex-wrap: wrap;
+    margin: -.25rem 0 .9rem 0;
+    padding: .45rem .65rem;
+    background: var(--surface-2, rgba(148,163,184,.06));
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: .82rem;
+  }
+  .pnl-compare-bar > strong {
+    font-size: .68rem;
+    letter-spacing: .08em;
+    color: var(--text-muted);
+    font-weight: 700;
+  }
+  .pnl-compare-bar label {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    cursor: pointer;
+    color: var(--text);
+  }
+  .pnl-compare-window {
+    margin-left: auto;
+    color: var(--text-muted);
+    font-size: .8rem;
+    font-style: italic;
+  }
+  /* Five-column grid kicks in when the section root has .is-compare. */
+  .pnl-section.is-compare .pnl-line,
+  .pnl-section.is-compare .pnl-subtotal {
+    grid-template-columns:
+      minmax(0, 1.6fr)
+      minmax(0, 1fr)
+      minmax(0, 1fr)
+      minmax(0, 1fr)
+      minmax(0, .8fr);
+  }
+  .pnl-section.is-compare .pnl-prev {
+    color: #9ca3af;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-size: .85rem;
+  }
+  .pnl-section.is-compare .pnl-change,
+  .pnl-section.is-compare .pnl-change-pct {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-size: .85rem;
+    white-space: nowrap;
+  }
+  .pnl-change.up   { color: #16a34a; }
+  .pnl-change.down { color: #dc2626; }
+  .pnl-change.flat { color: #9ca3af; }
+  .pnl-change-pct.up   { color: #16a34a; }
+  .pnl-change-pct.down { color: #dc2626; }
+  .pnl-change-pct.flat { color: #9ca3af; }
+  .pnl-change .pnl-arrow { margin-right: .25rem; font-size: .75rem; }
+  /* In compare mode the column-header row uses the same grid. */
+  .pnl-compare-header {
+    display: grid;
+    grid-template-columns:
+      minmax(0, 1.6fr)
+      minmax(0, 1fr)
+      minmax(0, 1fr)
+      minmax(0, 1fr)
+      minmax(0, .8fr);
+    column-gap: .75rem;
+    padding: .3rem .25rem;
+    font-size: .68rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+  }
+  .pnl-compare-header > span:nth-child(n+2) { text-align: right; }
   .pnl-line .pnl-name { color: var(--text); }
   .pnl-line .pnl-code {
     color: var(--text-muted);
@@ -1773,6 +1855,14 @@
     </div>
   </div>
 
+  <div class="pnl-compare-bar">
+    <strong>Comparison:</strong>
+    <label><input type="radio" name="pnlCompare" value="none" checked> No Comparison</label>
+    <label><input type="radio" name="pnlCompare" value="yoy"> Same Period Last Year</label>
+    <label><input type="radio" name="pnlCompare" value="prev"> Previous Period</label>
+    <span class="pnl-compare-window" id="pnlCompareWindow"></span>
+  </div>
+
   <div class="pnl-output" id="pnlOutput">
     <div class="pnl-placeholder">
       Pick a cost center and period, then click <strong>Generate</strong>.
@@ -1829,6 +1919,22 @@
     return s + (s ? '&' : '') + 'unit=' + encodeURIComponent(unitMode);
   }
 
+  // Comparison-mode radio. Independent of the unit toggle.
+  var compareMode = 'none';
+  var compareWindowEl = document.getElementById('pnlCompareWindow');
+  var compareInputs = section.querySelectorAll('input[name="pnlCompare"]');
+  compareInputs.forEach(function (inp) {
+    inp.addEventListener('change', function () {
+      if (!inp.checked) return;
+      compareMode = inp.value;
+      // Refetch immediately so the comparison columns light up without
+      // forcing the user to click Generate again. But only if we already
+      // had an account_id locked in (i.e. lastData exists).
+      if (lastData) generate();
+      else setExportEnabled(false);
+    });
+  });
+
   function fmtAmount(n) {
     var v = Number(n || 0);
     var s;
@@ -1878,7 +1984,32 @@
       p.set('date_from', fromInput.value);
       p.set('date_to',   toInput.value);
     }
+    if (compareMode && compareMode !== 'none') {
+      p.set('compare', compareMode);
+    }
     return p;
+  }
+
+  // -- Change-direction colour. For revenue/other, up is good; for
+  //    expenses, down is good (cost dropped).
+  function changeClass(diff, kind) {
+    var d = Number(diff || 0);
+    if (d === 0) return 'flat';
+    if (kind === 'exp') return d > 0 ? 'down' : 'up';
+    return d > 0 ? 'up' : 'down';
+  }
+  function changeArrow(diff) {
+    var d = Number(diff || 0);
+    if (d > 0) return '<span class="pnl-arrow">▲</span>';
+    if (d < 0) return '<span class="pnl-arrow">▼</span>';
+    return '<span class="pnl-arrow">=</span>';
+  }
+  // Same logic but with reversed sense for the Net row — a net that
+  // moved upward (more profit OR less loss) is always 'up'.
+  function netChangeClass(diff) {
+    var d = Number(diff || 0);
+    if (d === 0) return 'flat';
+    return d > 0 ? 'up' : 'down';
   }
 
   function render(data) {
@@ -1887,31 +2018,84 @@
         '<i class="fa-solid fa-triangle-exclamation"></i> ' + esc(data.error) +
         '</div>';
       setExportEnabled(false);
+      compareWindowEl.textContent = '';
       return;
     }
     lastData = data;
+    var isCompare = (data.compare_mode === 'yoy' || data.compare_mode === 'prev');
+    compareWindowEl.textContent = isCompare && data.compare_label
+      ? 'Comparing with: ' + data.compare_label
+      : '';
+
+    function changeCells(diff, pctDisplay, kind) {
+      var cls = changeClass(diff, kind);
+      var pctCls = changeClass(diff, kind);
+      var sign = (diff > 0 ? '+' : (diff < 0 ? '-' : ''));
+      var absAmt = fmtAmount(Math.abs(diff || 0));
+      return [
+        '<span class="pnl-change ', cls, '">',
+          changeArrow(diff),
+          sign === '+' ? '+' : (sign === '-' ? '-' : ''),
+          esc(absAmt),
+        '</span>',
+        '<span class="pnl-change-pct ', pctCls, '">',
+          esc(pctDisplay || '—'),
+        '</span>',
+      ].join('');
+    }
+
     function renderLine(l, kind) {
-      return '<div class="pnl-line ' + kind + '">' +
+      var parts = ['<div class="pnl-line ' + kind + '">'];
+      parts.push(
         '<span class="pnl-name">' +
         (l.code ? '<span class="pnl-code">[' + esc(l.code) + ']</span>' : '') +
-        esc(l.name || 'Unassigned') + '</span>' +
-        '<span class="pnl-pct">' + esc(l.pct_display || '—') + '</span>' +
-        '<span class="pnl-amt">' + esc(fmtAmount(l.amount)) + '</span>' +
-        '</div>';
+        esc(l.name || 'Unassigned') + '</span>'
+      );
+      if (isCompare) {
+        var prev = (l.previous_amount === undefined || l.previous_amount === null)
+                   ? '—' : fmtAmount(l.previous_amount);
+        parts.push('<span class="pnl-amt">' + esc(fmtAmount(l.amount)) + '</span>');
+        parts.push('<span class="pnl-prev">' +
+                   esc((l.previous_amount || l.previous_amount === 0) ? prev : '—') +
+                   '</span>');
+        parts.push(changeCells(l.change || 0, l.change_pct_display, kind));
+      } else {
+        parts.push('<span class="pnl-pct">' + esc(l.pct_display || '—') + '</span>');
+        parts.push('<span class="pnl-amt">' + esc(fmtAmount(l.amount)) + '</span>');
+      }
+      parts.push('</div>');
+      return parts.join('');
     }
+
+    function renderSubtotal(label, cur, pctDisplay, prev, diff, diffPct, kind) {
+      var parts = ['<div class="pnl-subtotal ' + kind + '"><span>' +
+                   esc(label) + '</span>'];
+      if (isCompare) {
+        parts.push('<span class="pnl-amt">' + esc(fmtAmount(cur)) + '</span>');
+        parts.push('<span class="pnl-prev">' +
+                   esc((prev || prev === 0) ? fmtAmount(prev) : '—') +
+                   '</span>');
+        parts.push(changeCells(diff || 0, diffPct, kind));
+      } else {
+        parts.push('<span class="pnl-pct">' + esc(pctDisplay || '—') + '</span>');
+        parts.push('<span class="pnl-amt">' + esc(fmtAmount(cur)) + '</span>');
+      }
+      parts.push('</div>');
+      return parts.join('');
+    }
+
     function renderGroup(g, kind) {
       var html = ['<div class="pnl-subgroup-label ' + kind + '">' +
                   esc(g.label || '') + '</div>'];
       (g.lines || []).forEach(function (l) { html.push(renderLine(l, kind)); });
-      html.push(
-        '<div class="pnl-line pnl-subgroup-total ' + kind + '">',
-          '<span>Subtotal — ', esc(g.label || ''), '</span>',
-          '<span class="pnl-pct">', esc(g.pct_display || '—'), '</span>',
-          '<span class="pnl-amt">', esc(fmtAmount(g.subtotal)), '</span>',
-        '</div>'
-      );
+      html.push(renderSubtotal(
+        'Subtotal — ' + (g.label || ''),
+        g.subtotal, g.pct_display,
+        g.previous_subtotal, g.change, g.change_pct_display,
+        kind + ' pnl-subgroup-total'));
       return html.join('');
     }
+
     function renderSection(groups, flat, kind, emptyMsg) {
       if (groups && groups.length) {
         return groups.map(function (g) { return renderGroup(g, kind); }).join('');
@@ -1920,6 +2104,18 @@
         return flat.map(function (l) { return renderLine(l, kind); }).join('');
       }
       return '<div class="pnl-line pnl-empty">' + emptyMsg + '</div>';
+    }
+
+    var compareCls = isCompare ? ' is-compare' : '';
+    function headerRow() {
+      if (!isCompare) return '';
+      return '<div class="pnl-compare-header">' +
+        '<span>Account</span>' +
+        '<span>Current</span>' +
+        '<span>Previous</span>' +
+        '<span>Change</span>' +
+        '<span>Change %</span>' +
+        '</div>';
     }
 
     var revBody = renderSection(data.revenue_groups, data.revenue_lines,
@@ -1937,49 +2133,88 @@
       '<div class="pnl-meta">',
       '<div>Cost Center: <strong>', esc(data.cost_center_name || ''), '</strong></div>',
       '<div>Period: <strong>', esc(data.period_label || ''), '</strong></div>',
+      (isCompare && data.compare_label
+        ? '<div style="color:var(--text-muted);font-size:.8rem">Comparing with: <strong>' +
+          esc(data.compare_label) + '</strong></div>'
+        : ''),
       '</div>',
-      '<div class="pnl-section">',
+      '<div class="pnl-section', compareCls, '">',
         '<div class="pnl-section-title rev">REVENUE</div>',
+        headerRow(),
         revBody,
-        '<div class="pnl-subtotal rev">',
-          '<span>Total Revenue</span>',
-          '<span class="pnl-pct">', (data.total_revenue ? '100.0%' : '—'), '</span>',
-          '<span class="pnl-amt">', esc(fmtAmount(data.total_revenue)), '</span>',
-        '</div>',
+        renderSubtotal(
+          'Total Revenue', data.total_revenue,
+          (data.total_revenue ? '100.0%' : '—'),
+          data.previous_total_revenue, data.total_revenue_change,
+          data.total_revenue_change_pct_display, 'rev'),
       '</div>',
-      '<div class="pnl-section">',
+      '<div class="pnl-section', compareCls, '">',
         '<div class="pnl-section-title exp">EXPENSES</div>',
+        headerRow(),
         expBody,
-        '<div class="pnl-subtotal exp">',
-          '<span>Total Expenses</span>',
-          '<span class="pnl-pct">', (data.total_expenses ? '100.0%' : '—'), '</span>',
-          '<span class="pnl-amt">', esc(fmtAmount(data.total_expenses)), '</span>',
-        '</div>',
+        renderSubtotal(
+          'Total Expenses', data.total_expenses,
+          (data.total_expenses ? '100.0%' : '—'),
+          data.previous_total_expenses, data.total_expenses_change,
+          data.total_expenses_change_pct_display, 'exp'),
       '</div>',
     ];
     if (hasOther) {
       html.push(
-        '<div class="pnl-section">',
+        '<div class="pnl-section', compareCls, '">',
           '<div class="pnl-section-title oth">OTHER MOVEMENTS <span style="opacity:.6;font-weight:400">(non-P&amp;L: assets / liabilities / equity)</span></div>',
+          headerRow(),
           othBody,
-          '<div class="pnl-subtotal oth">',
-            '<span>Total Other</span>',
-            '<span class="pnl-pct">', (data.total_other ? '100.0%' : '—'), '</span>',
-            '<span class="pnl-amt">', esc(fmtAmount(data.total_other)), '</span>',
-          '</div>',
+          renderSubtotal(
+            'Total Other', data.total_other,
+            (data.total_other ? '100.0%' : '—'),
+            data.previous_total_other, data.total_other_change,
+            data.total_other_change_pct_display, 'oth'),
         '</div>'
       );
     }
-    html.push(
-      '<div class="pnl-net ', netClass, '">',
-        '<span>', netLabel, '</span>',
-        '<span class="pnl-amt">', esc(fmtAmount(data.net)), '</span>',
-      '</div>',
-      '<div class="pnl-margin">',
-        '<span>Margin %</span>',
-        '<span>', esc(data.margin_display || '—'), '</span>',
-      '</div>'
-    );
+    if (isCompare) {
+      var netDiff = data.net_change || 0;
+      var netCls  = netChangeClass(netDiff);
+      var netSign = netDiff > 0 ? '+' : (netDiff < 0 ? '-' : '');
+      var netPrev = (data.previous_net || data.previous_net === 0)
+                    ? fmtAmount(data.previous_net) : '—';
+      html.push(
+        '<div class="pnl-net ', netClass, '">',
+          '<span>', netLabel, '</span>',
+          '<span class="pnl-amt">', esc(fmtAmount(data.net)), '</span>',
+        '</div>',
+        '<div class="pnl-margin">',
+          '<span>Previous Net</span>',
+          '<span class="pnl-prev">', esc(netPrev), '</span>',
+        '</div>',
+        '<div class="pnl-margin">',
+          '<span>Change</span>',
+          '<span class="pnl-change ', netCls, '">',
+            (netDiff !== 0 ? (netDiff > 0 ? '▲ ' : '▼ ') : '= '),
+            esc(netSign + fmtAmount(Math.abs(netDiff))),
+            '   (',
+            esc(data.net_change_pct_display || '—'),
+            ')',
+          '</span>',
+        '</div>',
+        '<div class="pnl-margin">',
+          '<span>Margin %</span>',
+          '<span>', esc(data.margin_display || '—'), '</span>',
+        '</div>'
+      );
+    } else {
+      html.push(
+        '<div class="pnl-net ', netClass, '">',
+          '<span>', netLabel, '</span>',
+          '<span class="pnl-amt">', esc(fmtAmount(data.net)), '</span>',
+        '</div>',
+        '<div class="pnl-margin">',
+          '<span>Margin %</span>',
+          '<span>', esc(data.margin_display || '—'), '</span>',
+        '</div>'
+      );
+    }
     output.innerHTML = html.join('');
   }
 

@@ -295,90 +295,200 @@ def export_pnl_pdf(company_name: str, cost_center_name: str,
         meta_parts.append('Period: %s' % period_label)
     meta_parts.append('Generated %s' %
                       datetime.now().strftime('%Y-%m-%d %H:%M'))
-    elements.append(Paragraph('  |  '.join(meta_parts), sub_style))
+    is_compare = (pnl.get('compare_mode') or 'none') in ('yoy', 'prev')
+    compare_label = pnl.get('compare_label') or ''
 
-    # Three-column table: account name (60%) / % (12%) / amount (28%)
+    if is_compare and compare_label:
+        elements.append(Paragraph('  |  '.join(meta_parts), sub_style))
+        cmp_style = ParagraphStyle(
+            'Cmp', parent=styles['Normal'],
+            fontName=UNICODE_FONT, fontSize=9,
+            textColor=colors.HexColor('#64748b'),
+            alignment=TA_CENTER, spaceAfter=10,
+        )
+        elements.append(Paragraph(
+            'Comparing with: <b>%s</b>' % _esc(compare_label), cmp_style))
+    else:
+        elements.append(Paragraph('  |  '.join(meta_parts), sub_style))
+
     page_width = A4[0]
     available_width = page_width - 3.0 * cm
-    section_col_widths = [
-        available_width * 0.60,
-        available_width * 0.12,
-        available_width * 0.28,
-    ]
+    if is_compare:
+        # 5 cols: name (40%) / current (16%) / previous (16%) / change (16%) / chg% (12%)
+        section_col_widths = [
+            available_width * 0.40,
+            available_width * 0.16,
+            available_width * 0.16,
+            available_width * 0.16,
+            available_width * 0.12,
+        ]
+    else:
+        # 3 cols: name (60%) / % (12%) / amount (28%)
+        section_col_widths = [
+            available_width * 0.60,
+            available_width * 0.12,
+            available_width * 0.28,
+        ]
+    NUM_COLS = len(section_col_widths)
     pct_neutral = colors.HexColor('#9ca3af')
     SUBGROUP_BG = colors.HexColor('#f8fafc')
+    UP_COLOR    = colors.HexColor('#16a34a')
+    DOWN_COLOR  = colors.HexColor('#dc2626')
 
-    def _render_lines(table_data, lines, pct_color, subgroup_total_rows):
-        for ln in lines:
-            label_text = ln.get('name') or 'Unassigned'
-            code = ln.get('code')
-            if code:
-                label_text = '[%s] %s' % (code, label_text)
-            table_data.append([
-                cell('   ' + label_text),
-                cell(ln.get('pct_display') or '—', align='right',
-                     color=pct_color),
-                cell(_fmt_amount(ln.get('amount', 0), currency, unit),
-                     align='right'),
-            ])
+    def _change_color(diff, kind):
+        """kind: 'rev' | 'exp' | 'oth' | 'net'. Net mirrors revenue
+        direction (up == good); expenses are inverted."""
+        try:
+            d = float(diff or 0)
+        except (TypeError, ValueError):
+            d = 0.0
+        if d == 0:
+            return pct_neutral
+        if kind == 'exp':
+            return DOWN_COLOR if d > 0 else UP_COLOR
+        return UP_COLOR if d > 0 else DOWN_COLOR
 
-    def section_block(label, color, groups, flat_lines, total, total_label):
-        """Render REVENUE / EXPENSES with nested sub-groups when groups
-        is provided; falls back to a flat line list otherwise (other-
-        movements section)."""
-        # Header row spans the table; this is the section title row.
-        table_data = [[
-            cell(label, bold=True, color=color),
-            cell('', align='right'),
-            cell('', align='right'),
-        ]]
-        # subgroup_total_rows accumulates row indexes that need the
-        # light-gray subtotal-row tint (set after we know lengths).
+    def _change_text(diff):
+        try:
+            d = float(diff or 0)
+        except (TypeError, ValueError):
+            d = 0.0
+        if d == 0:
+            arrow, sign = '=', ''
+        elif d > 0:
+            arrow, sign = '▲', '+'
+        else:
+            arrow, sign = '▼', '-'
+        return '%s %s%s' % (arrow, sign, _fmt_amount(abs(d), currency, unit))
+
+    def _line_row(ln, kind, bold=False, label_override=None,
+                  amount_override=None, color_override=None):
+        """Build one PDF table row for a line OR a subtotal-style entry."""
+        amt = amount_override if amount_override is not None else (ln.get('amount') or 0)
+        amount_color = color_override or BRAND_DARK
+        if is_compare:
+            prev_val = ln.get('previous_amount')
+            prev_disp = (_fmt_amount(prev_val, currency, unit)
+                         if (prev_val is not None and prev_val != 0) or prev_val == 0
+                         else '—')
+            diff = ln.get('change') or 0
+            diff_pct = ln.get('change_pct_display') or '—'
+            change_color = _change_color(diff, kind)
+            return [
+                cell('   ' + (label_override or
+                              (('[%s] ' % ln.get('code')) if ln.get('code') else '') +
+                              (ln.get('name') or 'Unassigned')),
+                     bold=bold),
+                cell(_fmt_amount(amt, currency, unit), align='right',
+                     bold=bold, color=amount_color),
+                cell(prev_disp, align='right', color=pct_neutral),
+                cell(_change_text(diff), align='right', bold=bold,
+                     color=change_color),
+                cell(diff_pct, align='right', bold=bold, color=change_color),
+            ]
+        # Non-compare layout
+        return [
+            cell('   ' + (label_override or
+                          (('[%s] ' % ln.get('code')) if ln.get('code') else '') +
+                          (ln.get('name') or 'Unassigned')),
+                 bold=bold),
+            cell(ln.get('pct_display') or '—', align='right',
+                 bold=bold, color=pct_neutral),
+            cell(_fmt_amount(amt, currency, unit), align='right',
+                 bold=bold, color=amount_color),
+        ]
+
+    def _subtotal_row(label, total, pct_display, kind, color, group=None):
+        """Section / sub-group subtotal row."""
+        if is_compare:
+            prev = (group or {}).get('previous_subtotal') if group else None
+            if prev is None and kind == 'rev':
+                prev = pnl.get('previous_total_revenue')
+            if prev is None and kind == 'exp':
+                prev = pnl.get('previous_total_expenses')
+            if prev is None and kind == 'oth':
+                prev = pnl.get('previous_total_other')
+            diff = ((group or {}).get('change') if group else None)
+            diff_pct = ((group or {}).get('change_pct_display') if group else None)
+            if group is None and kind == 'rev':
+                diff = pnl.get('total_revenue_change')
+                diff_pct = pnl.get('total_revenue_change_pct_display')
+            if group is None and kind == 'exp':
+                diff = pnl.get('total_expenses_change')
+                diff_pct = pnl.get('total_expenses_change_pct_display')
+            if group is None and kind == 'oth':
+                diff = pnl.get('total_other_change')
+                diff_pct = pnl.get('total_other_change_pct_display')
+            change_color = _change_color(diff or 0, kind)
+            return [
+                cell(label, bold=True),
+                cell(_fmt_amount(total, currency, unit), bold=True,
+                     align='right', color=color),
+                cell(_fmt_amount(prev, currency, unit) if (prev is not None and prev != 0) or prev == 0 else '—',
+                     align='right', color=pct_neutral),
+                cell(_change_text(diff or 0), bold=True, align='right',
+                     color=change_color),
+                cell(diff_pct or '—', bold=True, align='right',
+                     color=change_color),
+            ]
+        return [
+            cell(label, bold=True),
+            cell(pct_display or ('100.0%' if total else '—'),
+                 bold=True, align='right', color=color),
+            cell(_fmt_amount(total, currency, unit), bold=True,
+                 align='right', color=color),
+        ]
+
+    def section_block(label, color, groups, flat_lines, total, total_label, kind):
+        """Render one section (REVENUE / EXPENSES / OTHER). kind drives
+        the comparison colour direction."""
+        # Section title row spans all columns.
+        header_row = [cell(label, bold=True, color=color)]
+        header_row.extend(cell('', align='right') for _ in range(NUM_COLS - 1))
+        table_data = [header_row]
         subgroup_total_rows = []
+
+        # If compare mode, add a column-headers row right under the title.
+        if is_compare:
+            hdr = [cell('Account', bold=True, color=colors.HexColor('#64748b'))]
+            for txt in ('Current', 'Previous', 'Change', 'Change %'):
+                hdr.append(cell(txt, bold=True, align='right',
+                                color=colors.HexColor('#64748b')))
+            table_data.append(hdr)
 
         if groups:
             for grp in groups:
-                # Sub-group label row
-                table_data.append([
-                    cell('  ' + (grp.get('label') or ''),
-                         bold=True, color=color),
-                    cell('', align='right'),
-                    cell('', align='right'),
-                ])
+                # Sub-group label row (full-width left-aligned label)
+                sg_row = [cell('  ' + (grp.get('label') or ''),
+                               bold=True, color=color)]
+                sg_row.extend(cell('', align='right')
+                              for _ in range(NUM_COLS - 1))
+                table_data.append(sg_row)
                 # Lines
-                _render_lines(table_data, grp.get('lines') or [],
-                              color, subgroup_total_rows)
+                for ln in grp.get('lines') or []:
+                    table_data.append(_line_row(ln, kind))
                 # Sub-group subtotal
                 sub = grp.get('subtotal') or 0
-                table_data.append([
-                    cell('    Subtotal — ' + (grp.get('label') or ''),
-                         bold=True),
-                    cell(grp.get('pct_display') or '—', bold=True,
-                         align='right', color=color),
-                    cell(_fmt_amount(sub, currency, unit),
-                         bold=True, align='right', color=color),
-                ])
+                table_data.append(_subtotal_row(
+                    '    Subtotal — ' + (grp.get('label') or ''),
+                    sub, grp.get('pct_display'), kind, color, group=grp))
                 subgroup_total_rows.append(len(table_data) - 1)
         else:
-            _render_lines(table_data, flat_lines or [], color,
-                          subgroup_total_rows)
+            for ln in (flat_lines or []):
+                table_data.append(_line_row(ln, kind))
             if not flat_lines:
-                table_data.append([
-                    cell('   (no lines)',
-                         color=colors.HexColor('#94a3b8')),
-                    cell('—', align='right', color=pct_neutral),
-                    cell('—', align='right',
-                         color=colors.HexColor('#94a3b8')),
-                ])
+                no_row = [cell('   (no lines)',
+                               color=colors.HexColor('#94a3b8'))]
+                for _ in range(NUM_COLS - 1):
+                    no_row.append(cell('—', align='right',
+                                       color=colors.HexColor('#94a3b8')))
+                table_data.append(no_row)
 
         # Section total row
-        table_data.append([
-            cell(total_label, bold=True),
-            cell('100.0%' if total else '—', bold=True, align='right',
-                 color=color),
-            cell(_fmt_amount(total, currency, unit),
-                 bold=True, align='right', color=color),
-        ])
+        table_data.append(_subtotal_row(
+            total_label, total, '100.0%' if total else '—',
+            kind, color, group=None))
+
         t = Table(table_data, colWidths=section_col_widths, hAlign='LEFT')
         styles_list = [
             ('FONTNAME', (0, 0), (-1, -1), UNICODE_FONT),
@@ -396,9 +506,11 @@ def export_pnl_pdf(company_name: str, cost_center_name: str,
             ('LINEABOVE', (0, -1), (-1, -1), 0.9, color),
             ('LINEBELOW', (0, -1), (-1, -1), 0.9, color),
         ]
-        # Sub-group subtotal rows get a softer fill so they stand out
-        # from the surrounding line rows without competing with the
-        # main section total.
+        if is_compare:
+            # Column-headers row under the section title.
+            styles_list.append(
+                ('LINEBELOW', (0, 1), (-1, 1), 0.3,
+                 colors.HexColor('#cbd5e1')))
         for r in subgroup_total_rows:
             styles_list.append(('BACKGROUND', (0, r), (-1, r), SUBGROUP_BG))
             styles_list.append(('LINEABOVE', (0, r), (-1, r), 0.4, color))
@@ -409,13 +521,13 @@ def export_pnl_pdf(company_name: str, cost_center_name: str,
         'REVENUE', REV_GREEN,
         pnl.get('revenue_groups') or [],
         pnl.get('revenue_lines') or [],
-        pnl.get('total_revenue') or 0, 'Total Revenue'))
+        pnl.get('total_revenue') or 0, 'Total Revenue', 'rev'))
     elements.append(Spacer(1, 0.4 * cm))
     elements.append(section_block(
         'EXPENSES', EXP_RED,
         pnl.get('expense_groups') or [],
         pnl.get('expense_lines') or [],
-        pnl.get('total_expenses') or 0, 'Total Expenses'))
+        pnl.get('total_expenses') or 0, 'Total Expenses', 'exp'))
     other_lines = pnl.get('other_lines') or []
     if other_lines:
         elements.append(Spacer(1, 0.4 * cm))
@@ -425,24 +537,48 @@ def export_pnl_pdf(company_name: str, cost_center_name: str,
             None,  # other section has no sub-grouping
             other_lines,
             pnl.get('total_other') or 0,
-            'Total Other'))
+            'Total Other', 'oth'))
     elements.append(Spacer(1, 0.6 * cm))
 
     net_value  = pnl.get('net') or 0
     net_color  = NET_BLUE if net_value >= 0 else NET_RED
     net_label  = 'NET PROFIT' if net_value >= 0 else 'NET LOSS'
-    # Three columns to align with the section tables above. NET / Margin
-    # rows leave the % column blank — per spec, no percentage on Net.
-    summary_data = [
-        [cell(net_label, bold=True, color=net_color),
-         cell('', align='right'),
-         cell(_fmt_amount(net_value, currency, unit), bold=True, align='right',
-              color=net_color)],
-        [cell('Margin %', bold=True),
-         cell('', align='right'),
-         cell(pnl.get('margin_display') or '—', bold=True, align='right',
-              color=net_color)],
-    ]
+
+    if is_compare:
+        prev_net = pnl.get('previous_net') or 0
+        net_diff = pnl.get('net_change') or 0
+        net_diff_pct = pnl.get('net_change_pct_display') or '—'
+        net_change_color = _change_color(net_diff, 'net')
+        # Summary block uses the same 5-col width so amount columns
+        # align with the sections above.
+        summary_data = [
+            [cell(net_label, bold=True, color=net_color),
+             cell(_fmt_amount(net_value, currency, unit),
+                  bold=True, align='right', color=net_color),
+             cell(_fmt_amount(prev_net, currency, unit) if (prev_net or prev_net == 0) else '—',
+                  align='right', color=pct_neutral),
+             cell(_change_text(net_diff), bold=True, align='right',
+                  color=net_change_color),
+             cell(net_diff_pct, bold=True, align='right',
+                  color=net_change_color)],
+            [cell('Margin %', bold=True),
+             cell(pnl.get('margin_display') or '—', bold=True,
+                  align='right', color=net_color),
+             cell('', align='right'),
+             cell('', align='right'),
+             cell('', align='right')],
+        ]
+    else:
+        summary_data = [
+            [cell(net_label, bold=True, color=net_color),
+             cell('', align='right'),
+             cell(_fmt_amount(net_value, currency, unit), bold=True, align='right',
+                  color=net_color)],
+            [cell('Margin %', bold=True),
+             cell('', align='right'),
+             cell(pnl.get('margin_display') or '—', bold=True, align='right',
+                  color=net_color)],
+        ]
     summary = Table(summary_data, colWidths=section_col_widths)
     summary.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (-1, -1), UNICODE_FONT_BOLD),
@@ -466,10 +602,22 @@ def export_pnl_pdf(company_name: str, cost_center_name: str,
 def export_pnl_excel(company_name: str, cost_center_name: str,
                      period_label: str, currency: str,
                      pnl: dict, unit: str = 'units') -> io.BytesIO:
-    """Render a Cost Center P&L Statement as a single-sheet workbook."""
+    """Render a Cost Center P&L Statement as a single-sheet workbook.
+
+    When `pnl['compare_mode']` is 'yoy' or 'prev', the layout switches to
+    five columns: Account | Current | Previous | Change | Change % —
+    each line's change cell is colour-coded per section direction."""
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = 'Cost Center P&L'[:31]
+
+    is_compare = (pnl.get('compare_mode') or 'none') in ('yoy', 'prev')
+    num_cols = 5 if is_compare else 3
+    last_col_letter = openpyxl.utils.get_column_letter(num_cols)
+    AMT_COL = 2 if is_compare else 3   # current-amount column index
+    PREV_COL = 3                        # only used in compare
+    CHANGE_COL = 4
+    CHANGE_PCT_COL = 5
 
     u = (unit or 'units').lower()
     if u == 'k':
@@ -479,6 +627,14 @@ def export_pnl_excel(company_name: str, cost_center_name: str,
     else:
         money_fmt = '#,##0.00'
     pct_fmt   = '0.0"%"'
+    change_fmt = '"▲ +"#,##0.00;"▼ -"#,##0.00;0.00'
+    change_fmt_k = '"▲ +"#,##0.0,"K";"▼ -"#,##0.0,"K";"0.0K"'
+    change_fmt_m = '"▲ +"#,##0.00,,"M";"▼ -"#,##0.00,,"M";"0.00M"'
+    if u == 'k':
+        change_fmt = change_fmt_k
+    elif u == 'm':
+        change_fmt = change_fmt_m
+    change_pct_fmt = '"+"0.0"%";"-"0.0"%";"0.0%"'
 
     pct_color_rev_font = Font(color='16A34A', size=10)
     pct_color_exp_font = Font(color='DC2626', size=10)
@@ -486,6 +642,7 @@ def export_pnl_excel(company_name: str, cost_center_name: str,
     pct_bold_rev       = Font(bold=True, color='16A34A', size=10)
     pct_bold_exp       = Font(bold=True, color='DC2626', size=10)
     pct_bold_neutral   = Font(bold=True, color='9CA3AF', size=10)
+    prev_font          = Font(color='9CA3AF', size=10)
 
     bold = Font(bold=True, size=11)
     title_font = Font(bold=True, size=14, color='1E293B')
@@ -503,8 +660,23 @@ def export_pnl_excel(company_name: str, cost_center_name: str,
     subgroup_fill = PatternFill(start_color='F8FAFC', end_color='F8FAFC',
                                 fill_type='solid')
 
-    # Title + meta (span all 3 columns)
-    ws.merge_cells('A1:C1')
+    def _change_font(diff, kind, bold_=True):
+        """Pick a colour for the Change / Change % cell based on the
+        section direction. For expenses, increase = bad (red)."""
+        try:
+            d = float(diff or 0)
+        except (TypeError, ValueError):
+            d = 0.0
+        if d == 0:
+            colour = '9CA3AF'
+        elif kind == 'exp':
+            colour = 'DC2626' if d > 0 else '16A34A'
+        else:
+            colour = '16A34A' if d > 0 else 'DC2626'
+        return Font(bold=bold_, color=colour, size=10)
+
+    # Title + meta (span all columns)
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=num_cols)
     cell = ws['A1']
     cell.value = 'COST CENTER P&L STATEMENT'
     cell.font = title_font
@@ -512,49 +684,85 @@ def export_pnl_excel(company_name: str, cost_center_name: str,
     ws.row_dimensions[1].height = 26
 
     meta_lines = []
-    if company_name:        meta_lines.append('Company: ' + company_name)
-    if cost_center_name:    meta_lines.append('Cost Center: ' + cost_center_name)
-    if period_label:        meta_lines.append('Period: ' + period_label)
+    if company_name:     meta_lines.append('Company: ' + company_name)
+    if cost_center_name: meta_lines.append('Cost Center: ' + cost_center_name)
+    if period_label:     meta_lines.append('Period: ' + period_label)
+    if is_compare and pnl.get('compare_label'):
+        meta_lines.append('Comparing with: ' + pnl['compare_label'])
     meta_lines.append('Generated: ' + datetime.now().strftime('%Y-%m-%d %H:%M'))
     row = 2
     for line in meta_lines:
-        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=num_cols)
         c = ws.cell(row=row, column=1, value=line)
         c.font = meta_font
         c.alignment = Alignment(horizontal='center')
         row += 1
     row += 1  # blank spacer
 
-    def _write_line(ln, pct_line_font):
+    def _write_line(ln, pct_line_font, kind):
         nonlocal row
         label_text = ln.get('name') or 'Unassigned'
         code = ln.get('code')
         if code:
             label_text = '[%s] %s' % (code, label_text)
         ws.cell(row=row, column=1, value='   ' + label_text)
-        pct_val = ln.get('pct')
-        pct_cell = ws.cell(row=row, column=2, value=None)
-        if pct_val is not None and (pct_val != 0 or (
-                ln.get('pct_display') and ln['pct_display'] != '—')):
-            pct_cell.value = pct_val
-            pct_cell.number_format = pct_fmt
+        if is_compare:
+            cur = ws.cell(row=row, column=AMT_COL, value=ln.get('amount') or 0)
+            cur.number_format = money_fmt
+            cur.alignment = Alignment(horizontal='right')
+            prev_val = ln.get('previous_amount')
+            prev_c = ws.cell(row=row, column=PREV_COL,
+                             value=(prev_val if (prev_val is not None) else None))
+            if prev_val is None:
+                prev_c.value = '—'
+            elif prev_val == 0:
+                prev_c.value = 0
+                prev_c.number_format = money_fmt
+            else:
+                prev_c.number_format = money_fmt
+            prev_c.font = prev_font
+            prev_c.alignment = Alignment(horizontal='right')
+            diff = ln.get('change') or 0
+            d_cell = ws.cell(row=row, column=CHANGE_COL, value=diff)
+            d_cell.number_format = change_fmt
+            d_cell.alignment = Alignment(horizontal='right')
+            d_cell.font = _change_font(diff, kind, bold_=False)
+            p_pct = ln.get('change_pct')
+            p_cell = ws.cell(row=row, column=CHANGE_PCT_COL)
+            if p_pct is None:
+                p_cell.value = '—'
+            else:
+                p_cell.value = p_pct
+                p_cell.number_format = change_pct_fmt
+            p_cell.font = _change_font(diff, kind, bold_=False)
+            p_cell.alignment = Alignment(horizontal='right')
         else:
-            pct_cell.value = ln.get('pct_display') or '—'
-        pct_cell.font = pct_line_font
-        pct_cell.alignment = Alignment(horizontal='right')
-        amt_cell = ws.cell(row=row, column=3, value=ln.get('amount') or 0)
-        amt_cell.number_format = money_fmt
-        amt_cell.alignment = Alignment(horizontal='right')
+            pct_val = ln.get('pct')
+            pct_cell = ws.cell(row=row, column=2, value=None)
+            if pct_val is not None and (pct_val != 0 or (
+                    ln.get('pct_display') and ln['pct_display'] != '—')):
+                pct_cell.value = pct_val
+                pct_cell.number_format = pct_fmt
+            else:
+                pct_cell.value = ln.get('pct_display') or '—'
+            pct_cell.font = pct_line_font
+            pct_cell.alignment = Alignment(horizontal='right')
+            amt_cell = ws.cell(row=row, column=3, value=ln.get('amount') or 0)
+            amt_cell.number_format = money_fmt
+            amt_cell.alignment = Alignment(horizontal='right')
         row += 1
 
     def write_section(label, groups, flat_lines, total_label, total,
-                      header_font, color, pct_line_font, pct_bold_font):
-        """Write one P&L section. When `groups` is non-empty, render
-        nested sub-groups (each with its own subtotal); otherwise fall
-        back to a flat list of lines."""
+                      header_font, color, pct_line_font, pct_bold_font,
+                      kind, section_prev_total=None,
+                      section_change=None, section_change_pct=None):
+        """Write one section. In compare mode, accepts the section's
+        previous total + change/pct so the section subtotal row can
+        render its diff cells."""
         nonlocal row
-        # Section header row
-        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
+        # Section title row (full-width merge)
+        ws.merge_cells(start_row=row, start_column=1,
+                       end_row=row, end_column=num_cols)
         c = ws.cell(row=row, column=1, value=label)
         c.font = header_font
         c.fill = header_fill
@@ -562,44 +770,97 @@ def export_pnl_excel(company_name: str, cost_center_name: str,
         c.border = box
         row += 1
 
+        # Column-headers row right under the title — compare mode only.
+        if is_compare:
+            hdr_cells = [
+                (1, 'Account'),
+                (AMT_COL, 'Current'),
+                (PREV_COL, 'Previous'),
+                (CHANGE_COL, 'Change'),
+                (CHANGE_PCT_COL, 'Change %'),
+            ]
+            for col, txt in hdr_cells:
+                h = ws.cell(row=row, column=col, value=txt)
+                h.font = Font(bold=True, color='64748B', size=9)
+                h.alignment = Alignment(
+                    horizontal='left' if col == 1 else 'right')
+            row += 1
+
         if groups:
             for grp in groups:
-                # Sub-group label
+                # Sub-group label (full-width)
                 ws.merge_cells(start_row=row, start_column=1,
-                               end_row=row, end_column=3)
+                               end_row=row, end_column=num_cols)
                 sg = ws.cell(row=row, column=1,
                              value='  ' + (grp.get('label') or ''))
                 sg.font = Font(bold=True, color=color, size=10)
                 sg.fill = subgroup_fill
                 row += 1
                 for ln in grp.get('lines') or []:
-                    _write_line(ln, pct_line_font)
-                # Sub-group subtotal
+                    _write_line(ln, pct_line_font, kind)
+                # Sub-group subtotal row
                 sub = grp.get('subtotal') or 0
                 lbl = ws.cell(row=row, column=1,
                               value='    Subtotal — ' + (grp.get('label') or ''))
                 lbl.font = Font(bold=True, color='1E293B', size=10)
                 lbl.fill = subgroup_fill
                 lbl.border = box
-                p_val = grp.get('pct')
-                pct_c = ws.cell(row=row, column=2)
-                if p_val is not None and (
-                        p_val != 0 or (grp.get('pct_display') and
-                                       grp['pct_display'] != '—')):
-                    pct_c.value = p_val
-                    pct_c.number_format = pct_fmt
+                if is_compare:
+                    sub_cur = ws.cell(row=row, column=AMT_COL, value=sub)
+                    sub_cur.font = Font(bold=True, color=color, size=10)
+                    sub_cur.fill = subgroup_fill
+                    sub_cur.border = box
+                    sub_cur.number_format = money_fmt
+                    sub_cur.alignment = Alignment(horizontal='right')
+                    p_sub = grp.get('previous_subtotal')
+                    p_cell = ws.cell(row=row, column=PREV_COL)
+                    if p_sub is None:
+                        p_cell.value = '—'
+                    else:
+                        p_cell.value = p_sub
+                        p_cell.number_format = money_fmt
+                    p_cell.font = prev_font
+                    p_cell.fill = subgroup_fill
+                    p_cell.border = box
+                    p_cell.alignment = Alignment(horizontal='right')
+                    diff = grp.get('change') or 0
+                    d_cell = ws.cell(row=row, column=CHANGE_COL, value=diff)
+                    d_cell.number_format = change_fmt
+                    d_cell.font = _change_font(diff, kind)
+                    d_cell.fill = subgroup_fill
+                    d_cell.border = box
+                    d_cell.alignment = Alignment(horizontal='right')
+                    p_pct = grp.get('change_pct')
+                    pct_change_cell = ws.cell(row=row, column=CHANGE_PCT_COL)
+                    if p_pct is None:
+                        pct_change_cell.value = '—'
+                    else:
+                        pct_change_cell.value = p_pct
+                        pct_change_cell.number_format = change_pct_fmt
+                    pct_change_cell.font = _change_font(diff, kind)
+                    pct_change_cell.fill = subgroup_fill
+                    pct_change_cell.border = box
+                    pct_change_cell.alignment = Alignment(horizontal='right')
                 else:
-                    pct_c.value = grp.get('pct_display') or '—'
-                pct_c.font = pct_bold_font
-                pct_c.fill = subgroup_fill
-                pct_c.border = box
-                pct_c.alignment = Alignment(horizontal='right')
-                amt_c = ws.cell(row=row, column=3, value=sub)
-                amt_c.font = Font(bold=True, color=color, size=10)
-                amt_c.fill = subgroup_fill
-                amt_c.border = box
-                amt_c.number_format = money_fmt
-                amt_c.alignment = Alignment(horizontal='right')
+                    p_val = grp.get('pct')
+                    pct_c = ws.cell(row=row, column=2)
+                    if p_val is not None and (
+                            p_val != 0 or (grp.get('pct_display') and
+                                           grp['pct_display'] != '—')):
+                        pct_c.value = p_val
+                        pct_c.number_format = pct_fmt
+                    else:
+                        pct_c.value = grp.get('pct_display') or '—'
+                    pct_c.font = pct_bold_font
+                    pct_c.fill = subgroup_fill
+                    pct_c.border = box
+                    pct_c.alignment = Alignment(horizontal='right')
+                    amt_c = ws.cell(row=row, column=3, value=sub)
+                    amt_c.font = Font(bold=True, color=color, size=10)
+                    amt_c.fill = subgroup_fill
+                    amt_c.border = box
+                    amt_c.number_format = money_fmt
+                    amt_c.alignment = Alignment(horizontal='right')
                 row += 1
         else:
             if not (flat_lines or []):
@@ -607,29 +868,64 @@ def export_pnl_excel(company_name: str, cost_center_name: str,
                 empty.font = Font(color='94A3B8', italic=True)
                 row += 1
             for ln in flat_lines or []:
-                _write_line(ln, pct_line_font)
+                _write_line(ln, pct_line_font, kind)
 
-        # Section subtotal row
+        # Section total row
         total_cell_label = ws.cell(row=row, column=1, value=total_label)
         total_cell_label.font = bold
         total_cell_label.fill = header_fill
         total_cell_label.border = box
-        pct_sub = ws.cell(row=row, column=2)
-        if total:
-            pct_sub.value = 100.0
-            pct_sub.number_format = pct_fmt
+        if is_compare:
+            tcur = ws.cell(row=row, column=AMT_COL, value=total or 0)
+            tcur.font = Font(bold=True, color=color, size=11)
+            tcur.fill = header_fill
+            tcur.border = box
+            tcur.number_format = money_fmt
+            tcur.alignment = Alignment(horizontal='right')
+            tprev = ws.cell(row=row, column=PREV_COL)
+            if section_prev_total is None:
+                tprev.value = '—'
+            else:
+                tprev.value = section_prev_total
+                tprev.number_format = money_fmt
+            tprev.font = prev_font
+            tprev.fill = header_fill
+            tprev.border = box
+            tprev.alignment = Alignment(horizontal='right')
+            tdiff = section_change or 0
+            td_cell = ws.cell(row=row, column=CHANGE_COL, value=tdiff)
+            td_cell.number_format = change_fmt
+            td_cell.font = _change_font(tdiff, kind)
+            td_cell.fill = header_fill
+            td_cell.border = box
+            td_cell.alignment = Alignment(horizontal='right')
+            tdpct_cell = ws.cell(row=row, column=CHANGE_PCT_COL)
+            if section_change_pct is None:
+                tdpct_cell.value = '—'
+            else:
+                tdpct_cell.value = section_change_pct
+                tdpct_cell.number_format = change_pct_fmt
+            tdpct_cell.font = _change_font(tdiff, kind)
+            tdpct_cell.fill = header_fill
+            tdpct_cell.border = box
+            tdpct_cell.alignment = Alignment(horizontal='right')
         else:
-            pct_sub.value = '—'
-        pct_sub.font = pct_bold_font
-        pct_sub.fill = header_fill
-        pct_sub.border = box
-        pct_sub.alignment = Alignment(horizontal='right')
-        total_cell = ws.cell(row=row, column=3, value=total or 0)
-        total_cell.font = Font(bold=True, color=color, size=11)
-        total_cell.fill = header_fill
-        total_cell.border = box
-        total_cell.number_format = money_fmt
-        total_cell.alignment = Alignment(horizontal='right')
+            pct_sub = ws.cell(row=row, column=2)
+            if total:
+                pct_sub.value = 100.0
+                pct_sub.number_format = pct_fmt
+            else:
+                pct_sub.value = '—'
+            pct_sub.font = pct_bold_font
+            pct_sub.fill = header_fill
+            pct_sub.border = box
+            pct_sub.alignment = Alignment(horizontal='right')
+            total_cell = ws.cell(row=row, column=3, value=total or 0)
+            total_cell.font = Font(bold=True, color=color, size=11)
+            total_cell.fill = header_fill
+            total_cell.border = box
+            total_cell.number_format = money_fmt
+            total_cell.alignment = Alignment(horizontal='right')
         row += 2  # spacer
 
     write_section(
@@ -638,7 +934,10 @@ def export_pnl_excel(company_name: str, cost_center_name: str,
         pnl.get('revenue_lines') or [],
         'Total Revenue', pnl.get('total_revenue') or 0,
         rev_font, '16A34A',
-        pct_color_rev_font, pct_bold_rev,
+        pct_color_rev_font, pct_bold_rev, 'rev',
+        section_prev_total=pnl.get('previous_total_revenue'),
+        section_change=pnl.get('total_revenue_change'),
+        section_change_pct=pnl.get('total_revenue_change_pct'),
     )
     write_section(
         'EXPENSES',
@@ -646,7 +945,10 @@ def export_pnl_excel(company_name: str, cost_center_name: str,
         pnl.get('expense_lines') or [],
         'Total Expenses', pnl.get('total_expenses') or 0,
         exp_font, 'DC2626',
-        pct_color_exp_font, pct_bold_exp,
+        pct_color_exp_font, pct_bold_exp, 'exp',
+        section_prev_total=pnl.get('previous_total_expenses'),
+        section_change=pnl.get('total_expenses_change'),
+        section_change_pct=pnl.get('total_expenses_change_pct'),
     )
     other_lines = pnl.get('other_lines') or []
     if other_lines:
@@ -657,10 +959,13 @@ def export_pnl_excel(company_name: str, cost_center_name: str,
             other_lines,
             'Total Other', pnl.get('total_other') or 0,
             other_font, '64748B',
-            pct_color_neutral, pct_bold_neutral,
+            pct_color_neutral, pct_bold_neutral, 'oth',
+            section_prev_total=pnl.get('previous_total_other'),
+            section_change=pnl.get('total_other_change'),
+            section_change_pct=pnl.get('total_other_change_pct'),
         )
 
-    # Net + margin summary — % column blank, amount in column C.
+    # ---- Net + margin summary ----
     net_value = pnl.get('net') or 0
     net_color = '2563EB' if net_value >= 0 else 'DC2626'
     net_font  = net_font_pos if net_value >= 0 else net_font_neg
@@ -670,39 +975,80 @@ def export_pnl_excel(company_name: str, cost_center_name: str,
     net_label_cell.font = net_font
     net_label_cell.fill = header_fill
     net_label_cell.border = box
-    blank_pct = ws.cell(row=row, column=2, value=None)
-    blank_pct.fill = header_fill
-    blank_pct.border = box
-    net_amt_cell = ws.cell(row=row, column=3, value=net_value)
-    net_amt_cell.font = net_font
-    net_amt_cell.fill = header_fill
-    net_amt_cell.border = box
-    net_amt_cell.number_format = money_fmt
-    net_amt_cell.alignment = Alignment(horizontal='right')
+    if is_compare:
+        ncur = ws.cell(row=row, column=AMT_COL, value=net_value)
+        ncur.font = net_font; ncur.fill = header_fill; ncur.border = box
+        ncur.number_format = money_fmt
+        ncur.alignment = Alignment(horizontal='right')
+        pnet = pnl.get('previous_net')
+        nprev = ws.cell(row=row, column=PREV_COL)
+        if pnet is None:
+            nprev.value = '—'
+        else:
+            nprev.value = pnet
+            nprev.number_format = money_fmt
+        nprev.font = prev_font; nprev.fill = header_fill; nprev.border = box
+        nprev.alignment = Alignment(horizontal='right')
+        ndiff = pnl.get('net_change') or 0
+        ndc = ws.cell(row=row, column=CHANGE_COL, value=ndiff)
+        ndc.number_format = change_fmt
+        ndc.font = _change_font(ndiff, 'net')
+        ndc.fill = header_fill; ndc.border = box
+        ndc.alignment = Alignment(horizontal='right')
+        npct = pnl.get('net_change_pct')
+        npct_cell = ws.cell(row=row, column=CHANGE_PCT_COL)
+        if npct is None:
+            npct_cell.value = '—'
+        else:
+            npct_cell.value = npct
+            npct_cell.number_format = change_pct_fmt
+        npct_cell.font = _change_font(ndiff, 'net')
+        npct_cell.fill = header_fill; npct_cell.border = box
+        npct_cell.alignment = Alignment(horizontal='right')
+    else:
+        blank_pct = ws.cell(row=row, column=2, value=None)
+        blank_pct.fill = header_fill; blank_pct.border = box
+        net_amt_cell = ws.cell(row=row, column=3, value=net_value)
+        net_amt_cell.font = net_font
+        net_amt_cell.fill = header_fill
+        net_amt_cell.border = box
+        net_amt_cell.number_format = money_fmt
+        net_amt_cell.alignment = Alignment(horizontal='right')
     row += 1
 
+    # Margin % row (current period only — same in both layouts)
     margin_label_cell = ws.cell(row=row, column=1, value='Margin %')
     margin_label_cell.font = bold
     margin_label_cell.fill = header_fill
     margin_label_cell.border = box
-    blank_pct2 = ws.cell(row=row, column=2, value=None)
-    blank_pct2.fill = header_fill
-    blank_pct2.border = box
+    target_col = AMT_COL if is_compare else 3
+    for c in range(2, num_cols + 1):
+        cc = ws.cell(row=row, column=c, value=None)
+        cc.fill = header_fill
+        cc.border = box
     margin_value = pnl.get('margin_pct') or 0
     if (pnl.get('total_revenue') or 0) > 0:
-        m = ws.cell(row=row, column=3, value=margin_value)
+        m = ws.cell(row=row, column=target_col, value=margin_value)
         m.number_format = pct_fmt
     else:
-        m = ws.cell(row=row, column=3, value=pnl.get('margin_display') or '—')
+        m = ws.cell(row=row, column=target_col,
+                    value=pnl.get('margin_display') or '—')
     m.font = Font(bold=True, color=net_color, size=11)
     m.fill = header_fill
     m.border = box
     m.alignment = Alignment(horizontal='right')
 
     # Column widths
-    ws.column_dimensions['A'].width = 55
-    ws.column_dimensions['B'].width = 10
-    ws.column_dimensions['C'].width = 22
+    if is_compare:
+        ws.column_dimensions['A'].width = 40
+        ws.column_dimensions['B'].width = 18
+        ws.column_dimensions['C'].width = 18
+        ws.column_dimensions['D'].width = 18
+        ws.column_dimensions['E'].width = 12
+    else:
+        ws.column_dimensions['A'].width = 55
+        ws.column_dimensions['B'].width = 10
+        ws.column_dimensions['C'].width = 22
 
     if currency:
         # money cells use the formatting; symbol is shown in the on-screen
