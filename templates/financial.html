@@ -1401,6 +1401,89 @@
   </div>
 </div>
 
+<style>
+  .account-view-toolbar {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    flex-wrap: wrap;
+    margin: .5rem 0 1rem 0;
+    padding: .5rem .75rem;
+    background: var(--surface-2, rgba(148,163,184,.08));
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: .82rem;
+  }
+  .account-view-toolbar .av-label {
+    font-size: .7rem;
+    letter-spacing: .08em;
+    color: var(--text-muted);
+    font-weight: 700;
+  }
+  .account-view-toolbar label {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    cursor: pointer;
+    color: var(--text);
+  }
+  .account-view-indicator {
+    display: inline-block;
+    margin: 0 0 .75rem 0;
+    padding: .25rem .65rem;
+    font-size: .78rem;
+    font-weight: 600;
+    color: var(--primary);
+    background: rgba(230, 48, 48, 0.08);
+    border: 1px solid rgba(230, 48, 48, 0.25);
+    border-radius: 999px;
+  }
+</style>
+<div class="account-view-toolbar" id="accountViewToolbar">
+  <span class="av-label">Account View:</span>
+  {% for key, label in (account_view_options or []) %}
+  <label>
+    <input type="radio" name="accountView" value="{{ key }}"
+           {% if key == account_view %}checked{% endif %}>
+    {{ label }}
+  </label>
+  {% endfor %}
+</div>
+<div class="account-view-indicator">
+  Showing: <strong>{{ account_view_label or 'P&L Accounts' }}</strong>
+</div>
+
+<script>
+(function () {
+  var bar = document.getElementById('accountViewToolbar');
+  if (!bar) return;
+  bar.addEventListener('change', function (e) {
+    var t = e.target;
+    if (!t || t.name !== 'accountView') return;
+    var form = new URLSearchParams();
+    form.set('account_view', t.value);
+    fetch('/financial/analytic/account-view', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: form.toString(),
+    })
+      .catch(function () {})
+      .finally(function () {
+        // Reload the analytic page so server-rendered KPI cards / charts
+        // / tables / P&L all reflect the new filter.
+        var url = new URL(window.location.href);
+        url.searchParams.set('account_view', t.value);
+        url.searchParams.set('_t', Date.now().toString());
+        window.location.href = url.toString();
+      });
+  });
+})();
+</script>
+
 {% macro compare_pill(pct) -%}
   {% if pct is none %}
     <span class="compare-pill neutral"><i class="fa-solid fa-minus"></i> —</span>

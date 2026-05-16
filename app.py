@@ -524,10 +524,15 @@ def _analytic_line_company_dom(client, line_fields_set, company_id):
     return []
 
 
-def _compute_analytic(client, date_from, date_to):
+def _compute_analytic(client, date_from, date_to, account_view='all'):
     """Aggregate account.analytic.line into one row per analytic account.
     Returns a list of dicts with revenue / costs / net / margin / count / plan.
     Costs are stored as positive numbers (absolute value of negative amounts).
+
+    `account_view` ('pnl' | 'balance' | 'all') restricts which general
+    accounts the analytic lines must hit. The list of allowed GL ids is
+    resolved once via _account_view_allowed_gl_ids and added to the
+    analytic-line domain as `general_account_id in [...]`.
 
     Strategy (resilient to the v17+ field rename + multi-company):
       1. Load every analytic account *for the selected company* up-front
@@ -618,12 +623,25 @@ def _compute_analytic(client, date_from, date_to):
             'plan_name': plan_name,
         }
 
-    # ---- Step 2: read-group lines (company-scoped).
+    # ---- Step 2: read-group lines (company-scoped + account-view filter).
     base_dom = list(line_company_dom)
     if date_from:
         base_dom.append(['date', '>=', date_from])
     if date_to:
         base_dom.append(['date', '<=', date_to])
+
+    # Account View filter — restrict analytic lines to those posting to a
+    # GL account of the chosen type (P&L, Balance Sheet, or All). When
+    # the resolver returns None we skip the filter entirely; when it
+    # returns [] (e.g. a v15 server with no matching accounts) we still
+    # short-circuit so the rest of the function returns an empty result.
+    allowed_gl_ids = _account_view_allowed_gl_ids(client, account_view)
+    if allowed_gl_ids is not None:
+        if not allowed_gl_ids:
+            logger.info("Analytic: account_view=%s yielded 0 GL accounts — "
+                        "returning empty result set", account_view)
+            return []
+        base_dom.append(['general_account_id', 'in', allowed_gl_ids])
 
     rev_grps = client.safe_read_group(
         'account.analytic.line', base_dom + [['amount', '>', 0]],
@@ -883,6 +901,104 @@ PNL_EXPENSE_TYPES = {
     'expenses',  # tolerated alias seen on some forks
 }
 
+# Balance-sheet account_type values (v16+ keys; v15 is mapped into the same
+# vocabulary by _classify_gl_accounts).
+BALANCE_SHEET_TYPES = {
+    'asset_receivable', 'asset_cash', 'asset_current',
+    'asset_non_current', 'asset_prepayments', 'asset_fixed',
+    'liability_payable', 'liability_current', 'liability_non_current',
+    'equity', 'equity_unaffected',
+}
+
+# What each Account View on the Analytic page lets through. Used by both
+# the analytic aggregation and the cost-center P&L computation.
+ACCOUNT_VIEW_TYPES = {
+    'pnl':     PNL_REVENUE_TYPES | PNL_EXPENSE_TYPES,
+    'balance': BALANCE_SHEET_TYPES,
+    'all':     None,        # no filter
+}
+ACCOUNT_VIEW_LABELS = {
+    'pnl':     'P&L Accounts',
+    'balance': 'Balance Sheet Accounts',
+    'all':     'All Accounts',
+}
+ACCOUNT_VIEW_DEFAULT = 'pnl'
+
+
+def _normalise_account_view(value):
+    v = (value or '').lower()
+    return v if v in ACCOUNT_VIEW_TYPES else ACCOUNT_VIEW_DEFAULT
+
+
+def _current_account_view():
+    """Resolve the Analytic page's account-type filter for this request.
+    Order: ?account_view=... query/form override → session → default."""
+    raw = request.values.get('account_view') if request else None
+    if raw is None:
+        raw = session.get('analytic_account_view')
+    return _normalise_account_view(raw)
+
+
+def _account_view_allowed_gl_ids(client, account_view):
+    """Return the list of account.account ids matching the chosen
+    Account View, or None when view='all' (no filter).
+
+    Cached on `g` (per request) — a normal analytic render fires this
+    helper 3-4 times (current rows, previous rows, P&L) and we don't
+    want to redo the search each time. We deliberately don't persist in
+    session: with hundreds of accounts the signed cookie would bloat."""
+    account_view = _normalise_account_view(account_view)
+    allowed_types = ACCOUNT_VIEW_TYPES.get(account_view)
+    if allowed_types is None:
+        return None  # 'all'
+
+    company_id = client.context.get('company_id') or 0
+    cache_key = (account_view, company_id)
+    if not hasattr(g, '_account_view_cache'):
+        g._account_view_cache = {}
+    if cache_key in g._account_view_cache:
+        return g._account_view_cache[cache_key]
+
+    acc_fields = client.get_model_fields('account.account')
+    has_account_type = 'account_type' in acc_fields
+    has_user_type    = 'user_type_id' in acc_fields
+
+    company_dom = []
+    if company_id and 'company_id' in acc_fields:
+        company_dom = [['company_id', 'in', [int(company_id), False]]]
+
+    ids = []
+    if has_account_type:
+        try:
+            rows = client.execute_kw(
+                'account.account', 'search_read',
+                [company_dom + [['account_type', 'in', list(allowed_types)]]],
+                {'fields': ['id'], 'limit': 100000}) or []
+        except Exception as e:
+            logger.warning(
+                "account_view filter: account_type search failed: %s", e)
+            rows = []
+        ids = [r['id'] for r in rows if r.get('id')]
+    elif has_user_type:
+        # v15: no account_type. Bulk-classify every visible account via
+        # _classify_gl_accounts (which knows the legacy user_type_id +
+        # name heuristics) and keep the matches.
+        try:
+            all_rows = client.safe_search_read(
+                'account.account', company_dom, ['id']) or []
+        except Exception:
+            all_rows = []
+        meta = _classify_gl_accounts(client, {r['id'] for r in all_rows if r.get('id')})
+        ids = [gid for gid, m in meta.items()
+               if (m.get('type') or '') in allowed_types]
+    # else: no recognised field — return [] which short-circuits to "no rows".
+
+    g._account_view_cache[cache_key] = ids
+    logger.info(
+        "Account view filter resolved: view=%s company=%s ids=%d",
+        account_view, company_id, len(ids))
+    return ids
+
 # Display order + label for each sub-section inside REVENUE / EXPENSES.
 # Tuples are (account_type_key, ui_label). Groups with no lines are
 # hidden by _build_section_groups, so the surface area is empty for
@@ -1022,11 +1138,14 @@ def _classify_gl_accounts(client, gid_set):
         meta = v15_meta.get(ut_pair[0], {})
         legacy = meta.get('type', '')   # receivable | payable | liquidity | other | equity
         ut_name = meta.get('name', '')
-        # Balance-sheet legacy types are never P&L — leave as 'other'.
-        if legacy in ('receivable', 'payable', 'liquidity', 'equity'):
-            return ''
-        # Specific keywords first so a deprecation-style account doesn't
-        # land in the generic 'expense' bucket.
+        # Map legacy balance-sheet enums onto the v16+ vocabulary so the
+        # Account View filter can treat both versions uniformly.
+        if legacy == 'receivable': return 'asset_receivable'
+        if legacy == 'payable':    return 'liability_payable'
+        if legacy == 'liquidity':  return 'asset_cash'
+        if legacy == 'equity':     return 'equity'
+        # 'other' is overloaded — fall through to keyword heuristics.
+        # P&L-side keywords first (specific before generic).
         if 'depreciation' in ut_name:
             return 'expense_depreciation'
         if ('cost of revenue' in ut_name or 'cost of sale' in ut_name
@@ -1038,6 +1157,21 @@ def _classify_gl_accounts(client, gid_set):
             return 'income'
         if 'expense' in ut_name or 'cost' in ut_name:
             return 'expense'
+        # Balance-sheet keyword fallbacks for the 'other' enum bucket.
+        if 'prepay' in ut_name:
+            return 'asset_prepayments'
+        if 'fixed' in ut_name and 'asset' in ut_name:
+            return 'asset_fixed'
+        if 'non-current asset' in ut_name or 'non current asset' in ut_name:
+            return 'asset_non_current'
+        if 'current asset' in ut_name:
+            return 'asset_current'
+        if 'non-current liabilit' in ut_name or 'non current liabilit' in ut_name:
+            return 'liability_non_current'
+        if 'current liabilit' in ut_name:
+            return 'liability_current'
+        if 'unaffected' in ut_name and 'earning' in ut_name:
+            return 'equity_unaffected'
         return ''
 
     out = {}
@@ -1065,7 +1199,26 @@ def _classify_gl_accounts(client, gid_set):
     return out
 
 
-def _compute_cost_center_pnl(client, account_id, date_from, date_to):
+def _empty_pnl_payload():
+    """Shape-compatible empty result used when the Account View filter
+    yields zero GL accounts. Keeps downstream rendering safe."""
+    return {
+        'revenue_groups': [],
+        'expense_groups': [],
+        'revenue_lines':  [],
+        'expense_lines':  [],
+        'other_lines':    [],
+        'total_revenue':  0.0,
+        'total_expenses': 0.0,
+        'total_other':    0.0,
+        'net':            0.0,
+        'margin_pct':     0.0,
+        'margin_display': '—',
+    }
+
+
+def _compute_cost_center_pnl(client, account_id, date_from, date_to,
+                             account_view='all'):
     """Build a P&L statement for a single analytic account.
 
     Returns:
@@ -1103,6 +1256,17 @@ def _compute_cost_center_pnl(client, account_id, date_from, date_to):
     if date_to:
         date_dom.append(['date', '<=', date_to])
 
+    # Account View filter — same GL-account whitelist used by the
+    # analytic page so the P&L report stays consistent with what the
+    # KPI cards / charts are showing.
+    allowed_gl_ids = _account_view_allowed_gl_ids(client, account_view)
+    view_dom = []
+    if allowed_gl_ids is not None:
+        if not allowed_gl_ids:
+            # Filter yields no GL accounts — short-circuit to empty.
+            return _empty_pnl_payload()
+        view_dom = [['general_account_id', 'in', allowed_gl_ids]]
+
     has_general = 'general_account_id' in line_fields
     if 'auto_account_id' in line_fields:
         account_field = 'auto_account_id'
@@ -1115,7 +1279,8 @@ def _compute_cost_center_pnl(client, account_id, date_from, date_to):
     # happens later from account_type.
     groups = []
     if account_field and has_general:
-        dom = line_company_dom + date_dom + [[account_field, '=', aid]]
+        dom = (line_company_dom + date_dom + view_dom +
+               [[account_field, '=', aid]])
         groups = client.safe_read_group(
             'account.analytic.line', dom,
             ['amount:sum'], ['general_account_id']) or []
@@ -1123,7 +1288,8 @@ def _compute_cost_center_pnl(client, account_id, date_from, date_to):
     # ---- Fallback for v18+ Analytic Plans (account_field is False on rows).
     if not groups:
         groups = _cost_center_pnl_via_distribution(
-            client, aid, line_fields, line_company_dom + date_dom)
+            client, aid, line_fields,
+            line_company_dom + date_dom + view_dom)
 
     # ---- Aggregate raw per-GL signed amounts.
     raw = {}    # gid -> {'name', 'code', 'type', 'amount': signed sum}
@@ -1819,6 +1985,27 @@ def refresh_session():
     return jsonify(result)
 
 
+@app.route('/financial/analytic/account-view', methods=['POST'])
+@login_required
+def set_analytic_account_view():
+    """Persist the Account View filter (P&L / Balance Sheet / All) in the
+    session so it survives navigation. Front-end calls this on toggle then
+    re-renders the page."""
+    raw = request.form.get('account_view') or request.args.get('account_view')
+    if not raw and request.is_json:
+        try:
+            raw = (request.get_json(silent=True) or {}).get('account_view')
+        except Exception:
+            raw = None
+    view = _normalise_account_view(raw)
+    session['analytic_account_view'] = view
+    return jsonify({
+        'ok': True,
+        'account_view':       view,
+        'account_view_label': ACCOUNT_VIEW_LABELS[view],
+    })
+
+
 # ---------------------------------------------------------------------------
 # Feature unavailable (locked tab landing page)
 # ---------------------------------------------------------------------------
@@ -2433,6 +2620,16 @@ def financial():
         }
 
     elif tab == 'analytic':
+        # Resolve the Account View filter — query param first, then session.
+        account_view_active = _current_account_view()
+        session['analytic_account_view'] = account_view_active
+        ctx['account_view']        = account_view_active
+        ctx['account_view_label']  = ACCOUNT_VIEW_LABELS[account_view_active]
+        ctx['account_view_options'] = [
+            ('pnl',     ACCOUNT_VIEW_LABELS['pnl']),
+            ('balance', ACCOUNT_VIEW_LABELS['balance']),
+            ('all',     ACCOUNT_VIEW_LABELS['all']),
+        ]
         # Probe the underlying model once — if it's missing or ACL-blocked we
         # render a clean "Not available in this version" notice instead of
         # crashing.
@@ -2445,7 +2642,9 @@ def financial():
             )
         else:
             try:
-                rows = _compute_analytic(c, date_from, date_to)
+                rows = _compute_analytic(
+                    c, date_from, date_to,
+                    account_view=account_view_active)
             except Exception as e:
                 rows = []
                 ctx['error'] = (
@@ -2458,11 +2657,14 @@ def financial():
                     or s in (r.get('code') or '').lower()]
         summary = _analytic_summary(rows)
 
-        # Previous-period comparison
+        # Previous-period comparison — same Account View filter so the
+        # comparison stays apples-to-apples.
         prev_from, prev_to, prev_label = _previous_date_range(
             range_key, date_from, date_to)
         try:
-            prev_rows = _compute_analytic(c, prev_from, prev_to) if prev_from else []
+            prev_rows = (_compute_analytic(
+                c, prev_from, prev_to, account_view=account_view_active)
+                if prev_from else [])
         except Exception:
             prev_rows = []
         prev_summary = _analytic_summary(prev_rows)
@@ -2627,8 +2829,10 @@ def financial_analytic_aggregate():
         range_key, raw_from, raw_to)
 
     c = get_client()
+    account_view = _current_account_view()
     try:
-        rows = _compute_analytic(c, date_from, date_to)
+        rows = _compute_analytic(c, date_from, date_to,
+                                 account_view=account_view)
     except Exception:
         rows = []
     summary = _analytic_summary(rows)
@@ -2637,6 +2841,8 @@ def financial_analytic_aggregate():
         'date_from':    date_from,
         'date_to':      date_to,
         'period_label': _format_period_label(range_key, date_from, date_to),
+        'account_view':       account_view,
+        'account_view_label': ACCOUNT_VIEW_LABELS[account_view],
         'rows':         rows,
         'summary':      summary,
     })
@@ -2974,10 +3180,14 @@ def _stitch_pnl_comparison(current_pnl, previous_pnl):
 
 
 def _compute_cost_center_pnl_with_compare(client, account_id, range_key,
-                                          date_from, date_to, compare_mode):
+                                          date_from, date_to, compare_mode,
+                                          account_view='all'):
     """Compute the P&L for one cost center, optionally stitched against
-    a Same-Period-Last-Year or Previous-Period window."""
-    pnl = _compute_cost_center_pnl(client, account_id, date_from, date_to)
+    a Same-Period-Last-Year or Previous-Period window. The Account View
+    filter is applied to both windows so the comparison is apples-to-
+    apples."""
+    pnl = _compute_cost_center_pnl(
+        client, account_id, date_from, date_to, account_view=account_view)
     pnl['compare_mode']  = 'none'
     pnl['compare_label'] = ''
 
@@ -2986,7 +3196,8 @@ def _compute_cost_center_pnl_with_compare(client, account_id, range_key,
             compare_mode, range_key, date_from, date_to)
         if prev_from and prev_to:
             prev_pnl = _compute_cost_center_pnl(
-                client, account_id, prev_from, prev_to)
+                client, account_id, prev_from, prev_to,
+                account_view=account_view)
             _stitch_pnl_comparison(pnl, prev_pnl)
             pnl['compare_mode']  = compare_mode
             pnl['compare_label'] = label
@@ -3029,9 +3240,11 @@ def financial_cost_center_pnl():
         return err
 
     c = get_client()
+    account_view = _current_account_view()
     try:
         pnl = _compute_cost_center_pnl_with_compare(
-            c, account_id, range_key, date_from, date_to, compare_mode)
+            c, account_id, range_key, date_from, date_to, compare_mode,
+            account_view=account_view)
     except Exception as e:
         logger.exception("Cost-center P&L failed for account_id=%s", account_id)
         return jsonify({'error': str(e)}), 500
@@ -3043,6 +3256,8 @@ def financial_cost_center_pnl():
         'date_from':        date_from,
         'date_to':          date_to,
         'period_label':     _format_period_label(range_key, date_from, date_to),
+        'account_view':       account_view,
+        'account_view_label': ACCOUNT_VIEW_LABELS[account_view],
         **pnl,
     })
 
@@ -3062,9 +3277,11 @@ def export_cost_center_pnl(fmt):
         return err
 
     c = get_client()
+    account_view = _current_account_view()
     try:
         pnl = _compute_cost_center_pnl_with_compare(
-            c, account_id, range_key, date_from, date_to, compare_mode)
+            c, account_id, range_key, date_from, date_to, compare_mode,
+            account_view=account_view)
     except Exception as e:
         logger.exception("Cost-center P&L export failed for account_id=%s", account_id)
         flash('Could not generate P&L: %s' % e, 'danger')
@@ -3684,7 +3901,9 @@ def export(key: str, fmt: str):
             date_from_a = date_from or date.today().replace(month=1, day=1).isoformat()
             date_to_a = date_to or today_str()
         try:
-            rows_a = _compute_analytic(c, date_from_a, date_to_a)
+            rows_a = _compute_analytic(
+                c, date_from_a, date_to_a,
+                account_view=_current_account_view())
         except Exception:
             rows_a = []
         if search:
