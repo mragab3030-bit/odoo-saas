@@ -1303,7 +1303,7 @@
   {{ {
     'rows':              assets_by_category or [],
     'currency':          assets_ccy,
-    'base_qs':           _ac_base_qs,
+    'base_qs':           _ac_base_qs | trim,
     'active_category_id': category_filter_id,
   } | tojson | safe }}
 </script>
@@ -1389,13 +1389,19 @@
 <script>
 (function () {
   var dataEl = document.getElementById('assetCategoryData');
-  if (!dataEl) return;
+  if (!dataEl) { console.warn('[assets] category data script tag missing'); return; }
   var payload;
-  try { payload = JSON.parse(dataEl.textContent || '{}'); } catch (e) { return; }
+  try { payload = JSON.parse(dataEl.textContent || '{}'); }
+  catch (e) { console.error('[assets] failed to parse category JSON', e); return; }
   var rows = (payload.rows || []).slice();
   var ccy  = payload.currency || '';
   var baseQs = payload.base_qs || '';
   var activeId = payload.active_category_id;
+  console.log('[assets] categories:', rows.length, 'rows; sample:', rows.slice(0, 3));
+  if (typeof Chart === 'undefined') {
+    console.error('[assets] Chart.js is not loaded — charts cannot render');
+    return;
+  }
 
   // Fixed palette — repeats if categories exceed 12, but the donut
   // stays legible because colours cycle, not collide.

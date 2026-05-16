@@ -2505,61 +2505,53 @@ def _compute_assets_by_category(client, asset_model, domain):
     if not cat_field:
         return []
 
-    # Count per category (always available).
-    count_grp = []
-    try:
-        count_grp = client.safe_read_group(
-            asset_model, domain, [cat_field], [cat_field]) or []
-    except Exception as e:
-        logger.info("Assets-by-category count read_group failed: %s", e)
-
-    # Sums per category. Skip cleanly when the version lacks the fields.
+    # Build the sum field list, then run a single read_group that
+    # returns sums AND the group count in one round-trip. Asking Odoo
+    # to aggregate the same many2one we're grouping by (which the old
+    # version did) doesn't work across releases — empty fields list +
+    # rely on __count is the portable form.
     sum_fields = []
     if acq_field:
         sum_fields.append(acq_field + ':sum')
     if net_field:
         sum_fields.append(net_field + ':sum')
-    sum_grp = []
-    if sum_fields:
-        try:
-            sum_grp = client.safe_read_group(
-                asset_model, domain, sum_fields, [cat_field]) or []
-        except Exception as e:
-            logger.info("Assets-by-category sum read_group failed: %s", e)
 
-    # Index the sum group by category id (or 0 for Uncategorized).
-    def _cat_key(row):
-        v = row.get(cat_field)
-        if isinstance(v, (list, tuple)) and v:
-            return v[0]
-        return 0
-
-    sums_by_id = {}
-    for row in sum_grp:
-        sums_by_id[_cat_key(row)] = {
-            'original_value': (row.get(acq_field) if acq_field else 0) or 0,
-            'net_value':      (row.get(net_field) if net_field else 0) or 0,
-        }
+    try:
+        grp = client.safe_read_group(
+            asset_model, domain, sum_fields, [cat_field]) or []
+    except Exception as e:
+        logger.info("Assets-by-category read_group failed: %s", e)
+        grp = []
 
     out = []
-    for row in count_grp:
+    for row in grp:
         cat = row.get(cat_field)
         if isinstance(cat, (list, tuple)) and len(cat) >= 2:
             cid, name = int(cat[0]), cat[1]
         else:
+            # cat_field is False (no category set) → synthetic bucket.
             cid, name = 0, 'Uncategorized'
-        sums = sums_by_id.get(cid, {})
+        # Odoo varies the count key by version: __count (universal),
+        # <field>_count (newer), or count (rare). Try each.
+        count_val = (row.get('__count')
+                     or row.get(cat_field + '_count')
+                     or row.get('count')
+                     or 0)
         out.append({
             'id':             cid,
-            'name':           name,
-            'count':          row.get(cat_field + '_count') or row.get('__count') or 0,
-            'original_value': sums.get('original_value', 0),
-            'net_value':      sums.get('net_value', 0),
+            'name':           name or 'Uncategorized',
+            'count':          count_val,
+            'original_value': (row.get(acq_field) if acq_field else 0) or 0,
+            'net_value':      (row.get(net_field) if net_field else 0) or 0,
         })
 
     # Sort by net value descending (the bar chart wants that order); the
     # donut renders fine in any order since it lays out by share.
     out.sort(key=lambda r: r['net_value'] or 0, reverse=True)
+    logger.info(
+        "Assets-by-category: model=%s cat_field=%s "
+        "rows=%d sample=%s",
+        asset_model, cat_field, len(out), out[:3])
     return out
 
 
