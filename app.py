@@ -2260,39 +2260,45 @@ def _pick_asset_category_field(client, model):
                  if f in fields), None)
 
 
-def _depreciation_ytd_methods(client, asset_ids=None):
+def _depreciation_ytd_methods(client, asset_ids=None, asset_model=None):
     """Walk every known way to compute YTD depreciation and return a
     dict keyed by method name:
 
       * legacy_dep_line: account.asset.depreciation.line (v15/v16)
-      * move_line_asset_fk: account.move.line via probed asset FK (v17+)
-      * move_line_expense_acct: account.move.line via accounts whose
-        account_type is 'expense_depreciation' — most reliable fallback
-        because it works on every version that supports the account
-        type and doesn't depend on an FK whose name changes.
+      * asset_depreciation_moves: read asset.depreciation_move_ids (a
+        one2many to account.move) and sum YTD posted moves — v17+
+        authoritative source because every asset carries the relation.
+      * move_line_expense_acct: account.move.line via expense_depreciation
+        accounts. Always runs. When `asset_ids` is supplied AND
+        account.move.line carries an asset FK, we AND the two so the
+        per-asset scope holds; otherwise it returns the whole-portfolio
+        total (which is correct in the unscoped case).
+      * move_line_asset_fk: account.move.line via probed asset FK alone
+        (kept as a separate signal for the debug endpoint).
 
-    `asset_ids` (optional) narrows the result to a specific set of
-    assets — used when a card-driven filter (e.g. Fully Depreciated)
-    is active. Methods 1 and 2 honour the scope directly via an asset
-    FK; Method 3 is skipped under a scope because the expense-account
-    aggregate can't be cleanly attributed back to specific assets
-    (the same account collects depreciation for many assets).
+    `asset_ids` (optional) narrows methods that can be cleanly scoped.
+    Methods that can't honour the scope still run unscoped — the caller
+    can decide which to trust by reading the dict.
 
     Each value is a float (0.0 when the method is unavailable / empty).
-    The caller decides how to combine; the debug endpoint surfaces
-    them all so a zero-result is diagnosable."""
+    The caller decides how to combine; /api/assets/debug surfaces them
+    all so a zero-result is diagnosable."""
     today_d   = date.today()
     today_iso = today_d.isoformat()
     jan1_iso  = today_d.replace(month=1, day=1).isoformat()
 
     results = {
-        'legacy_dep_line':         0.0,
-        'move_line_asset_fk':      0.0,
-        'move_line_expense_acct':  0.0,
+        'legacy_dep_line':          0.0,
+        'asset_depreciation_moves': 0.0,
+        'move_line_expense_acct':   0.0,
+        'move_line_asset_fk':       0.0,
         '_meta': {
             'jan1': jan1_iso, 'today': today_iso,
             'legacy_present': False, 'asset_fk': None,
             'expense_acct_ids': [],
+            'asset_model_has_dep_moves': False,
+            'dep_move_count': 0,
+            'scoped': asset_ids is not None,
         },
     }
 
@@ -2321,7 +2327,60 @@ def _depreciation_ytd_methods(client, asset_ids=None):
 
     mline_fields = client.get_model_fields('account.move.line') or set()
 
-    # ----- Method 2: account.move.line via asset FK (v17+) ------------
+    # ----- Method C (v17+ authoritative): asset.depreciation_move_ids --
+    # Every v17+ asset carries this one2many. Read the field on each
+    # in-scope asset, gather move ids, then sum amount_total of posted
+    # moves within YTD. The cross-version sweet spot — doesn't depend on
+    # a custom asset FK on move.line.
+    asset_fields = (client.get_model_fields(asset_model)
+                    if asset_model else set())
+    if 'depreciation_move_ids' in asset_fields:
+        results['_meta']['asset_model_has_dep_moves'] = True
+        try:
+            search_dom = ([['id', 'in', list(asset_ids) or [0]]]
+                          if asset_ids is not None
+                          else [])
+            assets = client.safe_search_read(
+                asset_model, search_dom, ['depreciation_move_ids'])
+            move_ids = set()
+            for a in assets:
+                for mid in (a.get('depreciation_move_ids') or []):
+                    move_ids.add(mid)
+            results['_meta']['dep_move_count'] = len(move_ids)
+            if move_ids:
+                move_dom = [['id', 'in', list(move_ids)],
+                            ['date', '>=', jan1_iso],
+                            ['date', '<=', today_iso],
+                            ['state', '=', 'posted']]
+                grp = client.safe_read_group(
+                    'account.move', move_dom, ['amount_total:sum'], [])
+                results['asset_depreciation_moves'] = (
+                    (grp[0].get('amount_total') if grp else 0) or 0)
+        except Exception as e:
+            logger.info("Method C (asset depreciation_move_ids) failed: %s", e)
+
+    # Resolve the expense-depreciation account list once — used by both
+    # Method 3 and (combined with the asset FK) the scoped path.
+    acct_fields = client.get_model_fields('account.account') or set()
+    expense_acct_ids = []
+    try:
+        if 'account_type' in acct_fields:
+            expense_acct_ids = client.execute_kw(
+                'account.account', 'search',
+                [[['account_type', '=', 'expense_depreciation']]]) or []
+        elif 'user_type_id' in acct_fields:
+            type_ids = client.execute_kw(
+                'account.account.type', 'search',
+                [[['name', 'ilike', 'depreciation']]]) or []
+            if type_ids:
+                expense_acct_ids = client.execute_kw(
+                    'account.account', 'search',
+                    [[['user_type_id', 'in', type_ids]]]) or []
+    except Exception as e:
+        logger.info("Expense-account search failed: %s", e)
+    results['_meta']['expense_acct_ids'] = expense_acct_ids
+
+    # ----- Method 2: account.move.line via asset FK alone -------------
     asset_fk = next((f for f in
                      ('depreciation_asset_id', 'asset_id',
                       'move_asset_id', 'account_asset_id')
@@ -2345,35 +2404,16 @@ def _depreciation_ytd_methods(client, asset_ids=None):
             logger.info("Method 2 (asset-FK move line) failed: %s", e)
 
     # ----- Method 3: account.move.line via expense_depreciation acct --
-    # Most reliable cross-version path: depreciation expense always hits
-    # an account whose account_type is 'expense_depreciation' (v16+);
-    # for v15 we fall back to a user_type name match.
-    # Skipped when scoped to a specific asset set — a depreciation
-    # account aggregates many assets, so the result would over-count
-    # outside the requested scope.
-    acct_fields = client.get_model_fields('account.account') or set()
-    expense_acct_ids = []
-    if asset_ids is None:
-        try:
-            if 'account_type' in acct_fields:
-                expense_acct_ids = client.execute_kw(
-                    'account.account', 'search',
-                    [[['account_type', '=', 'expense_depreciation']]]) or []
-            elif 'user_type_id' in acct_fields:
-                type_ids = client.execute_kw(
-                    'account.account.type', 'search',
-                    [[['name', 'ilike', 'depreciation']]]) or []
-                if type_ids:
-                    expense_acct_ids = client.execute_kw(
-                        'account.account', 'search',
-                        [[['user_type_id', 'in', type_ids]]]) or []
-        except Exception as e:
-            logger.info("Method 3 account search failed: %s", e)
-    results['_meta']['expense_acct_ids'] = expense_acct_ids
-    if expense_acct_ids:
+    # Runs whether scoped or not. When scoped AND move.line carries an
+    # asset FK we AND the two filters so the result matches the scope
+    # exactly. Without an asset FK under scope we skip — the aggregate
+    # would over-count assets outside the scope.
+    if expense_acct_ids and (asset_ids is None or asset_fk):
         dom = [['account_id', 'in', expense_acct_ids],
                ['date', '>=', jan1_iso],
                ['date', '<=', today_iso]]
+        if asset_ids is not None and asset_fk:
+            dom.append([asset_fk, 'in', list(asset_ids) or [0]])
         if 'parent_state' in mline_fields:
             dom.append(['parent_state', '=', 'posted'])
         try:
@@ -2391,17 +2431,23 @@ def _compute_asset_depreciation_ytd(client, asset_model, base_domain,
                                     asset_ids=None):
     """Return the first non-zero YTD depreciation total.
 
-    When `asset_ids` is None (no card-driven scope active) we let the
-    helper roll through all three methods, including the
-    expense-account aggregate that covers all assets at once.
-
-    When `asset_ids` is a concrete list (e.g. user clicked Fully
-    Depreciated), only the per-asset methods run, so the YTD total
-    matches the assets actually shown in the table."""
-    by_method = _depreciation_ytd_methods(client, asset_ids=asset_ids)
-    for k in ('legacy_dep_line',
-              'move_line_asset_fk',
-              'move_line_expense_acct'):
+    Method order is picked for accuracy under scope:
+      1. asset_depreciation_moves — direct one2many from each asset to
+         its account.moves; honours `asset_ids` natively.
+      2. legacy_dep_line — v15/v16 line model with asset_id filter.
+      3. move_line_expense_acct — account.move.line aggregate via the
+         expense_depreciation accounts (optionally AND'd with asset FK
+         under scope).
+      4. move_line_asset_fk — asset-FK-only move line aggregate; last
+         resort because non-depreciation moves can also carry the FK
+         on customised installs.
+    """
+    by_method = _depreciation_ytd_methods(
+        client, asset_ids=asset_ids, asset_model=asset_model)
+    for k in ('asset_depreciation_moves',
+              'legacy_dep_line',
+              'move_line_expense_acct',
+              'move_line_asset_fk'):
         v = by_method.get(k) or 0
         if v:
             return v
@@ -3735,7 +3781,8 @@ def api_assets_debug():
     mline_fields = sorted(c.get_model_fields('account.move.line') or set())
     legacy_fields = sorted(c.get_model_fields('account.asset.depreciation.line') or set())
 
-    by_method = _depreciation_ytd_methods(c)
+    by_method   = _depreciation_ytd_methods(c, asset_model=asset_model)
+    by_method_s = None  # scoped variant — only populated when ids found
 
     # Pull 3 sample rows from whichever source actually has data so we
     # can eyeball the field shape live.
@@ -3761,6 +3808,38 @@ def api_assets_debug():
         except Exception as e:
             sample_expense_moves = [{'_err': str(e)}]
 
+    # First asset's raw depreciation footprint — most useful when a
+    # method returns 0 and we want to see what fields actually exist
+    # and what's been posted against them.
+    first_asset = None
+    first_asset_moves = []
+    if asset_model:
+        try:
+            sample_fields = ['id', 'name', 'state', 'original_value',
+                             'value_residual', 'book_value']
+            sample_fields = [f for f in sample_fields if f in asset_fields]
+            if 'depreciation_move_ids' in asset_fields:
+                sample_fields.append('depreciation_move_ids')
+            rows = c.safe_search_read(
+                asset_model,
+                [['state', 'in', ['open', 'close']]] if 'state' in asset_fields else [],
+                sample_fields, limit=1, order='id desc')
+            first_asset = rows[0] if rows else None
+            if first_asset and first_asset.get('depreciation_move_ids'):
+                first_asset_moves = c.safe_search_read(
+                    'account.move',
+                    [['id', 'in', first_asset['depreciation_move_ids']]],
+                    ['id', 'name', 'date', 'state', 'amount_total'],
+                    limit=10, order='date desc')
+        except Exception as e:
+            first_asset = {'_err': str(e)}
+
+    # If there's at least one matching asset, also report YTD scoped to
+    # *just that asset* so the user can sanity-check the per-asset path.
+    if first_asset and isinstance(first_asset, dict) and first_asset.get('id'):
+        by_method_s = _depreciation_ytd_methods(
+            c, asset_ids=[first_asset['id']], asset_model=asset_model)
+
     return jsonify({
         'odoo_version':         getattr(c, 'version_string', None),
         'odoo_version_major':   getattr(c, 'version_major', None),
@@ -3769,6 +3848,7 @@ def api_assets_debug():
         'asset_field_count':    len(asset_fields),
         'has_state':            'state' in asset_fields,
         'has_asset_type':       'asset_type' in asset_fields,
+        'has_depreciation_move_ids': 'depreciation_move_ids' in asset_fields,
         'value_fields':         [f for f in asset_fields if 'value' in f or 'book' in f],
         'legacy_dep_model_present': bool(legacy_fields),
         'legacy_dep_fields':    legacy_fields[:30],
@@ -3778,8 +3858,13 @@ def api_assets_debug():
             k: v for k, v in by_method.items() if not k.startswith('_')
         },
         'depreciation_ytd_meta': by_method.get('_meta'),
+        'depreciation_ytd_by_method_scoped_first_asset': (
+            {k: v for k, v in by_method_s.items() if not k.startswith('_')}
+            if by_method_s else None),
         'sample_legacy_lines':  sample_legacy,
         'sample_expense_moves': sample_expense_moves,
+        'first_asset':          first_asset,
+        'first_asset_dep_moves': first_asset_moves,
     })
 
 
