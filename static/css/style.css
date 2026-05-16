@@ -858,21 +858,28 @@ a:hover { text-decoration: none; }
    :link/:visited rules — the user-agent `a:link{color:-webkit-link}`
    rule has higher specificity than the plain `.amount-format-btn`
    class selector, so without these the pill stays link-blue (or
-   visited-purple) and the red active state is invisible. */
+   visited-purple) and the red active state is invisible.
+   We escalate to !important on the active state because some sidebar /
+   nav theme rules set `a.active` colors in dark mode and would otherwise
+   recolor the pill back to the sidebar palette. */
 a.amount-format-btn,
 a.amount-format-btn:link,
 a.amount-format-btn:visited {
+  background: var(--surface);
   color: var(--text-muted);
 }
 a.amount-format-btn:hover {
+  background: #f1f5f9;
   color: var(--text);
 }
 a.amount-format-btn.active,
 a.amount-format-btn.active:link,
 a.amount-format-btn.active:visited,
-a.amount-format-btn.active:hover {
-  background: var(--primary);
-  color: #fff;
+a.amount-format-btn.active:hover,
+a.amount-format-btn.active:focus {
+  background: #E63030 !important;
+  background: var(--primary) !important;
+  color: #ffffff !important;
 }
 
 .section-title {
