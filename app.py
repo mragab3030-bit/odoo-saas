@@ -2231,7 +2231,13 @@ def _build_asset_fields(client, model):
         'original_value', 'value', 'gross_value',
         'book_value', 'value_residual', 'net_book_value',
         'salvage_value',
-        # Category / linked-account variants
+        # Asset model / template (v17+ uses model_id; v15/v16 use
+        # parent_id to point at the master template the line was
+        # copied from).
+        'model_id', 'parent_id',
+        # Category / linked-account variants (still fetched — used by
+        # the by-category charts even though the table now shows the
+        # asset model instead of the category).
         'category_id', 'asset_category_id', 'account_asset_id', 'account_id',
         # Misc
         'currency_id', 'company_id',
@@ -3186,6 +3192,16 @@ def financial():
                         if v and isinstance(v, (list, tuple)) and len(v) >= 2:
                             r['category_display'] = v[1]
                             break
+                    # Asset Model column: v17+ → model_id, v15/v16 →
+                    # parent_id (master template the line was created
+                    # from). Both are stored as [id, name] tuples; we
+                    # care about the name.
+                    r['asset_model_display'] = '—'
+                    for mf in ('model_id', 'parent_id'):
+                        v = r.get(mf)
+                        if v and isinstance(v, (list, tuple)) and len(v) >= 2:
+                            r['asset_model_display'] = v[1] or '—'
+                            break
                     st = r.get('state') or ''
                     r['state_label'] = ASSET_STATE_LABELS.get(st, st or '—')
 
@@ -3339,6 +3355,12 @@ def financial():
                             v = r.get(cf)
                             if v and isinstance(v, (list, tuple)) and len(v) >= 2:
                                 r['category_display'] = v[1]
+                                break
+                        r['asset_model_display'] = '—'
+                        for mf in ('model_id', 'parent_id'):
+                            v = r.get(mf)
+                            if v and isinstance(v, (list, tuple)) and len(v) >= 2:
+                                r['asset_model_display'] = v[1] or '—'
                                 break
                         st = r.get('state') or ''
                         r['state_label'] = ASSET_STATE_LABELS.get(st, st or '—')

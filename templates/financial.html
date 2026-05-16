@@ -1351,7 +1351,7 @@
     <thead>
       <tr>
         <th>{{ 'Description' if _is_expense or _is_sale else 'Asset Name' }}</th>
-        <th>{{ 'Account' if _is_expense or _is_sale else 'Category' }}</th>
+        <th>{{ 'Account' if _is_expense or _is_sale else 'Asset Model' }}</th>
         <th>{{ 'Start Date' if _is_expense or _is_sale else 'Acquisition Date' }}</th>
         <th>{{ 'Initial Amount' if _is_expense or _is_sale else 'Original Value' }}</th>
         <th>{{ 'Remaining' if _is_expense or _is_sale else 'Net Value' }}</th>
@@ -1365,7 +1365,7 @@
           onclick="window.open('{{ row_url }}', '_blank', 'noopener,noreferrer')"
           title="Open in Odoo"{% endif %}>
         <td><strong>{{ a.name }}</strong></td>
-        <td>{{ a.category_display or '—' }}</td>
+        <td>{% if _is_expense or _is_sale %}{{ a.category_display or '—' }}{% else %}{{ a.asset_model_display or '—' }}{% endif %}</td>
         <td>{{ a.acquisition_date_display or '—' }}</td>
         <td>{{ (a.original_value_display or 0) | fmt_currency }}</td>
         <td>{{ (a.net_value_display or 0) | fmt_currency }}</td>
