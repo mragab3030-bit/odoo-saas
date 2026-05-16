@@ -2785,7 +2785,7 @@ def financial():
                 odoo_base = (session.get('odoo_url') or '').rstrip('/')
                 if ver and ver >= 17:
                     ctx['asset_record_path_template'] = (
-                        f'{odoo_base}/odoo/assets/{{id}}')
+                        f'{odoo_base}/odoo/accounting/assets/{{id}}')
                 else:
                     ctx['asset_record_path_template'] = (
                         f'{odoo_base}/web#model={asset_model}&id={{id}}&view_type=form')
