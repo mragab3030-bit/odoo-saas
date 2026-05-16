@@ -2381,8 +2381,12 @@ def _depreciation_ytd_methods(client, asset_ids=None, asset_model=None):
     results['_meta']['expense_acct_ids'] = expense_acct_ids
 
     # ----- Method 2: account.move.line via asset FK alone -------------
+    # v17+ writes the link as the m2m `asset_ids` on depreciation
+    # lines (confirmed via the per-asset debug). Older customisations
+    # use a single-link m2o; probe both.
     asset_fk = next((f for f in
-                     ('depreciation_asset_id', 'asset_id',
+                     ('asset_ids',
+                      'depreciation_asset_id', 'asset_id',
                       'move_asset_id', 'account_asset_id')
                      if f in mline_fields), None)
     results['_meta']['asset_fk'] = asset_fk
@@ -2505,11 +2509,7 @@ def _compute_assets_by_category(client, asset_model, domain):
     if not cat_field:
         return []
 
-    # Build the sum field list, then run a single read_group that
-    # returns sums AND the group count in one round-trip. Asking Odoo
-    # to aggregate the same many2one we're grouping by (which the old
-    # version did) doesn't work across releases — empty fields list +
-    # rely on __count is the portable form.
+    # ----- Fast path: one read_group call ---------------------------
     sum_fields = []
     if acq_field:
         sum_fields.append(acq_field + ':sum')
@@ -2529,10 +2529,7 @@ def _compute_assets_by_category(client, asset_model, domain):
         if isinstance(cat, (list, tuple)) and len(cat) >= 2:
             cid, name = int(cat[0]), cat[1]
         else:
-            # cat_field is False (no category set) → synthetic bucket.
             cid, name = 0, 'Uncategorized'
-        # Odoo varies the count key by version: __count (universal),
-        # <field>_count (newer), or count (rare). Try each.
         count_val = (row.get('__count')
                      or row.get(cat_field + '_count')
                      or row.get('count')
@@ -2544,6 +2541,47 @@ def _compute_assets_by_category(client, asset_model, domain):
             'original_value': (row.get(acq_field) if acq_field else 0) or 0,
             'net_value':      (row.get(net_field) if net_field else 0) or 0,
         })
+
+    # ----- Fallback: fetch records and aggregate client-side ---------
+    # Some v17+ installs silently reject read_group on category_id
+    # (custom ACLs, computed-store flag, etc.) and return [] even
+    # though there's data. When that happens, pull the records and
+    # group in Python so the charts still render.
+    if not out:
+        fetch_fields = ['id', cat_field]
+        if acq_field:
+            fetch_fields.append(acq_field)
+        if net_field:
+            fetch_fields.append(net_field)
+        records = []
+        try:
+            records = client.paginated_search_read(
+                asset_model, domain, fetch_fields,
+                batch_size=500, max_total=20000)
+        except Exception as e:
+            logger.info("Assets-by-category fallback search_read failed: %s", e)
+
+        buckets = {}
+        for r in records:
+            cat = r.get(cat_field)
+            if isinstance(cat, (list, tuple)) and len(cat) >= 2:
+                cid, name = int(cat[0]), cat[1] or 'Uncategorized'
+            else:
+                cid, name = 0, 'Uncategorized'
+            b = buckets.setdefault(cid, {
+                'id': cid, 'name': name, 'count': 0,
+                'original_value': 0.0, 'net_value': 0.0,
+            })
+            b['count'] += 1
+            if acq_field:
+                b['original_value'] += (r.get(acq_field) or 0)
+            if net_field:
+                b['net_value']      += (r.get(net_field) or 0)
+        out = list(buckets.values())
+        if out:
+            logger.info(
+                "Assets-by-category: read_group empty → fell back to "
+                "client-side aggregation over %d records", len(records))
 
     # Sort by net value descending (the bar chart wants that order); the
     # donut renders fine in any order since it lays out by share.
