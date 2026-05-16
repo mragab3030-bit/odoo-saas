@@ -1637,6 +1637,52 @@
     text-align: right;
     font-variant-numeric: tabular-nums;
   }
+  /* Per-section pct colour: green for revenue, red for expenses. Other
+     section keeps the neutral grey from above. */
+  .pnl-line.rev .pnl-pct  { color: #16a34a; }
+  .pnl-line.exp .pnl-pct  { color: #dc2626; }
+  .pnl-subtotal.rev .pnl-pct { color: #16a34a; font-weight: 700; }
+  .pnl-subtotal.exp .pnl-pct { color: #dc2626; font-weight: 700; }
+  /* Sub-group header + subtotal styling within REVENUE / EXPENSES. */
+  .pnl-subgroup-label {
+    margin: .55rem 0 .15rem .25rem;
+    font-size: .75rem;
+    letter-spacing: .06em;
+    font-weight: 700;
+    color: var(--text);
+    text-transform: uppercase;
+  }
+  .pnl-subgroup-label.rev { color: #16a34a; }
+  .pnl-subgroup-label.exp { color: #dc2626; }
+  .pnl-subgroup-total {
+    background: var(--surface-2, rgba(148,163,184,.06));
+    font-weight: 600;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  .pnl-unit-toggle {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    font-size: .78rem;
+    background: var(--surface);
+  }
+  .pnl-unit-toggle button {
+    border: 0;
+    background: transparent;
+    color: var(--text-muted);
+    padding: .28rem .55rem;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .pnl-unit-toggle button.is-active {
+    background: var(--primary);
+    color: #fff;
+  }
+  .pnl-unit-toggle button + button {
+    border-left: 1px solid var(--border);
+  }
   .pnl-line .pnl-name { color: var(--text); }
   .pnl-line .pnl-code {
     color: var(--text-muted);
@@ -1680,6 +1726,11 @@
     <div class="analytic-title">
       <i class="fa-solid fa-file-invoice-dollar" style="color:var(--primary)"></i>
       COST CENTER P&amp;L STATEMENT
+    </div>
+    <div class="pnl-unit-toggle" role="tablist" aria-label="Number units">
+      <button type="button" data-unit="units" class="is-active">Units</button>
+      <button type="button" data-unit="k">K</button>
+      <button type="button" data-unit="m">M</button>
     </div>
   </div>
 
@@ -1753,25 +1804,66 @@
   syncCustomVisible();
   rangeSel.addEventListener('change', syncCustomVisible);
 
+  // Unit toggle (Units / K / M) — local to this section, independent of
+  // the page-wide amount-mode toggle. Stored only in memory.
+  var unitMode = 'units';
+  var unitBtns = section.querySelectorAll('.pnl-unit-toggle button');
+  unitBtns.forEach(function (b) {
+    b.addEventListener('click', function () {
+      var u = b.getAttribute('data-unit');
+      if (u === unitMode) return;
+      unitMode = u;
+      unitBtns.forEach(function (x) {
+        x.classList.toggle('is-active', x === b);
+      });
+      if (lastData) render(lastData);
+      // Sync the export URLs so the downloaded PDF/Excel matches.
+      if (lastParams) {
+        pdfBtn.href = '/financial/cost-center-pnl/export/pdf?'   + withUnit(lastParams);
+        xlsBtn.href = '/financial/cost-center-pnl/export/excel?' + withUnit(lastParams);
+      }
+    });
+  });
+  function withUnit(p) {
+    var s = p.toString();
+    return s + (s ? '&' : '') + 'unit=' + encodeURIComponent(unitMode);
+  }
+
   function fmtAmount(n) {
     var v = Number(n || 0);
-    var s = v.toLocaleString(undefined, {
-      minimumFractionDigits: 2, maximumFractionDigits: 2,
-    });
+    var s;
+    if (unitMode === 'k') {
+      s = (v / 1000).toLocaleString(undefined, {
+        minimumFractionDigits: 1, maximumFractionDigits: 1,
+      }) + 'K';
+    } else if (unitMode === 'm') {
+      s = (v / 1000000).toLocaleString(undefined, {
+        minimumFractionDigits: 2, maximumFractionDigits: 2,
+      }) + 'M';
+    } else {
+      s = v.toLocaleString(undefined, {
+        minimumFractionDigits: 2, maximumFractionDigits: 2,
+      });
+    }
     return currency ? (currency + ' ' + s) : s;
   }
   function esc(s) {
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
+  var lastData = null;
+  var lastParams = null;
   function setExportEnabled(on, params) {
     [pdfBtn, xlsBtn].forEach(function (b) {
       b.style.pointerEvents = on ? '' : 'none';
       b.style.opacity = on ? '' : '.5';
     });
     if (on && params) {
-      pdfBtn.href = '/financial/cost-center-pnl/export/pdf?'   + params;
-      xlsBtn.href = '/financial/cost-center-pnl/export/excel?' + params;
+      lastParams = params;
+      pdfBtn.href = '/financial/cost-center-pnl/export/pdf?'   + withUnit(params);
+      xlsBtn.href = '/financial/cost-center-pnl/export/excel?' + withUnit(params);
+    } else if (!on) {
+      lastParams = null;
     }
   }
 
@@ -1797,22 +1889,47 @@
       setExportEnabled(false);
       return;
     }
-    function lineRows(arr, emptyMsg) {
-      var html = (arr || []).map(function (l) {
-        return '<div class="pnl-line">' +
-          '<span class="pnl-name">' +
-          (l.code ? '<span class="pnl-code">[' + esc(l.code) + ']</span>' : '') +
-          esc(l.name || 'Unassigned') + '</span>' +
-          '<span class="pnl-pct">' + esc(l.pct_display || '—') + '</span>' +
-          '<span class="pnl-amt">' + esc(fmtAmount(l.amount)) + '</span>' +
-          '</div>';
-      }).join('');
-      return html || ('<div class="pnl-line pnl-empty">' + emptyMsg + '</div>');
+    lastData = data;
+    function renderLine(l, kind) {
+      return '<div class="pnl-line ' + kind + '">' +
+        '<span class="pnl-name">' +
+        (l.code ? '<span class="pnl-code">[' + esc(l.code) + ']</span>' : '') +
+        esc(l.name || 'Unassigned') + '</span>' +
+        '<span class="pnl-pct">' + esc(l.pct_display || '—') + '</span>' +
+        '<span class="pnl-amt">' + esc(fmtAmount(l.amount)) + '</span>' +
+        '</div>';
     }
-    var revLines = lineRows(data.revenue_lines, 'No revenue lines');
-    var expLines = lineRows(data.expense_lines, 'No expense lines');
+    function renderGroup(g, kind) {
+      var html = ['<div class="pnl-subgroup-label ' + kind + '">' +
+                  esc(g.label || '') + '</div>'];
+      (g.lines || []).forEach(function (l) { html.push(renderLine(l, kind)); });
+      html.push(
+        '<div class="pnl-line pnl-subgroup-total ' + kind + '">',
+          '<span>Subtotal — ', esc(g.label || ''), '</span>',
+          '<span class="pnl-pct">', esc(g.pct_display || '—'), '</span>',
+          '<span class="pnl-amt">', esc(fmtAmount(g.subtotal)), '</span>',
+        '</div>'
+      );
+      return html.join('');
+    }
+    function renderSection(groups, flat, kind, emptyMsg) {
+      if (groups && groups.length) {
+        return groups.map(function (g) { return renderGroup(g, kind); }).join('');
+      }
+      if (flat && flat.length) {
+        return flat.map(function (l) { return renderLine(l, kind); }).join('');
+      }
+      return '<div class="pnl-line pnl-empty">' + emptyMsg + '</div>';
+    }
+
+    var revBody = renderSection(data.revenue_groups, data.revenue_lines,
+                                'rev', 'No revenue lines');
+    var expBody = renderSection(data.expense_groups, data.expense_lines,
+                                'exp', 'No expense lines');
     var hasOther = (data.other_lines || []).length > 0;
-    var othLines = hasOther ? lineRows(data.other_lines, '') : '';
+    var othBody = hasOther
+      ? (data.other_lines).map(function (l) { return renderLine(l, 'oth'); }).join('')
+      : '';
     var netClass = (data.net || 0) >= 0 ? 'pos' : 'neg';
     var netLabel = (data.net || 0) >= 0 ? 'NET PROFIT' : 'NET LOSS';
 
@@ -1823,7 +1940,7 @@
       '</div>',
       '<div class="pnl-section">',
         '<div class="pnl-section-title rev">REVENUE</div>',
-        revLines,
+        revBody,
         '<div class="pnl-subtotal rev">',
           '<span>Total Revenue</span>',
           '<span class="pnl-pct">', (data.total_revenue ? '100.0%' : '—'), '</span>',
@@ -1832,7 +1949,7 @@
       '</div>',
       '<div class="pnl-section">',
         '<div class="pnl-section-title exp">EXPENSES</div>',
-        expLines,
+        expBody,
         '<div class="pnl-subtotal exp">',
           '<span>Total Expenses</span>',
           '<span class="pnl-pct">', (data.total_expenses ? '100.0%' : '—'), '</span>',
@@ -1844,7 +1961,7 @@
       html.push(
         '<div class="pnl-section">',
           '<div class="pnl-section-title oth">OTHER MOVEMENTS <span style="opacity:.6;font-weight:400">(non-P&amp;L: assets / liabilities / equity)</span></div>',
-          othLines,
+          othBody,
           '<div class="pnl-subtotal oth">',
             '<span>Total Other</span>',
             '<span class="pnl-pct">', (data.total_other ? '100.0%' : '—'), '</span>',

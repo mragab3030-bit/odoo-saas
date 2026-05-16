@@ -883,6 +883,81 @@ PNL_EXPENSE_TYPES = {
     'expenses',  # tolerated alias seen on some forks
 }
 
+# Display order + label for each sub-section inside REVENUE / EXPENSES.
+# Tuples are (account_type_key, ui_label). Groups with no lines are
+# hidden by _build_section_groups, so the surface area is empty for
+# servers where, e.g., depreciation accounts aren't used.
+PNL_REVENUE_SUBTYPES = [
+    ('income',       'Income'),
+    ('income_other', 'Other Income'),
+]
+PNL_EXPENSE_SUBTYPES = [
+    ('expense_direct_cost',  'Cost of Revenue'),
+    ('expense',              'Expenses'),
+    ('expenses',             'Expenses'),   # absorbs the alias above
+    ('expense_depreciation', 'Depreciation'),
+]
+
+
+def _build_section_groups(lines, subtypes, section_total):
+    """Bucket already-classified lines into ordered sub-groups by type.
+
+    Each output group looks like:
+      {'type', 'label', 'lines', 'subtotal',
+       'pct', 'pct_display'}  — pct is share of the section total.
+
+    Sub-groups with no lines are dropped (template / PDF / Excel only
+    render what came back).
+    """
+    # When two subtype keys map to the same label (e.g. 'expense' +
+    # 'expenses'), merge them into one bucket keyed by label.
+    label_index = {}
+    order = []
+    for type_key, label in subtypes:
+        if label not in label_index:
+            label_index[label] = {
+                'type':  type_key, 'label': label, 'lines': [],
+                'subtotal': 0.0,
+            }
+            order.append(label)
+
+    type_to_label = {tk: lb for tk, lb in subtypes}
+    leftover = []
+    for ln in lines:
+        t = (ln.get('type') or '').lower()
+        lb = type_to_label.get(t)
+        if lb and lb in label_index:
+            label_index[lb]['lines'].append(ln)
+            label_index[lb]['subtotal'] += ln['amount']
+        else:
+            leftover.append(ln)
+
+    if leftover:
+        lb = 'Other'
+        label_index.setdefault(lb, {
+            'type': '', 'label': lb, 'lines': [], 'subtotal': 0.0})
+        if lb not in order:
+            order.append(lb)
+        for ln in leftover:
+            label_index[lb]['lines'].append(ln)
+            label_index[lb]['subtotal'] += ln['amount']
+
+    out = []
+    for lb in order:
+        g = label_index[lb]
+        if not g['lines']:
+            continue
+        g['lines'].sort(key=lambda x: x['amount'], reverse=True)
+        if section_total > 0:
+            p = (g['subtotal'] / section_total) * 100.0
+            g['pct'] = p
+            g['pct_display'] = '%.1f%%' % p
+        else:
+            g['pct'] = 0.0
+            g['pct_display'] = '—'
+        out.append(g)
+    return out
+
 
 def _classify_gl_accounts(client, gid_set):
     """Return {gid: {'name', 'code', 'type'}} for every GL account id.
@@ -950,7 +1025,15 @@ def _classify_gl_accounts(client, gid_set):
         # Balance-sheet legacy types are never P&L — leave as 'other'.
         if legacy in ('receivable', 'payable', 'liquidity', 'equity'):
             return ''
-        # 'other' is overloaded: name decides revenue vs expense.
+        # Specific keywords first so a deprecation-style account doesn't
+        # land in the generic 'expense' bucket.
+        if 'depreciation' in ut_name:
+            return 'expense_depreciation'
+        if ('cost of revenue' in ut_name or 'cost of sale' in ut_name
+                or 'cost of good' in ut_name or 'direct cost' in ut_name):
+            return 'expense_direct_cost'
+        if 'other income' in ut_name:
+            return 'income_other'
         if 'income' in ut_name or 'revenue' in ut_name or 'sale' in ut_name:
             return 'income'
         if 'expense' in ut_name or 'cost' in ut_name:
@@ -1146,12 +1229,21 @@ def _compute_cost_center_pnl(client, account_id, date_from, date_to):
         margin_pct = 0.0
         margin_display = '—'
 
+    revenue_groups = _build_section_groups(
+        rev_lines, PNL_REVENUE_SUBTYPES, total_revenue)
+    expense_groups = _build_section_groups(
+        exp_lines, PNL_EXPENSE_SUBTYPES, total_expenses)
+
     logger.info(
-        "Cost-center P&L aid=%s rev=%d exp=%d other=%d totals=(R%.2f, E%.2f, O%.2f)",
-        aid, len(rev_lines), len(exp_lines), len(oth_lines),
+        "Cost-center P&L aid=%s rev=%d (%d grps) exp=%d (%d grps) other=%d "
+        "totals=(R%.2f, E%.2f, O%.2f)",
+        aid, len(rev_lines), len(revenue_groups),
+        len(exp_lines), len(expense_groups), len(oth_lines),
         total_revenue, total_expenses, total_other)
 
     return {
+        'revenue_groups': revenue_groups,
+        'expense_groups': expense_groups,
         'revenue_lines':  rev_lines,
         'expense_lines':  exp_lines,
         'other_lines':    oth_lines,
@@ -2790,6 +2882,9 @@ def export_cost_center_pnl(fmt):
     period_label = _format_period_label(range_key, date_from, date_to)
     company_name = _pnl_company_or_none(c)
     currency     = _pnl_currency_or_blank(c)
+    unit         = (request.args.get('unit', 'units') or 'units').lower()
+    if unit not in ('units', 'k', 'm'):
+        unit = 'units'
 
     from exporters import export_pnl_pdf, export_pnl_excel
     if fmt == 'pdf':
@@ -2799,6 +2894,7 @@ def export_cost_center_pnl(fmt):
             period_label=period_label,
             currency=currency,
             pnl=pnl,
+            unit=unit,
         )
         return send_file(buf, mimetype='application/pdf',
                          download_name='cost_center_pnl.pdf', as_attachment=True)
@@ -2809,6 +2905,7 @@ def export_cost_center_pnl(fmt):
             period_label=period_label,
             currency=currency,
             pnl=pnl,
+            unit=unit,
         )
         return send_file(
             buf,

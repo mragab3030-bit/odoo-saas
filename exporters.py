@@ -213,18 +213,31 @@ NET_RED    = colors.HexColor('#dc2626')
 SUBTOTAL_BG = colors.HexColor('#f1f5f9')
 
 
-def _fmt_amount(value, currency=''):
+def _fmt_amount(value, currency='', unit='units'):
+    """Format a money number with optional K / M suffix.
+
+    unit:
+      'units' → 1,234,567.89
+      'k'     → 1,234.6K   (one decimal, scaled by 1,000)
+      'm'     → 1.23M      (two decimals, scaled by 1,000,000)
+    """
     try:
         n = float(value or 0)
     except (TypeError, ValueError):
         n = 0.0
-    s = '{:,.2f}'.format(n)
+    u = (unit or 'units').lower()
+    if u == 'k':
+        s = '{:,.1f}K'.format(n / 1000.0)
+    elif u == 'm':
+        s = '{:,.2f}M'.format(n / 1_000_000.0)
+    else:
+        s = '{:,.2f}'.format(n)
     return ('%s %s' % (currency, s)).strip()
 
 
 def export_pnl_pdf(company_name: str, cost_center_name: str,
                    period_label: str, currency: str,
-                   pnl: dict) -> io.BytesIO:
+                   pnl: dict, unit: str = 'units') -> io.BytesIO:
     """Render a one-page Cost Center P&L Statement.
 
     pnl shape:
@@ -292,14 +305,10 @@ def export_pnl_pdf(company_name: str, cost_center_name: str,
         available_width * 0.12,
         available_width * 0.28,
     ]
-    pct_color = colors.HexColor('#9ca3af')
+    pct_neutral = colors.HexColor('#9ca3af')
+    SUBGROUP_BG = colors.HexColor('#f8fafc')
 
-    def section_block(label, color, lines, total, total_label):
-        table_data = [[
-            cell(label, bold=True, color=color),
-            cell('', align='right'),
-            cell('', align='right'),
-        ]]
+    def _render_lines(table_data, lines, pct_color, subgroup_total_rows):
         for ln in lines:
             label_text = ln.get('name') or 'Unassigned'
             code = ln.get('code')
@@ -309,49 +318,103 @@ def export_pnl_pdf(company_name: str, cost_center_name: str,
                 cell('   ' + label_text),
                 cell(ln.get('pct_display') or '—', align='right',
                      color=pct_color),
-                cell(_fmt_amount(ln.get('amount', 0), currency),
+                cell(_fmt_amount(ln.get('amount', 0), currency, unit),
                      align='right'),
             ])
-        if not lines:
-            table_data.append([
-                cell('   (no lines)', color=colors.HexColor('#94a3b8')),
-                cell('—', align='right', color=pct_color),
-                cell('—', align='right',
-                     color=colors.HexColor('#94a3b8')),
-            ])
+
+    def section_block(label, color, groups, flat_lines, total, total_label):
+        """Render REVENUE / EXPENSES with nested sub-groups when groups
+        is provided; falls back to a flat line list otherwise (other-
+        movements section)."""
+        # Header row spans the table; this is the section title row.
+        table_data = [[
+            cell(label, bold=True, color=color),
+            cell('', align='right'),
+            cell('', align='right'),
+        ]]
+        # subgroup_total_rows accumulates row indexes that need the
+        # light-gray subtotal-row tint (set after we know lengths).
+        subgroup_total_rows = []
+
+        if groups:
+            for grp in groups:
+                # Sub-group label row
+                table_data.append([
+                    cell('  ' + (grp.get('label') or ''),
+                         bold=True, color=color),
+                    cell('', align='right'),
+                    cell('', align='right'),
+                ])
+                # Lines
+                _render_lines(table_data, grp.get('lines') or [],
+                              color, subgroup_total_rows)
+                # Sub-group subtotal
+                sub = grp.get('subtotal') or 0
+                table_data.append([
+                    cell('    Subtotal — ' + (grp.get('label') or ''),
+                         bold=True),
+                    cell(grp.get('pct_display') or '—', bold=True,
+                         align='right', color=color),
+                    cell(_fmt_amount(sub, currency, unit),
+                         bold=True, align='right', color=color),
+                ])
+                subgroup_total_rows.append(len(table_data) - 1)
+        else:
+            _render_lines(table_data, flat_lines or [], color,
+                          subgroup_total_rows)
+            if not flat_lines:
+                table_data.append([
+                    cell('   (no lines)',
+                         color=colors.HexColor('#94a3b8')),
+                    cell('—', align='right', color=pct_neutral),
+                    cell('—', align='right',
+                         color=colors.HexColor('#94a3b8')),
+                ])
+
+        # Section total row
         table_data.append([
             cell(total_label, bold=True),
             cell('100.0%' if total else '—', bold=True, align='right',
-                 color=pct_color),
-            cell(_fmt_amount(total, currency), bold=True, align='right',
                  color=color),
+            cell(_fmt_amount(total, currency, unit),
+                 bold=True, align='right', color=color),
         ])
         t = Table(table_data, colWidths=section_col_widths, hAlign='LEFT')
         styles_list = [
             ('FONTNAME', (0, 0), (-1, -1), UNICODE_FONT),
             ('FONTSIZE', (0, 0), (-1, -1), 10),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('TOPPADDING', (0, 0), (-1, -1), 4),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('TOPPADDING', (0, 0), (-1, -1), 3.5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 3.5),
             ('LEFTPADDING', (0, 0), (-1, -1), 6),
             ('RIGHTPADDING', (0, 0), (-1, -1), 6),
-            # Header row tint
+            # Section header row
             ('BACKGROUND', (0, 0), (-1, 0), SUBTOTAL_BG),
             ('LINEBELOW', (0, 0), (-1, 0), 0.7, color),
-            # Subtotal row
+            # Section subtotal row
             ('BACKGROUND', (0, -1), (-1, -1), SUBTOTAL_BG),
-            ('LINEABOVE', (0, -1), (-1, -1), 0.7, color),
-            ('LINEBELOW', (0, -1), (-1, -1), 0.7, color),
+            ('LINEABOVE', (0, -1), (-1, -1), 0.9, color),
+            ('LINEBELOW', (0, -1), (-1, -1), 0.9, color),
         ]
+        # Sub-group subtotal rows get a softer fill so they stand out
+        # from the surrounding line rows without competing with the
+        # main section total.
+        for r in subgroup_total_rows:
+            styles_list.append(('BACKGROUND', (0, r), (-1, r), SUBGROUP_BG))
+            styles_list.append(('LINEABOVE', (0, r), (-1, r), 0.4, color))
         t.setStyle(TableStyle(styles_list))
         return t
 
     elements.append(section_block(
-        'REVENUE', REV_GREEN, pnl.get('revenue_lines') or [],
+        'REVENUE', REV_GREEN,
+        pnl.get('revenue_groups') or [],
+        pnl.get('revenue_lines') or [],
         pnl.get('total_revenue') or 0, 'Total Revenue'))
     elements.append(Spacer(1, 0.4 * cm))
     elements.append(section_block(
-        'EXPENSES', EXP_RED, pnl.get('expense_lines') or [],
+        'EXPENSES', EXP_RED,
+        pnl.get('expense_groups') or [],
+        pnl.get('expense_lines') or [],
         pnl.get('total_expenses') or 0, 'Total Expenses'))
     other_lines = pnl.get('other_lines') or []
     if other_lines:
@@ -359,6 +422,7 @@ def export_pnl_pdf(company_name: str, cost_center_name: str,
         elements.append(section_block(
             'OTHER MOVEMENTS (non-P&amp;L)',
             colors.HexColor('#64748b'),
+            None,  # other section has no sub-grouping
             other_lines,
             pnl.get('total_other') or 0,
             'Total Other'))
@@ -372,7 +436,7 @@ def export_pnl_pdf(company_name: str, cost_center_name: str,
     summary_data = [
         [cell(net_label, bold=True, color=net_color),
          cell('', align='right'),
-         cell(_fmt_amount(net_value, currency), bold=True, align='right',
+         cell(_fmt_amount(net_value, currency, unit), bold=True, align='right',
               color=net_color)],
         [cell('Margin %', bold=True),
          cell('', align='right'),
@@ -401,14 +465,27 @@ def export_pnl_pdf(company_name: str, cost_center_name: str,
 
 def export_pnl_excel(company_name: str, cost_center_name: str,
                      period_label: str, currency: str,
-                     pnl: dict) -> io.BytesIO:
+                     pnl: dict, unit: str = 'units') -> io.BytesIO:
     """Render a Cost Center P&L Statement as a single-sheet workbook."""
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = 'Cost Center P&L'[:31]
 
-    money_fmt = '#,##0.00'
+    u = (unit or 'units').lower()
+    if u == 'k':
+        money_fmt = '#,##0.0,"K"'
+    elif u == 'm':
+        money_fmt = '#,##0.00,,"M"'
+    else:
+        money_fmt = '#,##0.00'
     pct_fmt   = '0.0"%"'
+
+    pct_color_rev_font = Font(color='16A34A', size=10)
+    pct_color_exp_font = Font(color='DC2626', size=10)
+    pct_color_neutral  = Font(color='9CA3AF', size=10)
+    pct_bold_rev       = Font(bold=True, color='16A34A', size=10)
+    pct_bold_exp       = Font(bold=True, color='DC2626', size=10)
+    pct_bold_neutral   = Font(bold=True, color='9CA3AF', size=10)
 
     bold = Font(bold=True, size=11)
     title_font = Font(bold=True, size=14, color='1E293B')
@@ -423,8 +500,8 @@ def export_pnl_excel(company_name: str, cost_center_name: str,
     thin = Side(style='thin', color='E2E8F0')
     box  = Border(top=thin, bottom=thin, left=thin, right=thin)
 
-    pct_color_font  = Font(color='9CA3AF', size=10)
-    pct_bold_font   = Font(bold=True, color='9CA3AF', size=10)
+    subgroup_fill = PatternFill(start_color='F8FAFC', end_color='F8FAFC',
+                                fill_type='solid')
 
     # Title + meta (span all 3 columns)
     ws.merge_cells('A1:C1')
@@ -448,9 +525,35 @@ def export_pnl_excel(company_name: str, cost_center_name: str,
         row += 1
     row += 1  # blank spacer
 
-    def write_section(label, lines, total_label, total, header_font, color):
+    def _write_line(ln, pct_line_font):
         nonlocal row
-        # Section header row — merge across all 3 columns
+        label_text = ln.get('name') or 'Unassigned'
+        code = ln.get('code')
+        if code:
+            label_text = '[%s] %s' % (code, label_text)
+        ws.cell(row=row, column=1, value='   ' + label_text)
+        pct_val = ln.get('pct')
+        pct_cell = ws.cell(row=row, column=2, value=None)
+        if pct_val is not None and (pct_val != 0 or (
+                ln.get('pct_display') and ln['pct_display'] != '—')):
+            pct_cell.value = pct_val
+            pct_cell.number_format = pct_fmt
+        else:
+            pct_cell.value = ln.get('pct_display') or '—'
+        pct_cell.font = pct_line_font
+        pct_cell.alignment = Alignment(horizontal='right')
+        amt_cell = ws.cell(row=row, column=3, value=ln.get('amount') or 0)
+        amt_cell.number_format = money_fmt
+        amt_cell.alignment = Alignment(horizontal='right')
+        row += 1
+
+    def write_section(label, groups, flat_lines, total_label, total,
+                      header_font, color, pct_line_font, pct_bold_font):
+        """Write one P&L section. When `groups` is non-empty, render
+        nested sub-groups (each with its own subtotal); otherwise fall
+        back to a flat list of lines."""
+        nonlocal row
+        # Section header row
         ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
         c = ws.cell(row=row, column=1, value=label)
         c.font = header_font
@@ -458,43 +561,62 @@ def export_pnl_excel(company_name: str, cost_center_name: str,
         c.alignment = Alignment(horizontal='left', indent=0)
         c.border = box
         row += 1
-        if not lines:
-            empty = ws.cell(row=row, column=1, value='   (no lines)')
-            empty.font = Font(color='94A3B8', italic=True)
-            ws.cell(row=row, column=2, value=None)
-            ws.cell(row=row, column=3, value=None)
-            row += 1
-        for ln in lines:
-            label_text = ln.get('name') or 'Unassigned'
-            code = ln.get('code')
-            if code:
-                label_text = '[%s] %s' % (code, label_text)
-            ws.cell(row=row, column=1, value='   ' + label_text)
-            # % column
-            pct_val = ln.get('pct')
-            pct_cell = ws.cell(row=row, column=2,
-                               value=(pct_val if pct_val is not None else None))
-            if pct_val is not None and pct_val != 0:
-                pct_cell.number_format = pct_fmt
-            elif (ln.get('pct_display') or '') == '—':
-                pct_cell.value = '—'
-            else:
-                pct_cell.number_format = pct_fmt
-            pct_cell.font = pct_color_font
-            pct_cell.alignment = Alignment(horizontal='right')
-            # Amount column
-            amt_cell = ws.cell(row=row, column=3, value=ln.get('amount') or 0)
-            amt_cell.number_format = money_fmt
-            amt_cell.alignment = Alignment(horizontal='right')
-            row += 1
-        # Subtotal row
+
+        if groups:
+            for grp in groups:
+                # Sub-group label
+                ws.merge_cells(start_row=row, start_column=1,
+                               end_row=row, end_column=3)
+                sg = ws.cell(row=row, column=1,
+                             value='  ' + (grp.get('label') or ''))
+                sg.font = Font(bold=True, color=color, size=10)
+                sg.fill = subgroup_fill
+                row += 1
+                for ln in grp.get('lines') or []:
+                    _write_line(ln, pct_line_font)
+                # Sub-group subtotal
+                sub = grp.get('subtotal') or 0
+                lbl = ws.cell(row=row, column=1,
+                              value='    Subtotal — ' + (grp.get('label') or ''))
+                lbl.font = Font(bold=True, color='1E293B', size=10)
+                lbl.fill = subgroup_fill
+                lbl.border = box
+                p_val = grp.get('pct')
+                pct_c = ws.cell(row=row, column=2)
+                if p_val is not None and (
+                        p_val != 0 or (grp.get('pct_display') and
+                                       grp['pct_display'] != '—')):
+                    pct_c.value = p_val
+                    pct_c.number_format = pct_fmt
+                else:
+                    pct_c.value = grp.get('pct_display') or '—'
+                pct_c.font = pct_bold_font
+                pct_c.fill = subgroup_fill
+                pct_c.border = box
+                pct_c.alignment = Alignment(horizontal='right')
+                amt_c = ws.cell(row=row, column=3, value=sub)
+                amt_c.font = Font(bold=True, color=color, size=10)
+                amt_c.fill = subgroup_fill
+                amt_c.border = box
+                amt_c.number_format = money_fmt
+                amt_c.alignment = Alignment(horizontal='right')
+                row += 1
+        else:
+            if not (flat_lines or []):
+                empty = ws.cell(row=row, column=1, value='   (no lines)')
+                empty.font = Font(color='94A3B8', italic=True)
+                row += 1
+            for ln in flat_lines or []:
+                _write_line(ln, pct_line_font)
+
+        # Section subtotal row
         total_cell_label = ws.cell(row=row, column=1, value=total_label)
         total_cell_label.font = bold
         total_cell_label.fill = header_fill
         total_cell_label.border = box
-        pct_sub = ws.cell(row=row, column=2,
-                          value=(100.0 if total else None))
+        pct_sub = ws.cell(row=row, column=2)
         if total:
+            pct_sub.value = 100.0
             pct_sub.number_format = pct_fmt
         else:
             pct_sub.value = '—'
@@ -510,18 +632,33 @@ def export_pnl_excel(company_name: str, cost_center_name: str,
         total_cell.alignment = Alignment(horizontal='right')
         row += 2  # spacer
 
-    write_section('REVENUE', pnl.get('revenue_lines') or [],
-                  'Total Revenue', pnl.get('total_revenue') or 0,
-                  rev_font, '16A34A')
-    write_section('EXPENSES', pnl.get('expense_lines') or [],
-                  'Total Expenses', pnl.get('total_expenses') or 0,
-                  exp_font, 'DC2626')
+    write_section(
+        'REVENUE',
+        pnl.get('revenue_groups') or [],
+        pnl.get('revenue_lines') or [],
+        'Total Revenue', pnl.get('total_revenue') or 0,
+        rev_font, '16A34A',
+        pct_color_rev_font, pct_bold_rev,
+    )
+    write_section(
+        'EXPENSES',
+        pnl.get('expense_groups') or [],
+        pnl.get('expense_lines') or [],
+        'Total Expenses', pnl.get('total_expenses') or 0,
+        exp_font, 'DC2626',
+        pct_color_exp_font, pct_bold_exp,
+    )
     other_lines = pnl.get('other_lines') or []
     if other_lines:
         other_font = Font(bold=True, color='64748B', size=11)
-        write_section('OTHER MOVEMENTS (non-P&L)', other_lines,
-                      'Total Other', pnl.get('total_other') or 0,
-                      other_font, '64748B')
+        write_section(
+            'OTHER MOVEMENTS (non-P&L)',
+            [],  # no sub-grouping for balance-sheet movements
+            other_lines,
+            'Total Other', pnl.get('total_other') or 0,
+            other_font, '64748B',
+            pct_color_neutral, pct_bold_neutral,
+        )
 
     # Net + margin summary — % column blank, amount in column C.
     net_value = pnl.get('net') or 0
