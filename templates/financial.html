@@ -1694,6 +1694,27 @@
     margin-top: .35rem; font-size: .8rem; color: var(--text-muted);
     font-style: italic;
   }
+  /* Analytic entry animation — slide up + fade in, staggered per section
+     so the page assembles top-down. Keyframe is scoped to this tab via
+     the `analytic-` prefix so it doesn't collide with the chartAppear
+     used on Invoices/Bills (which scales instead). */
+  @keyframes analyticChartAppear {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .analytic-section {
+    animation: analyticChartAppear 0.5s ease forwards;
+  }
+  /* Stagger: treemap first, then waterfall + bubble (in their row),
+     then the top-5 tables row. Each block enters 150ms after the previous. */
+  #treemapSection                              { animation-delay: 0.00s; }
+  .analytic-charts-row #waterfallSection       { animation-delay: 0.15s; }
+  .analytic-charts-row #bubbleSection          { animation-delay: 0.30s; }
+  .analytic-tables-row .analytic-section:nth-child(1) { animation-delay: 0.45s; }
+  .analytic-tables-row .analytic-section:nth-child(2) { animation-delay: 0.60s; }
+  @media (prefers-reduced-motion: reduce) {
+    .analytic-section { animation: none; }
+  }
   .analytic-canvas-wrap { position: relative; width: 100%; height: 320px; }
   /* Treemap gets extra height so labels stay readable when there are many
      cost centres. */
@@ -4453,6 +4474,28 @@
     return '#eab308';
   }
 
+  // Parse #rrggbb (or shorthand) into {r,g,b}; returns null on failure.
+  function parseHex(hex) {
+    var h = String(hex || '').replace('#', '');
+    if (h.length === 3) h = h.split('').map(function (c) { return c + c; }).join('');
+    if (h.length !== 6) return null;
+    return {
+      r: parseInt(h.substr(0, 2), 16),
+      g: parseInt(h.substr(2, 2), 16),
+      b: parseInt(h.substr(4, 2), 16),
+    };
+  }
+  function rgbStr(c) { return c.r + ',' + c.g + ',' + c.b; }
+  // Move a color `amount` of the way toward white (0..1).
+  function lighten(hex, amount) {
+    var c = parseHex(hex);
+    if (!c) return hex;
+    var r = Math.round(c.r + (255 - c.r) * amount);
+    var g = Math.round(c.g + (255 - c.g) * amount);
+    var b = Math.round(c.b + (255 - c.b) * amount);
+    return 'rgb(' + r + ',' + g + ',' + b + ')';
+  }
+
   // ---- Treemap ----
   var tmCanvas = document.getElementById('treemapChart');
   var treemapChart = null;
@@ -4510,6 +4553,12 @@
             if (!d) return '#94a3b8';
             return netColor(d.net);
           },
+          // Hover: brighten the tile by lightening the base color ~12%.
+          hoverBackgroundColor: function (ctx) {
+            var d = ctx.raw && ctx.raw._data;
+            if (!d) return '#cbd5e1';
+            return lighten(netColor(d.net), 0.12);
+          },
           borderColor: '#fff',
           borderWidth: 1,
           spacing: 1,
@@ -4518,6 +4567,14 @@
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        animation: { duration: 800, easing: 'easeOutCubic' },
+        animations: {
+          numbers: { duration: 600, easing: 'easeOutQuart' },
+          colors:  { duration: 400, easing: 'easeOutQuart' },
+        },
+        transitions: {
+          active: { animation: { duration: 200, easing: 'easeOutQuart' } },
+        },
         plugins: {
           legend: { display: false },
           tooltip: {
@@ -4563,6 +4620,45 @@
     }
     if (waterfallChart) waterfallChart.destroy();
     if (!wfCanvas || !n) return;
+
+    // Horizontal gradient builder: 90% alpha on the left, 60% on the right.
+    // Returns the rgba() fallback while chartArea isn't ready (first paint).
+    function hBarGradient(rgb) {
+      return function (ctx) {
+        var area = ctx.chart && ctx.chart.chartArea;
+        var c    = ctx.chart && ctx.chart.ctx;
+        if (!area || !c) return 'rgba(' + rgb + ',0.9)';
+        var g = c.createLinearGradient(area.left, 0, area.right, 0);
+        g.addColorStop(0, 'rgba(' + rgb + ',0.9)');
+        g.addColorStop(1, 'rgba(' + rgb + ',0.6)');
+        return g;
+      };
+    }
+    var REV_RGB = '22,163,74';
+    var COST_RGB = '220,38,38';
+    var NET_POS_RGB = '37,99,235';
+    var NET_NEG_RGB = '124,58,237';
+    var BAR_GLOW_RGB = [REV_RGB, COST_RGB, NET_POS_RGB];
+
+    // Plugin: per-dataset glow via shadowBlur on the canvas context, so
+    // the bars get a colored halo that reads at a glance. For the Net
+    // dataset, the chosen color is the positive variant — close enough
+    // visually since negative net bars sit on the other side of zero.
+    var barGlow = {
+      id: 'analyticBarGlow',
+      beforeDatasetDraw: function (chart, args) {
+        var rgb = BAR_GLOW_RGB[args.index];
+        if (!rgb) return;
+        var c = chart.ctx;
+        c.save();
+        c.shadowColor = 'rgba(' + rgb + ',0.55)';
+        c.shadowBlur = 8;
+        c.shadowOffsetX = 0;
+        c.shadowOffsetY = 1;
+      },
+      afterDatasetDraw: function (chart) { chart.ctx.restore(); },
+    };
+
     waterfallChart = new Chart(wfCanvas.getContext('2d'), {
       data: {
         labels: labels,
@@ -4570,27 +4666,46 @@
           {
             type: 'bar', label: 'Revenue',
             data: sorted.map(function (r) { return r.revenue || 0; }),
-            backgroundColor: '#22c55e', borderColor: '#22c55e',
+            backgroundColor: hBarGradient(REV_RGB),
+            borderColor: 'rgba(' + REV_RGB + ',1)',
+            borderWidth: 0,
+            borderRadius: 4,
+            borderSkipped: false,
+            hoverBackgroundColor: 'rgba(' + REV_RGB + ',1)',
           },
           {
             type: 'bar', label: 'Cost',
             data: sorted.map(function (r) { return r.costs || 0; }),
-            backgroundColor: '#ef4444', borderColor: '#ef4444',
+            backgroundColor: hBarGradient(COST_RGB),
+            borderColor: 'rgba(' + COST_RGB + ',1)',
+            borderWidth: 0,
+            borderRadius: 4,
+            borderSkipped: false,
+            hoverBackgroundColor: 'rgba(' + COST_RGB + ',1)',
           },
           {
             type: 'bar', label: 'Net',
             data: sorted.map(function (r) { return r.net || 0; }),
             backgroundColor: function (ctx) {
               var v = ctx.raw;
-              return v >= 0 ? '#1d4ed8' : '#7c3aed';
+              var rgb = v >= 0 ? NET_POS_RGB : NET_NEG_RGB;
+              return hBarGradient(rgb)(ctx);
             },
-            borderColor: '#1d4ed8',
+            borderColor: 'rgba(' + NET_POS_RGB + ',1)',
+            borderWidth: 0,
+            borderRadius: 4,
+            borderSkipped: false,
           },
         ],
       },
+      plugins: [barGlow],
       options: {
         indexAxis: 'y',
         responsive: true, maintainAspectRatio: false,
+        animation: { duration: 1200, easing: 'easeOutQuart' },
+        animations: {
+          x: { from: 0, duration: 1200, easing: 'easeOutQuart' },
+        },
         interaction: { mode: 'index', intersect: false },
         plugins: {
           legend: { position: 'bottom' },
@@ -4654,6 +4769,36 @@
         _row: r,
       };
     });
+    // Per-point glow: before the dataset renders, iterate every element
+    // and stamp a soft halo using *its own* color via a throwaway fill
+    // — shadowBlur stains the canvas, then the bubble paints on top so
+    // each one ends up surrounded by a matching glow.
+    var bubbleGlow = {
+      id: 'bubbleGlow',
+      beforeDatasetDraw: function (chart, args) {
+        var ds   = chart.data.datasets[args.index];
+        var meta = chart.getDatasetMeta(args.index);
+        if (!meta || !meta.data) return;
+        var c = chart.ctx;
+        meta.data.forEach(function (pt, i) {
+          var raw = ds.data[i];
+          var row = raw && raw._row;
+          if (!row || typeof pt.x !== 'number') return;
+          var radius = (pt.options && pt.options.radius) || raw.r || 6;
+          c.save();
+          c.shadowColor = netColor(row.net || 0);
+          c.shadowBlur = 15;
+          c.shadowOffsetX = 0;
+          c.shadowOffsetY = 0;
+          c.beginPath();
+          c.arc(pt.x, pt.y, radius, 0, Math.PI * 2);
+          c.fillStyle = netColor(row.net || 0);
+          c.fill();
+          c.restore();
+        });
+      },
+    };
+
     bubbleChart = new Chart(bbCanvas.getContext('2d'), {
       type: 'bubble',
       data: {
@@ -4664,23 +4809,41 @@
             var r = ctx.raw && ctx.raw._row;
             if (!r) return '#94a3b8';
             var base = netColor(r.net || 0);
+            var p = parseHex(base);
+            if (!p) return base;
             // Soften fill when crowded so overlapping bubbles read clearly.
-            if (n > 50) {
-              // hex → rgba(.., 0.6)
-              var hex = base.replace('#', '');
-              var bigint = parseInt(hex, 16);
-              return 'rgba(' + ((bigint >> 16) & 255) + ','
-                             + ((bigint >> 8)  & 255) + ','
-                             + (bigint & 255) + ',0.6)';
-            }
-            return base;
+            var alpha = n > 50 ? 0.6 : 0.9;
+            return 'rgba(' + rgbStr(p) + ',' + alpha + ')';
           },
-          borderColor: '#1f2937',
-          borderWidth: 1,
+          // hoverBackgroundColor reads from the same row data; bump alpha
+          // and let hoverRadius below add a visible "grow" cue.
+          hoverBackgroundColor: function (ctx) {
+            var r = ctx.raw && ctx.raw._row;
+            if (!r) return '#94a3b8';
+            var p = parseHex(netColor(r.net || 0));
+            return p ? 'rgba(' + rgbStr(p) + ',1)' : '#94a3b8';
+          },
+          // Set the shadowColor per point via the standard Chart.js fields.
+          // These bind onto the canvas state during the draw of each elem.
+          pointStyle: 'circle',
+          borderColor: function (ctx) {
+            var r = ctx.raw && ctx.raw._row;
+            return r ? netColor(r.net || 0) : '#1f2937';
+          },
+          borderWidth: 1.5,
+          hoverBorderWidth: 2,
+          hoverRadius: 4,
         }],
       },
+      plugins: [bubbleGlow],
       options: {
         responsive: true, maintainAspectRatio: false,
+        animation: {
+          duration: 1000,
+          easing: 'easeOutElastic',
+          // Grow the radius from 0 to its computed value so bubbles "pop in".
+          animations: { r: { from: 0 } },
+        },
         plugins: {
           legend: { display: false },
           tooltip: {
