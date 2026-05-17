@@ -412,6 +412,89 @@ a:hover { text-decoration: none; }
   position: relative;
 }
 
+/* ===== Language switcher ===== */
+.lang-switcher {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .35rem;
+  padding: .35rem 0 .55rem;
+  margin: 0 .25rem .35rem;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+}
+.lang-btn {
+  background: transparent;
+  border: 0;
+  color: var(--sidebar-text);
+  font: inherit;
+  font-size: .82rem;
+  font-weight: 600;
+  padding: .25rem .55rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color .15s ease, color .15s ease;
+}
+.lang-btn:hover {
+  background: var(--sidebar-hover);
+  color: var(--sidebar-text-strong);
+}
+.lang-btn.active {
+  background: var(--primary);
+  color: #fff;
+}
+.lang-sep {
+  color: var(--sidebar-text);
+  opacity: .5;
+  font-size: .8rem;
+}
+
+/* ===== RTL: flip the entire shell when the document is in Arabic =====
+   The sidebar is `position: fixed; left: 0` by default — under [dir=rtl]
+   we anchor it to the right and switch the main-content offset so the
+   page mirrors. Most flexbox / grid layouts mirror automatically; the
+   exceptions below are for absolute / fixed positions and asymmetric
+   borders / margins that don't follow the writing direction. */
+[dir="rtl"] .sidebar {
+  left: auto;
+  right: 0;
+  border-right: 0;
+  border-left: 1px solid var(--sidebar-border);
+}
+[dir="rtl"] .main-content {
+  margin-left: 0;
+  margin-right: var(--sidebar-width);
+}
+[dir="rtl"] .theme-trigger { text-align: right; }
+[dir="rtl"] .theme-trigger-current { margin-left: 0; margin-right: auto; }
+/* Topbar uses flex — but a few inline-flex utility classes set
+   margin-left explicitly. Flip those when RTL. */
+[dir="rtl"] .compare-yoy--inline { margin-left: 0; margin-right: .25rem; }
+[dir="rtl"] .compare-yoy { margin-left: 0; margin-right: auto; }
+/* Reading direction for Latin-only numeric content stays LTR so digit
+   sequences and currency symbols don't reverse. */
+[dir="rtl"] .amount-display,
+[dir="rtl"] .stat-value-num,
+[dir="rtl"] code,
+[dir="rtl"] .topbar-title small {
+  direction: ltr;
+  unicode-bidi: isolate;
+  text-align: inherit;
+}
+/* Tables in RTL: default cells read right-aligned (matching the
+   writing direction). Amount columns that already specify
+   text-align:right in the template stay right-aligned in both
+   directions — finance convention is decimal-align on the right
+   regardless of language. */
+[dir="rtl"] .data-table th,
+[dir="rtl"] .data-table td {
+  text-align: right;
+}
+@media (max-width: 1024px) {
+  [dir="rtl"] .main-content { margin-right: 0; }
+  [dir="rtl"] .sidebar { transform: translateX(100%); }
+  [dir="rtl"] .sidebar.open { transform: translateX(0); }
+}
+
 /* ===== Theme switcher ===== */
 .theme-trigger {
   width: 100%;

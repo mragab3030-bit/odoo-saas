@@ -1,19 +1,25 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" dir="ltr">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Olens — Odoo Analytics Platform{% endblock %}</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-  {# Apply the saved theme before first paint so there's no flash of the
-     default theme on dark/midnight users. #}
+  {# Apply the saved theme and language before first paint — avoids
+     flashing the default theme or LTR layout for RTL users. #}
   <script>
     (function () {
       try {
         var t = localStorage.getItem('olens.theme');
         if (t === 'light' || t === 'midnight' || t === 'dark') {
           document.documentElement.setAttribute('data-theme', t);
+        }
+        var l = localStorage.getItem('olens.lang');
+        if (l === 'ar' || l === 'en') {
+          document.documentElement.lang = l;
+          document.documentElement.dir = l === 'ar' ? 'rtl' : 'ltr';
+          document.documentElement.setAttribute('data-lang', l);
         }
       } catch (e) {}
     })();
@@ -64,7 +70,7 @@
     {% if has_multi_company %}
     <form method="POST" action="{{ url_for('select_company') }}" class="sidebar-company">
       <label class="sidebar-company-label">
-        <i class="fa-solid fa-building"></i> Company
+        <i class="fa-solid fa-building"></i> <span data-i18n="company">Company</span>
       </label>
       <select name="company_id" onchange="this.form.submit()"
               class="form-control form-control-sm sidebar-company-select">
@@ -83,7 +89,7 @@
     {% elif selected_company %}
     <div class="sidebar-company">
       <div class="sidebar-company-label">
-        <i class="fa-solid fa-building"></i> Company
+        <i class="fa-solid fa-building"></i> <span data-i18n="company">Company</span>
       </div>
       <div class="sidebar-company-static" title="{{ selected_company.name }}">{{ selected_company.name }}</div>
       {% if _version_line %}
@@ -101,115 +107,124 @@
     {% endif %}
 
     <nav class="sidebar-nav">
-      <div class="sidebar-section-label">Overview</div>
+      <div class="sidebar-section-label" data-i18n="overview">Overview</div>
       <a href="{{ url_for('dashboard') }}" class="nav-item {% if request.endpoint == 'dashboard' %}active{% endif %}">
-        <i class="fa-solid fa-gauge-high"></i> Dashboard
+        <i class="fa-solid fa-gauge-high"></i> <span data-i18n="dashboard">Dashboard</span>
       </a>
 
-      <div class="sidebar-section-label" style="margin-top:.75rem">Finance</div>
+      <div class="sidebar-section-label" style="margin-top:.75rem" data-i18n="finance">Finance</div>
       <a href="{{ url_for('financial', tab='invoices') }}" class="nav-item {% if request.endpoint == 'financial' and request.args.get('tab') == 'invoices' %}active{% endif %}">
-        <i class="fa-solid fa-file-invoice-dollar"></i> Invoices
+        <i class="fa-solid fa-file-invoice-dollar"></i> <span data-i18n="invoices">Invoices</span>
       </a>
       <a href="{{ url_for('financial', tab='bills') }}" class="nav-item {% if request.endpoint == 'financial' and request.args.get('tab') == 'bills' %}active{% endif %}">
-        <i class="fa-solid fa-file-invoice"></i> Bills
+        <i class="fa-solid fa-file-invoice"></i> <span data-i18n="bills">Bills</span>
       </a>
       <a href="{{ url_for('financial', tab='banks') }}" class="nav-item {% if request.endpoint == 'financial' and request.args.get('tab') == 'banks' %}active{% endif %}">
-        <i class="fa-solid fa-building-columns"></i> Banks
+        <i class="fa-solid fa-building-columns"></i> <span data-i18n="banks">Banks</span>
       </a>
       {% set f_assets = features.get('assets', True) %}
       <a href="{% if f_assets %}{{ url_for('financial', tab='assets') }}{% else %}{{ url_for('feature_unavailable', feature='assets') }}{% endif %}"
          class="nav-item {% if not f_assets %}locked{% endif %} {% if request.endpoint == 'financial' and request.args.get('tab') == 'assets' %}active{% endif %}"
          {% if not f_assets %}title="Requires the account_asset module"{% endif %}>
-        <i class="fa-solid fa-boxes-packing"></i> Assets
+        <i class="fa-solid fa-boxes-packing"></i> <span data-i18n="assets">Assets</span>
         {% if not f_assets %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
       </a>
       {% set f_expenses = features.get('expenses', True) %}
       <a href="{% if f_expenses %}{{ url_for('financial', tab='expenses') }}{% else %}{{ url_for('feature_unavailable', feature='expenses') }}{% endif %}"
          class="nav-item {% if not f_expenses %}locked{% endif %} {% if request.endpoint == 'financial' and request.args.get('tab') == 'expenses' %}active{% endif %}"
          {% if not f_expenses %}title="Requires the hr_expense module"{% endif %}>
-        <i class="fa-solid fa-receipt"></i> Expenses
+        <i class="fa-solid fa-receipt"></i> <span data-i18n="expenses">Expenses</span>
         {% if not f_expenses %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
       </a>
       {% set f_analytic = features.get('analytic', True) %}
       <a href="{% if f_analytic %}{{ url_for('financial', tab='analytic') }}{% else %}{{ url_for('feature_unavailable', feature='analytic') }}{% endif %}"
          class="nav-item {% if not f_analytic %}locked{% endif %} {% if request.endpoint == 'financial' and request.args.get('tab') == 'analytic' %}active{% endif %}"
          {% if not f_analytic %}title="Requires the analytic module"{% endif %}>
-        <i class="fa-solid fa-diagram-project"></i> Analytic
+        <i class="fa-solid fa-diagram-project"></i> <span data-i18n="analytic">Analytic</span>
         {% if not f_analytic %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
       </a>
 
       {% set f_inv = features.get('inventory', True) %}
-      <div class="sidebar-section-label" style="margin-top:.75rem">Inventory</div>
+      <div class="sidebar-section-label" style="margin-top:.75rem" data-i18n="inventory">Inventory</div>
       <a href="{% if f_inv %}{{ url_for('inventory', tab='stock') }}{% else %}{{ url_for('feature_unavailable', feature='inventory') }}{% endif %}"
          class="nav-item {% if not f_inv %}locked{% endif %} {% if request.endpoint == 'inventory' and request.args.get('tab','stock') == 'stock' %}active{% endif %}"
          {% if not f_inv %}title="Requires the stock module"{% endif %}>
-        <i class="fa-solid fa-warehouse"></i> Stock
+        <i class="fa-solid fa-warehouse"></i> <span data-i18n="stock">Stock</span>
         {% if not f_inv %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
       </a>
       <a href="{% if f_inv %}{{ url_for('inventory', tab='movements') }}{% else %}{{ url_for('feature_unavailable', feature='inventory') }}{% endif %}"
          class="nav-item {% if not f_inv %}locked{% endif %} {% if request.endpoint == 'inventory' and request.args.get('tab') == 'movements' %}active{% endif %}"
          {% if not f_inv %}title="Requires the stock module"{% endif %}>
-        <i class="fa-solid fa-arrows-rotate"></i> Movements
+        <i class="fa-solid fa-arrows-rotate"></i> <span data-i18n="movements">Movements</span>
         {% if not f_inv %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
       </a>
       <a href="{% if f_inv %}{{ url_for('inventory', tab='valuation') }}{% else %}{{ url_for('feature_unavailable', feature='inventory') }}{% endif %}"
          class="nav-item {% if not f_inv %}locked{% endif %} {% if request.endpoint == 'inventory' and request.args.get('tab') == 'valuation' %}active{% endif %}"
          {% if not f_inv %}title="Requires the stock module"{% endif %}>
-        <i class="fa-solid fa-scale-balanced"></i> Valuation
+        <i class="fa-solid fa-scale-balanced"></i> <span data-i18n="valuation">Valuation</span>
         {% if not f_inv %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
       </a>
 
       {% set f_sales = features.get('sales', True) %}
-      <div class="sidebar-section-label" style="margin-top:.75rem">Sales</div>
+      <div class="sidebar-section-label" style="margin-top:.75rem" data-i18n="sales">Sales</div>
       <a href="{% if f_sales %}{{ url_for('sales', tab='pipeline') }}{% else %}{{ url_for('feature_unavailable', feature='sales') }}{% endif %}"
          class="nav-item {% if not f_sales %}locked{% endif %} {% if request.endpoint == 'sales' and request.args.get('tab') == 'pipeline' %}active{% endif %}"
          {% if not f_sales %}title="Requires the sale_management module"{% endif %}>
-        <i class="fa-solid fa-funnel-dollar"></i> Pipeline
+        <i class="fa-solid fa-funnel-dollar"></i> <span data-i18n="pipeline">Pipeline</span>
         {% if not f_sales %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
       </a>
       <a href="{% if f_sales %}{{ url_for('sales', tab='orders') }}{% else %}{{ url_for('feature_unavailable', feature='sales') }}{% endif %}"
          class="nav-item {% if not f_sales %}locked{% endif %} {% if request.endpoint == 'sales' and request.args.get('tab','orders') == 'orders' %}active{% endif %}"
          {% if not f_sales %}title="Requires the sale_management module"{% endif %}>
-        <i class="fa-solid fa-cart-shopping"></i> Orders
+        <i class="fa-solid fa-cart-shopping"></i> <span data-i18n="orders">Orders</span>
         {% if not f_sales %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
       </a>
 
       {% set f_att = features.get('hr_attendance', True) %}
       {% set f_leave = features.get('hr_leave', True) %}
-      <div class="sidebar-section-label" style="margin-top:.75rem">Human Resources</div>
+      <div class="sidebar-section-label" style="margin-top:.75rem" data-i18n="human_resources">Human Resources</div>
       <a href="{% if f_att %}{{ url_for('hr', tab='attendance') }}{% else %}{{ url_for('feature_unavailable', feature='hr_attendance') }}{% endif %}"
          class="nav-item {% if not f_att %}locked{% endif %} {% if request.endpoint == 'hr' and request.args.get('tab','attendance') == 'attendance' %}active{% endif %}"
          {% if not f_att %}title="Requires the hr_attendance module"{% endif %}>
-        <i class="fa-solid fa-clock"></i> Attendance
+        <i class="fa-solid fa-clock"></i> <span data-i18n="attendance">Attendance</span>
         {% if not f_att %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
       </a>
       <a href="{% if f_leave %}{{ url_for('hr', tab='leave') }}{% else %}{{ url_for('feature_unavailable', feature='hr_leave') }}{% endif %}"
          class="nav-item {% if not f_leave %}locked{% endif %} {% if request.endpoint == 'hr' and request.args.get('tab') == 'leave' %}active{% endif %}"
          {% if not f_leave %}title="Requires the hr_holidays module"{% endif %}>
-        <i class="fa-solid fa-calendar-xmark"></i> Leave
+        <i class="fa-solid fa-calendar-xmark"></i> <span data-i18n="leave">Leave</span>
         {% if not f_leave %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
       </a>
 
       {% set f_mfg = features.get('manufacturing', True) %}
-      <div class="sidebar-section-label" style="margin-top:.75rem">Manufacturing</div>
+      <div class="sidebar-section-label" style="margin-top:.75rem" data-i18n="manufacturing">Manufacturing</div>
       <a href="{% if f_mfg %}{{ url_for('manufacturing') }}{% else %}{{ url_for('feature_unavailable', feature='manufacturing') }}{% endif %}"
          class="nav-item {% if not f_mfg %}locked{% endif %} {% if request.endpoint == 'manufacturing' %}active{% endif %}"
          {% if not f_mfg %}title="Requires the mrp module"{% endif %}>
-        <i class="fa-solid fa-industry"></i> Production
+        <i class="fa-solid fa-industry"></i> <span data-i18n="production">Production</span>
         {% if not f_mfg %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
       </a>
     </nav>
 
     <div class="sidebar-footer">
+      <div class="lang-switcher" role="group" aria-label="Language">
+        <button type="button" class="lang-btn active" data-lang="en"
+                aria-pressed="true"
+                onclick="window.olensI18n && window.olensI18n.set('en')">EN</button>
+        <span class="lang-sep" aria-hidden="true">|</span>
+        <button type="button" class="lang-btn" data-lang="ar"
+                aria-pressed="false"
+                onclick="window.olensI18n && window.olensI18n.set('ar')">عربي</button>
+      </div>
       <button type="button" class="nav-item theme-trigger" id="themeTrigger"
               aria-haspopup="true" aria-expanded="false">
         <i class="fa-solid fa-palette"></i>
-        <span>Theme</span>
+        <span data-i18n="theme">Theme</span>
         <span class="theme-trigger-current" id="themeTriggerCurrent">Dark</span>
       </button>
 
       <div class="theme-popover" id="themePopover" role="dialog" aria-label="Choose theme" hidden>
-        <div class="theme-popover-title">COLOR THEME</div>
+        <div class="theme-popover-title" data-i18n="color_theme">COLOR THEME</div>
         <div class="theme-options">
           <button type="button" class="theme-option" data-theme="dark" aria-label="Dark theme">
             <span class="theme-swatch theme-swatch--dark">
@@ -261,21 +276,21 @@
           <button type="button" class="btn btn-outline btn-sm" id="refreshBtn"
                   title="Refresh data" aria-label="Refresh data">
             <i class="fa-solid fa-rotate refresh-icon"></i>
-            <span class="d-none d-sm-inline">Refresh</span>
+            <span class="d-none d-sm-inline" data-i18n="refresh">Refresh</span>
           </button>
           <select class="form-control form-control-sm refresh-interval"
                   id="refreshInterval" aria-label="Auto-refresh interval">
-            <option value="0">Manual</option>
-            <option value="5">5 min</option>
-            <option value="15">15 min</option>
-            <option value="30">30 min</option>
+            <option value="0" data-i18n="manual">Manual</option>
+            <option value="5" data-i18n="min_5">5 min</option>
+            <option value="15" data-i18n="min_15">15 min</option>
+            <option value="30" data-i18n="min_30">30 min</option>
           </select>
           <span class="refresh-stamp" id="refreshStamp" aria-live="polite"></span>
         </div>
         {% block topbar_actions %}{% endblock %}
         <a href="{{ url_for('logout') }}" class="btn btn-outline btn-sm">
           <i class="fa-solid fa-right-from-bracket"></i>
-          <span class="d-none d-sm-inline">Logout</span>
+          <span class="d-none d-sm-inline" data-i18n="logout">Logout</span>
         </a>
       </div>
     </header>
@@ -303,6 +318,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-treemap@2.3.1/dist/chartjs-chart-treemap.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+<script src="{{ url_for('static', filename='js/i18n.js') }}"></script>
 <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 {% block scripts %}{% endblock %}
 </body>

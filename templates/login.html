@@ -34,7 +34,7 @@
         </svg>
       </div>
       <h1>Olens</h1>
-      <p>Odoo Analytics Platform</p>
+      <p data-i18n="odoo_analytics_platform">Odoo Analytics Platform</p>
     </div>
 
     {% with messages = get_flashed_messages(with_categories=true) %}
@@ -50,7 +50,7 @@
       <div style="display:flex;flex-direction:column;gap:1rem;">
 
         <div class="filter-group" style="width:100%">
-          <label for="url">Odoo URL</label>
+          <label for="url" data-i18n="odoo_url">Odoo URL</label>
           <input
             type="text" id="url" name="url"
             class="form-control"
@@ -62,7 +62,7 @@
         </div>
 
         <div class="filter-group" style="width:100%">
-          <label for="database">Database Name</label>
+          <label for="database" data-i18n="database">Database Name</label>
           <input
             type="text" id="database" name="database"
             class="form-control"
@@ -74,7 +74,7 @@
         </div>
 
         <div class="filter-group" style="width:100%">
-          <label for="username">Username / Email</label>
+          <label for="username" data-i18n="username">Username / Email</label>
           <input
             type="text" id="username" name="username"
             class="form-control"
@@ -86,7 +86,7 @@
         </div>
 
         <div class="filter-group" style="width:100%">
-          <label for="api_key">API Key / Password</label>
+          <label for="api_key" data-i18n="api_key">API Key / Password</label>
           <div style="position:relative">
             <input
               type="password" id="api_key" name="api_key"
@@ -101,12 +101,12 @@
               <i class="fa-solid fa-eye" id="eyeIcon"></i>
             </button>
           </div>
-          <small style="color:#94a3b8;font-size:.72rem;margin-top:.25rem">
+          <small style="color:#94a3b8;font-size:.72rem;margin-top:.25rem" data-i18n="api_key_help">
             In Odoo: Settings → Technical → API Keys → Create
           </small>
         </div>
 
-        <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:.6rem 1rem;font-size:.9rem">
+        <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:.6rem 1rem;font-size:.9rem" data-i18n="connect_to_odoo">
           <i class="fa-solid fa-right-to-bracket"></i>
           Connect to Odoo
         </button>
@@ -115,7 +115,7 @@
     </form>
 
     <div style="text-align:center;margin-top:1.5rem;padding-top:1.25rem;border-top:1px solid #e2e8f0">
-      <p style="font-size:.75rem;color:#94a3b8;margin:0">
+      <p style="font-size:.75rem;color:#94a3b8;margin:0" data-i18n="secure_xmlrpc">
         Secure XML-RPC connection &bull; Credentials stored in session only
       </p>
     </div>

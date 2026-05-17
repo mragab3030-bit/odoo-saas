@@ -19,10 +19,10 @@
 
 <div class="tab-bar">
   <a href="{{ url_for('hr', tab='attendance') }}" class="tab-item {% if tab == 'attendance' %}active{% endif %}">
-    <i class="fa-solid fa-clock"></i> Attendance
+    <i class="fa-solid fa-clock"></i> <span data-i18n="attendance">Attendance</span>
   </a>
   <a href="{{ url_for('hr', tab='leave') }}" class="tab-item {% if tab == 'leave' %}active{% endif %}">
-    <i class="fa-solid fa-calendar-xmark"></i> Leave
+    <i class="fa-solid fa-calendar-xmark"></i> <span data-i18n="leave">Leave</span>
   </a>
 </div>
 
@@ -32,46 +32,46 @@
 <div class="stat-grid">
   <div class="stat-card">
     <div class="stat-value">{{ stats.count }}</div>
-    <div class="stat-label">Total Records</div>
+    <div class="stat-label" data-i18n="total_records">Total Records</div>
   </div>
   <div class="stat-card">
     <div class="stat-value" style="color:var(--primary)">{{ (stats.total_hours or 0) | round(1) }}h</div>
-    <div class="stat-label">Total Hours</div>
+    <div class="stat-label" data-i18n="total_hours">Total Hours</div>
   </div>
   <div class="stat-card">
     <div class="stat-value" style="color:var(--success)">{{ stats.today_count }}</div>
-    <div class="stat-label">Present Today</div>
+    <div class="stat-label" data-i18n="present_today">Present Today</div>
   </div>
   <div class="stat-card">
     <div class="stat-value">{{ (stats.avg_hours or 0) | round(1) }}h</div>
-    <div class="stat-label">Avg Hours / Session</div>
+    <div class="stat-label" data-i18n="avg_hours_session">Avg Hours / Session</div>
   </div>
 </div>
 
 <form method="GET" action="{{ url_for('hr') }}" class="filter-bar">
   <input type="hidden" name="tab" value="attendance">
   <div class="filter-group">
-    <label>Search Employee</label>
+    <label data-i18n="search">Search Employee</label>
     <input type="text" name="search" class="form-control form-control-sm" placeholder="Employee name…" value="{{ search }}">
   </div>
   <div class="filter-group">
-    <label>From</label>
+    <label data-i18n="from">From</label>
     <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
   </div>
   <div class="filter-group">
-    <label>To</label>
+    <label data-i18n="to">To</label>
     <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
   </div>
   <div class="filter-group" style="justify-content:flex-end">
     <label>&nbsp;</label>
-    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> Filter</button>
+    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> <span data-i18n="filter">Filter</span></button>
   </div>
 </form>
 
 <div class="card table-card">
   <table class="data-table">
     <thead>
-      <tr><th>Employee</th><th>Check In</th><th>Check Out</th><th>Duration</th><th>Status</th></tr>
+      <tr><th data-i18n="employee">Employee</th><th data-i18n="check_in">Check In</th><th data-i18n="check_out">Check Out</th><th data-i18n="duration">Duration</th><th data-i18n="status">Status</th></tr>
     </thead>
     <tbody>
       {% for a in records %}
@@ -79,7 +79,7 @@
       <tr>
         <td><strong>{{ a.employee_id[1] if a.employee_id else '—' }}</strong></td>
         <td style="font-size:.78rem">{{ a.check_in[:16] if a.check_in else '—' }}</td>
-        <td style="font-size:.78rem">{{ a.check_out[:16] if a.check_out else '<span style="color:var(--warning);font-weight:600">Still In</span>' | safe }}</td>
+        <td style="font-size:.78rem">{{ a.check_out[:16] if a.check_out else '<span style="color:var(--warning);font-weight:600" data-i18n="still_in">Still In</span>' | safe }}</td>
         <td>
           {% if hours %}
           <span class="{{ 'num-positive' if hours >= 6 else ('num-neutral' if hours >= 4 else 'num-negative') }}">
@@ -89,18 +89,18 @@
         </td>
         <td>
           {% if not a.check_out %}
-            <span class="badge badge-warning">Active</span>
+            <span class="badge badge-warning" data-i18n="active">Active</span>
           {% elif hours >= 8 %}
-            <span class="badge badge-success">Full Day</span>
+            <span class="badge badge-success" data-i18n="full_day">Full Day</span>
           {% elif hours >= 4 %}
-            <span class="badge badge-info">Half Day</span>
+            <span class="badge badge-info" data-i18n="half_day">Half Day</span>
           {% else %}
-            <span class="badge badge-danger">Short</span>
+            <span class="badge badge-danger" data-i18n="short">Short</span>
           {% endif %}
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="5"><div class="empty-state"><i class="fa-solid fa-clock"></i><p>No attendance records found</p></div></td></tr>
+      <tr><td colspan="5"><div class="empty-state"><i class="fa-solid fa-clock"></i><p data-i18n="no_attendance_records">No attendance records found</p></div></td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -113,43 +113,43 @@
 <div class="stat-grid">
   <div class="stat-card">
     <div class="stat-value">{{ stats.count }}</div>
-    <div class="stat-label">Total Requests</div>
+    <div class="stat-label" data-i18n="total_requests">Total Requests</div>
   </div>
   <div class="stat-card">
     <div class="stat-value" style="color:var(--warning)">{{ stats.pending }}</div>
-    <div class="stat-label">Pending Approval</div>
+    <div class="stat-label" data-i18n="pending_approval">Pending Approval</div>
   </div>
   <div class="stat-card">
     <div class="stat-value" style="color:var(--success)">{{ stats.approved }}</div>
-    <div class="stat-label">Approved</div>
+    <div class="stat-label" data-i18n="approved">Approved</div>
   </div>
   <div class="stat-card">
     <div class="stat-value" style="color:var(--primary)">{{ (stats.approved_days or 0) | round(1) }}</div>
-    <div class="stat-label">Approved Days</div>
+    <div class="stat-label" data-i18n="approved_days">Approved Days</div>
   </div>
   <div class="stat-card">
     <div class="stat-value" style="color:var(--danger)">{{ stats.refused }}</div>
-    <div class="stat-label">Refused</div>
+    <div class="stat-label" data-i18n="refused">Refused</div>
   </div>
 </div>
 
 <form method="GET" action="{{ url_for('hr') }}" class="filter-bar">
   <input type="hidden" name="tab" value="leave">
   <div class="filter-group">
-    <label>Search</label>
+    <label data-i18n="search">Search</label>
     <input type="text" name="search" class="form-control form-control-sm" placeholder="Employee or leave type…" value="{{ search }}">
   </div>
   <div class="filter-group">
-    <label>From</label>
+    <label data-i18n="from">From</label>
     <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
   </div>
   <div class="filter-group">
-    <label>To</label>
+    <label data-i18n="to">To</label>
     <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
   </div>
   <div class="filter-group" style="justify-content:flex-end">
     <label>&nbsp;</label>
-    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> Filter</button>
+    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> <span data-i18n="filter">Filter</span></button>
   </div>
 </form>
 
@@ -157,7 +157,7 @@
   <div class="card table-card">
     <table class="data-table">
       <thead>
-        <tr><th>Employee</th><th>Leave Type</th><th>From</th><th>To</th><th>Days</th><th>Status</th></tr>
+        <tr><th data-i18n="employee">Employee</th><th data-i18n="leave_type">Leave Type</th><th data-i18n="from">From</th><th data-i18n="to">To</th><th data-i18n="days">Days</th><th data-i18n="status">Status</th></tr>
       </thead>
       <tbody>
         {% for leave in records %}
@@ -168,16 +168,16 @@
           <td style="font-size:.78rem">{{ leave.date_to[:10] if leave.date_to else '—' }}</td>
           <td><strong>{{ (leave.number_of_days or 0) | round(1) }}</strong></td>
           <td>
-            {% if leave.state == 'draft' %}<span class="badge badge-secondary">Draft</span>
-            {% elif leave.state == 'confirm' %}<span class="badge badge-warning">Pending</span>
-            {% elif leave.state == 'validate1' %}<span class="badge badge-info">2nd Approval</span>
-            {% elif leave.state == 'validate' %}<span class="badge badge-success">Approved</span>
-            {% elif leave.state == 'refuse' %}<span class="badge badge-danger">Refused</span>
+            {% if leave.state == 'draft' %}<span class="badge badge-secondary" data-i18n="draft">Draft</span>
+            {% elif leave.state == 'confirm' %}<span class="badge badge-warning" data-i18n="pending">Pending</span>
+            {% elif leave.state == 'validate1' %}<span class="badge badge-info" data-i18n="second_approval">2nd Approval</span>
+            {% elif leave.state == 'validate' %}<span class="badge badge-success" data-i18n="approved">Approved</span>
+            {% elif leave.state == 'refuse' %}<span class="badge badge-danger" data-i18n="refused">Refused</span>
             {% else %}<span class="badge badge-secondary">{{ leave.state }}</span>{% endif %}
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="6"><div class="empty-state"><i class="fa-solid fa-calendar-xmark"></i><p>No leave requests found</p></div></td></tr>
+        <tr><td colspan="6"><div class="empty-state"><i class="fa-solid fa-calendar-xmark"></i><p data-i18n="no_leave_requests">No leave requests found</p></div></td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -185,7 +185,7 @@
   </div>
 
   <div class="card">
-    <div class="card-header"><i class="fa-solid fa-chart-pie" style="color:var(--primary)"></i><h5>Leave Status</h5></div>
+    <div class="card-header"><i class="fa-solid fa-chart-pie" style="color:var(--primary)"></i><h5 data-i18n="leave_status">Leave Status</h5></div>
     <div class="card-body" style="padding:.75rem">
       <canvas id="leaveChart" style="max-height:220px"></canvas>
     </div>

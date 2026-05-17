@@ -26,22 +26,22 @@
 <!-- Tabs -->
 <div class="tab-bar">
   <a href="{{ url_for('financial', tab='invoices') }}" class="tab-item {% if tab == 'invoices' %}active{% endif %}">
-    <i class="fa-solid fa-file-invoice-dollar"></i> Invoices
+    <i class="fa-solid fa-file-invoice-dollar"></i> <span data-i18n="invoices">Invoices</span>
   </a>
   <a href="{{ url_for('financial', tab='bills') }}" class="tab-item {% if tab == 'bills' %}active{% endif %}">
-    <i class="fa-solid fa-file-invoice"></i> Bills
+    <i class="fa-solid fa-file-invoice"></i> <span data-i18n="bills">Bills</span>
   </a>
   <a href="{{ url_for('financial', tab='banks') }}" class="tab-item {% if tab == 'banks' %}active{% endif %}">
-    <i class="fa-solid fa-building-columns"></i> Banks
+    <i class="fa-solid fa-building-columns"></i> <span data-i18n="banks">Banks</span>
   </a>
   <a href="{{ url_for('financial', tab='assets') }}" class="tab-item {% if tab == 'assets' %}active{% endif %}">
-    <i class="fa-solid fa-boxes-packing"></i> Assets
+    <i class="fa-solid fa-boxes-packing"></i> <span data-i18n="assets">Assets</span>
   </a>
   <a href="{{ url_for('financial', tab='expenses') }}" class="tab-item {% if tab == 'expenses' %}active{% endif %}">
-    <i class="fa-solid fa-receipt"></i> Expenses
+    <i class="fa-solid fa-receipt"></i> <span data-i18n="expenses">Expenses</span>
   </a>
   <a href="{{ url_for('financial', tab='analytic') }}" class="tab-item {% if tab == 'analytic' %}active{% endif %}">
-    <i class="fa-solid fa-diagram-project"></i> Analytic
+    <i class="fa-solid fa-diagram-project"></i> <span data-i18n="analytic">Analytic</span>
   </a>
 </div>
 
@@ -58,7 +58,7 @@
 {% set ccy = (selected_company.currency_name if selected_company else '') or '' %}
 
 <div class="amount-format-toolbar" data-amount-toolbar>
-  <span class="amount-format-label">Show amounts in</span>
+  <span class="amount-format-label" data-i18n="show_amounts_in">Show amounts in</span>
   <div class="amount-format-group" role="group" aria-label="Amount format">
     <button type="button" class="amount-format-btn" data-format="units">Units</button>
     <button type="button" class="amount-format-btn" data-format="k">K</button>
@@ -84,24 +84,24 @@
      data-default-from="{{ kpi_date_from }}"
      data-default-to="{{ kpi_date_to }}">
   <div class="kpi-section-header">
-    <div class="kpi-section-title">OVERVIEW PERIOD</div>
+    <div class="kpi-section-title" data-i18n="overview_period">OVERVIEW PERIOD</div>
     <div class="kpi-section-controls">
       <select id="kpiRange" class="kpi-range-select">
-        <option value="today">Today</option>
-        <option value="this_month">This Month</option>
-        <option value="last_month">Last Month</option>
-        <option value="this_quarter">This Quarter</option>
-        <option value="last_quarter">Last Quarter</option>
-        <option value="ytd">Year to Date</option>
-        <option value="last_year">Last Year</option>
-        <option value="all_time">All Time</option>
-        <option value="custom">Custom</option>
+        <option value="today" data-i18n="today">Today</option>
+        <option value="this_month" data-i18n="this_month">This Month</option>
+        <option value="last_month" data-i18n="last_month">Last Month</option>
+        <option value="this_quarter" data-i18n="this_quarter">This Quarter</option>
+        <option value="last_quarter" data-i18n="last_quarter">Last Quarter</option>
+        <option value="ytd" data-i18n="ytd">Year to Date</option>
+        <option value="last_year" data-i18n="last_year">Last Year</option>
+        <option value="all_time" data-i18n="all_time">All Time</option>
+        <option value="custom" data-i18n="custom">Custom</option>
       </select>
       <input type="date" id="kpiDateFrom" style="display:none">
       <input type="date" id="kpiDateTo"   style="display:none">
       <label class="compare-yoy compare-yoy--inline">
         <input type="checkbox" id="kpiCompareYoy" {% if compare_yoy %}checked{% endif %}>
-        <span>Compare with same period last year</span>
+        <span data-i18n="compare_last_year">Compare with same period last year</span>
       </label>
     </div>
   </div>
@@ -111,7 +111,7 @@
     <div class="kpi-group">
       <div class="stat-card">
         <div class="stat-value stat-value-num" id="kpiCount">{{ stats.count }}</div>
-        <div class="stat-label">Total {{ doc_label }}s</div>
+        <div class="stat-label" data-i18n="{{ 'total_bills' if is_bills else 'total_invoices' }}">Total {{ doc_label }}s</div>
       </div>
       <div class="stat-card">
         <div class="stat-value stat-value-num" style="color:var(--text)">
@@ -119,7 +119,7 @@
             {{ ccy }} {{ stats.total | fmt_currency_int }}
           </span>
         </div>
-        <div class="stat-label">Total Amount</div>
+        <div class="stat-label" data-i18n="total_amount">Total Amount</div>
       </div>
       <div class="stat-card">
         <div class="stat-value stat-value-num" style="color:var(--success)">
@@ -127,7 +127,7 @@
             {{ ccy }} {{ stats.paid | fmt_currency_int }}
           </span>
         </div>
-        <div class="stat-label">Paid</div>
+        <div class="stat-label" data-i18n="paid">Paid</div>
       </div>
       <div class="stat-card">
         <div class="stat-value stat-value-num" style="color:var(--danger)">
@@ -135,7 +135,7 @@
             {{ ccy }} {{ stats.unpaid | fmt_currency_int }}
           </span>
         </div>
-        <div class="stat-label">Outstanding</div>
+        <div class="stat-label" data-i18n="outstanding">Outstanding</div>
       </div>
     </div>
 
@@ -148,7 +148,7 @@
           <span id="cmpPillCount">{{ compare_pill(compare_pct.count) }}</span>
           <span class="compare-vs" id="cmpLabelCount">{{ compare_label }}</span>
         </div>
-        <div class="stat-label">Total {{ doc_label }}s</div>
+        <div class="stat-label" data-i18n="{{ 'total_bills' if is_bills else 'total_invoices' }}">Total {{ doc_label }}s</div>
       </div>
       <div class="stat-card compare-card">
         <div class="stat-value stat-value-num compare-value">
@@ -160,7 +160,7 @@
           <span id="cmpPillTotal">{{ compare_pill(compare_pct.total) }}</span>
           <span class="compare-vs" id="cmpLabelTotal">{{ compare_label }}</span>
         </div>
-        <div class="stat-label">Total Amount</div>
+        <div class="stat-label" data-i18n="total_amount">Total Amount</div>
       </div>
       <div class="stat-card compare-card">
         <div class="stat-value stat-value-num compare-value">
@@ -172,7 +172,7 @@
           <span id="cmpPillPaid">{{ compare_pill(compare_pct.paid) }}</span>
           <span class="compare-vs" id="cmpLabelPaid">{{ compare_label }}</span>
         </div>
-        <div class="stat-label">Paid</div>
+        <div class="stat-label" data-i18n="paid">Paid</div>
       </div>
       <div class="stat-card compare-card">
         <div class="stat-value stat-value-num compare-value">
@@ -184,7 +184,7 @@
           <span id="cmpPillUnpaid">{{ compare_pill(compare_pct.unpaid) }}</span>
           <span class="compare-vs" id="cmpLabelUnpaid">{{ compare_label }}</span>
         </div>
-        <div class="stat-label">Outstanding</div>
+        <div class="stat-label" data-i18n="outstanding">Outstanding</div>
       </div>
     </div>
     {% endif %}
@@ -627,17 +627,17 @@
   <div class="trend-header">
     <div class="trend-title">
       <i class="fa-solid fa-chart-line"></i>
-      {{ doc_label | upper }} TREND
+      <span data-i18n="{{ 'bill_trend' if is_bills else 'invoice_trend' }}">{{ doc_label | upper }} TREND</span>
     </div>
     <div class="trend-controls">
       <select id="trendRangeSelect" aria-label="Trend period">
-        <option value="this_quarter">This Quarter</option>
-        <option value="last_quarter">Last Quarter</option>
-        <option value="last_6" selected>Last 6 Months</option>
-        <option value="this_year">This Year</option>
-        <option value="last_year">Last Year</option>
-        <option value="last_2_years">Last 2 Years</option>
-        <option value="custom">Custom</option>
+        <option value="this_quarter" data-i18n="this_quarter">This Quarter</option>
+        <option value="last_quarter" data-i18n="last_quarter">Last Quarter</option>
+        <option value="last_6" selected data-i18n="last_6_months">Last 6 Months</option>
+        <option value="this_year" data-i18n="this_year">This Year</option>
+        <option value="last_year" data-i18n="last_year">Last Year</option>
+        <option value="last_2_years" data-i18n="last_2_years">Last 2 Years</option>
+        <option value="custom" data-i18n="custom">Custom</option>
       </select>
       <input type="date" id="trendDateFrom" style="display:none" aria-label="From date">
       <input type="date" id="trendDateTo"   style="display:none" aria-label="To date">
@@ -660,17 +660,17 @@
      data-currency="{{ ccy }}"
      data-tax-label="{{ tax_label }}">
   <div class="tax-header">
-    <div class="tax-title">TAX SUMMARY</div>
+    <div class="tax-title" data-i18n="tax_summary">TAX SUMMARY</div>
     <div class="tax-controls">
       <select id="taxRangeSelect" aria-label="Tax period">
-        <option value="this_quarter">This Quarter</option>
-        <option value="last_quarter">Last Quarter</option>
-        <option value="last_6">Last 6 Months</option>
-        <option value="this_year">This Year</option>
-        <option value="ytd" selected>Year to Date (YTD)</option>
-        <option value="last_year">Last Year</option>
-        <option value="last_2_years">Last 2 Years</option>
-        <option value="custom">Custom</option>
+        <option value="this_quarter" data-i18n="this_quarter">This Quarter</option>
+        <option value="last_quarter" data-i18n="last_quarter">Last Quarter</option>
+        <option value="last_6" data-i18n="last_6_months">Last 6 Months</option>
+        <option value="this_year" data-i18n="this_year">This Year</option>
+        <option value="ytd" selected data-i18n="ytd">Year to Date (YTD)</option>
+        <option value="last_year" data-i18n="last_year">Last Year</option>
+        <option value="last_2_years" data-i18n="last_2_years">Last 2 Years</option>
+        <option value="custom" data-i18n="custom">Custom</option>
       </select>
       <input type="date" id="taxDateFrom" style="display:none" aria-label="From date">
       <input type="date" id="taxDateTo"   style="display:none" aria-label="To date">
@@ -678,7 +678,7 @@
   </div>
   <div class="tax-cards">
     <div class="tax-card untaxed">
-      <div class="tax-card-label">Total Untaxed</div>
+      <div class="tax-card-label" data-i18n="total_untaxed">Total Untaxed</div>
       <div class="tax-card-value">
         <span class="amount-display" id="taxUntaxed"
               data-amount="{{ tax_summary.untaxed or 0 }}" data-currency="{{ ccy }}">
@@ -687,7 +687,7 @@
       </div>
     </div>
     <div class="tax-card tax">
-      <div class="tax-card-label" id="taxTaxLabel">{{ tax_label }}</div>
+      <div class="tax-card-label" id="taxTaxLabel" data-i18n="{{ 'vat_paid' if is_bills else 'vat_collected' }}">{{ tax_label }}</div>
       <div class="tax-card-value">
         <span class="amount-display" id="taxTax"
               data-amount="{{ tax_summary.tax or 0 }}" data-currency="{{ ccy }}">
@@ -696,7 +696,7 @@
       </div>
     </div>
     <div class="tax-card total">
-      <div class="tax-card-label">Total with Tax</div>
+      <div class="tax-card-label" data-i18n="total_with_tax">Total with Tax</div>
       <div class="tax-card-value">
         <span class="amount-display" id="taxTotal"
               data-amount="{{ tax_summary.total or 0 }}" data-currency="{{ ccy }}">
@@ -733,34 +733,34 @@
   {% if cashflow_filter %}<input type="hidden" name="cashflow" value="{{ cashflow_filter }}">{% endif %}
   {% if compare_yoy %}<input type="hidden" name="compare_yoy" value="1">{% endif %}
   <div class="filter-group fg-grow">
-    <label>Search</label>
+    <label><span data-i18n="search">Search</span></label>
     <input type="text" name="search" class="form-control form-control-sm"
            placeholder="{{ doc_label }} # or {{ partner_label | lower }}…" value="{{ search }}">
   </div>
   <div class="filter-group fg-period">
-    <label>Period</label>
+    <label><span data-i18n="period">Period</span></label>
     <select name="range" class="form-control form-control-sm" id="periodSelect"
             onchange="onPeriodChange(this)">
       {% for key, label in period_options %}
-      <option value="{{ key }}" {% if range_key == key %}selected{% endif %}>{{ label }}</option>
+      <option value="{{ key }}" {% if range_key == key %}selected{% endif %} data-i18n="{{ {'today':'today','yesterday':'yesterday','last_7':'last_7_days','this_month':'this_month','last_month':'last_month','last_30':'last_30_days','this_quarter':'this_quarter','last_quarter':'last_quarter','last_90':'last_90_days','ytd':'ytd','last_year':'last_year','last_365':'last_365_days','custom':'custom'}.get(key, key) }}">{{ label }}</option>
       {% endfor %}
     </select>
   </div>
   <div class="filter-group fg-date js-custom-range"
        style="display:{{ 'flex' if range_key == 'custom' else 'none' }}">
-    <label>From</label>
+    <label><span data-i18n="from">From</span></label>
     <input type="date" name="date_from" class="form-control form-control-sm"
            value="{{ date_from }}">
   </div>
   <div class="filter-group fg-date js-custom-range"
        style="display:{{ 'flex' if range_key == 'custom' else 'none' }}">
-    <label>To</label>
+    <label><span data-i18n="to">To</span></label>
     <input type="date" name="date_to" class="form-control form-control-sm"
            value="{{ date_to }}">
   </div>
   <div class="filter-group fg-action">
     <button type="submit" class="btn btn-primary btn-sm">
-      <i class="fa-solid fa-magnifying-glass"></i> Filter
+      <i class="fa-solid fa-magnifying-glass"></i> <span data-i18n="filter">Filter</span>
     </button>
   </div>
 </form>
@@ -780,14 +780,14 @@
   <div class="cards-section status">
     <div class="cards-section-header">
       <span class="cards-section-label">
-        <i class="fa-solid fa-circle-dot" style="color:var(--primary)"></i> Payment Status
+        <i class="fa-solid fa-circle-dot" style="color:var(--primary)"></i> <span data-i18n="payment_status">Payment Status</span>
       </span>
       {% if status_filter or aging_filter or cashflow_filter %}
       <a href="{{ url_for('financial', tab=tab, search=search, range=range_key,
                           date_from=date_from, date_to=date_to, period=period_days,
                           compare_yoy=(1 if compare_yoy else none)) }}"
          class="btn btn-outline btn-sm" style="margin-left:auto;color:var(--danger);border-color:var(--danger)">
-        <i class="fa-solid fa-filter-circle-xmark"></i> Clear All
+        <i class="fa-solid fa-filter-circle-xmark"></i> <span data-i18n="clear_all">Clear All</span>
       </a>
       {% endif %}
     </div>
@@ -815,7 +815,7 @@
           </div>
           {% else %}
           <div style="margin-top:.3rem;font-size:.7rem;color:var(--text-muted)">
-            <i class="fa-regular fa-circle-check"></i> No overdue
+            <i class="fa-regular fa-circle-check"></i> <span data-i18n="no_overdue">No overdue</span>
           </div>
           {% endif %}
         {% else %}
@@ -832,7 +832,7 @@
   <div class="cards-section aging">
     <div class="cards-section-header">
       <span class="cards-section-label">
-        <i class="fa-solid fa-hourglass-half" style="color:var(--primary)"></i> {{ doc_label }} Aging
+        <i class="fa-solid fa-hourglass-half" style="color:var(--primary)"></i> <span data-i18n="{{ 'bill_aging' if is_bills else 'invoice_aging' }}">{{ doc_label }} Aging</span>
       </span>
       <form method="GET" action="{{ url_for('financial') }}"
             style="display:flex;gap:.4rem;align-items:center;margin-left:.75rem">
@@ -845,10 +845,10 @@
         {% for a in aging_filter %}<input type="hidden" name="aging" value="{{ a }}">{% endfor %}
         {% if cashflow_filter %}<input type="hidden" name="cashflow" value="{{ cashflow_filter }}">{% endif %}
         {% if compare_yoy %}<input type="hidden" name="compare_yoy" value="1">{% endif %}
-        <label style="font-size:.72rem;color:var(--text-muted);margin:0">Period (days)</label>
+        <label style="font-size:.72rem;color:var(--text-muted);margin:0" data-i18n="period_days">Period (days)</label>
         <input type="number" name="period" min="1" max="365" value="{{ period_days }}"
                class="form-control form-control-sm" style="width:70px">
-        <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+        <button type="submit" class="btn btn-primary btn-sm" data-i18n="apply">Apply</button>
       </form>
     </div>
     <div class="cards-section-grid">
@@ -869,7 +869,7 @@
           {{ ccy }} {{ b.amount | fmt_currency_int }}
         </div>
         <div style="margin-top:.3rem;font-size:.7rem;color:var(--text-muted)">
-          <i class="fa-solid fa-hourglass-half"></i> Outstanding
+          <i class="fa-solid fa-hourglass-half"></i> <span data-i18n="outstanding">Outstanding</span>
         </div>
       </a>
       {% endfor %}
@@ -882,7 +882,7 @@
   <div class="chart-section status">
     <div class="cards-section-header">
       <span class="cards-section-label">
-        <i class="fa-solid fa-chart-pie" style="color:var(--primary)"></i> Payment Status Distribution
+        <i class="fa-solid fa-chart-pie" style="color:var(--primary)"></i> <span data-i18n="payment_status_dist">Payment Status Distribution</span>
       </span>
     </div>
     <div class="chart-canvas-wrap">
@@ -893,7 +893,7 @@
   <div class="chart-section aging">
     <div class="cards-section-header">
       <span class="cards-section-label">
-        <i class="fa-solid fa-chart-pie" style="color:var(--primary)"></i> Aging Distribution
+        <i class="fa-solid fa-chart-pie" style="color:var(--primary)"></i> <span data-i18n="aging_distribution">Aging Distribution</span>
       </span>
     </div>
     <div class="chart-canvas-wrap">
@@ -906,9 +906,9 @@
 <div class="cashflow-section">
   <div class="cashflow-header">
     <span class="cashflow-title">
-      <i class="fa-solid fa-money-bill-trend-up"></i> Cash Flow Forecast
+      <i class="fa-solid fa-money-bill-trend-up"></i> <span data-i18n="cash_flow_forecast">Cash Flow Forecast</span>
     </span>
-    <small class="cashflow-note">Based on today — not affected by the period filter</small>
+    <small class="cashflow-note" data-i18n="based_on_today">Based on today — not affected by the period filter</small>
   </div>
   <div class="cashflow-cards">
     {% if is_bills %}
@@ -957,7 +957,7 @@
 
     <div class="cashflow-card cashflow-card-total" style="border-left:4px solid #2980b9">
       <div class="cashflow-label" style="color:#2980b9">
-        <i class="fa-solid fa-chart-line"></i> Total Expected
+        <i class="fa-solid fa-chart-line"></i> <span data-i18n="total_expected">Total Expected</span>
       </div>
       <div class="stat-value stat-value-num">
         <span class="amount-display" data-amount="{{ cashflow.total_expected.amount or 0 }}" data-currency="{{ ccy }}">
@@ -976,7 +976,7 @@
 <div class="card top-overdue-section" style="margin-top:1rem">
   <div class="card-header">
     <i class="fa-solid fa-ranking-star" style="color:var(--danger)"></i>
-    <h5>Top 5 Overdue {{ partner_label }}s</h5>
+    <h5><span data-i18n="top_5_overdue">Top 5 Overdue</span> {{ partner_label }}s</h5>
     <small style="margin-left:auto;color:var(--text-muted);font-weight:400">
       Overall — not affected by period or card filters
     </small>
@@ -1034,9 +1034,9 @@
   <table class="data-table">
     <thead>
       <tr>
-        <th>Number</th><th>{{ partner_label }}</th><th>Date</th><th>Due Date</th>
-        <th>Untaxed</th><th>Tax</th>
-        <th>Amount</th><th>Status</th><th>Payment</th><th>Overdue</th>
+        <th data-i18n="invoice_num">Number</th><th data-i18n="{{ 'vendor' if is_bills else 'customer' }}">{{ partner_label }}</th><th data-i18n="issue_date">Date</th><th data-i18n="due_date">Due Date</th>
+        <th data-i18n="untaxed">Untaxed</th><th data-i18n="tax">Tax</th>
+        <th data-i18n="amount">Amount</th><th data-i18n="status">Status</th><th data-i18n="payment">Payment</th><th data-i18n="overdue">Overdue</th>
       </tr>
     </thead>
     <tbody>
@@ -1065,11 +1065,11 @@
           {% else %}<span class="badge badge-secondary">{{ inv.state }}</span>{% endif %}
         </td>
         <td>
-          {% if inv.payment_state == 'paid' %}<span class="badge badge-success">Paid</span>
-          {% elif inv.payment_state == 'partial' %}<span class="badge badge-warning">Partial</span>
-          {% elif inv.payment_state == 'not_paid' %}<span class="badge badge-danger">Unpaid</span>
+          {% if inv.payment_state == 'paid' %}<span class="badge badge-success" data-i18n="paid">Paid</span>
+          {% elif inv.payment_state == 'partial' %}<span class="badge badge-warning" data-i18n="partial">Partial</span>
+          {% elif inv.payment_state == 'not_paid' %}<span class="badge badge-danger" data-i18n="unpaid">Unpaid</span>
           {% elif inv.payment_state == 'in_payment' %}<span class="badge badge-info">In Payment</span>
-          {% elif inv.payment_state == 'reversed' %}<span class="badge badge-secondary">Reversed</span>
+          {% elif inv.payment_state == 'reversed' %}<span class="badge badge-secondary" data-i18n="reversed">Reversed</span>
           {% else %}<span class="badge badge-secondary">{{ inv.payment_state or '—' }}</span>{% endif %}
         </td>
         <td>
@@ -1077,19 +1077,19 @@
             <span style="color:var(--text-muted)">—</span>
           {% elif inv.payment_state == 'paid' %}
             <span style="color:var(--success);font-weight:600">
-              <i class="fa-solid fa-circle-check"></i> Paid
+              <i class="fa-solid fa-circle-check"></i> <span data-i18n="paid">Paid</span>
             </span>
           {% elif inv.payment_state == 'reversed' %}
             <span style="color:var(--text-muted);font-weight:600">
-              <i class="fa-solid fa-rotate-left"></i> Reversed
+              <i class="fa-solid fa-rotate-left"></i> <span data-i18n="reversed">Reversed</span>
             </span>
           {% elif inv.payment_state in ('not_paid', 'partial') and inv.invoice_date_due < today_iso %}
             <span style="color:var(--danger);font-weight:600">
-              <i class="fa-solid fa-circle-exclamation"></i> Overdue
+              <i class="fa-solid fa-circle-exclamation"></i> <span data-i18n="overdue">Overdue</span>
             </span>
           {% else %}
             <span style="color:var(--success);font-weight:600">
-              <i class="fa-solid fa-circle-check"></i> On Time
+              <i class="fa-solid fa-circle-check"></i> <span data-i18n="on_time">On Time</span>
             </span>
           {% endif %}
         </td>
@@ -1147,20 +1147,20 @@
 <form method="GET" action="{{ url_for('financial') }}" class="filter-bar">
   <input type="hidden" name="tab" value="banks">
   <div class="filter-group">
-    <label>Search Reference</label>
+    <label><span data-i18n="search">Search</span> Reference</label>
     <input type="text" name="search" class="form-control form-control-sm" placeholder="Reference…" value="{{ search }}">
   </div>
   <div class="filter-group">
-    <label>From</label>
+    <label><span data-i18n="from">From</span></label>
     <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
   </div>
   <div class="filter-group">
-    <label>To</label>
+    <label><span data-i18n="to">To</span></label>
     <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
   </div>
   <div class="filter-group" style="justify-content:flex-end">
     <label>&nbsp;</label>
-    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> Filter</button>
+    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> <span data-i18n="filter">Filter</span></button>
   </div>
 </form>
 
@@ -1216,7 +1216,7 @@
 </h2>
 
 <div class="amount-format-toolbar" data-amount-toolbar>
-  <span class="amount-format-label">Show amounts in</span>
+  <span class="amount-format-label" data-i18n="show_amounts_in">Show amounts in</span>
   <div class="amount-format-group" role="group" aria-label="Amount format">
     <button type="button" class="amount-format-btn" data-format="units">Units</button>
     <button type="button" class="amount-format-btn" data-format="k">K</button>
@@ -1227,7 +1227,7 @@
 <div class="stat-grid {% if fully_dep_filter %}stat-grid--filtered{% endif %}">
   <div class="stat-card">
     <div class="stat-value">{{ stats.count }}</div>
-    <div class="stat-label">{{ _count_lbl }}</div>
+    <div class="stat-label"{% if not _is_expense and not _is_sale %} data-i18n="total_assets"{% endif %}>{{ _count_lbl }}</div>
   </div>
   <div class="stat-card">
     <div class="stat-value">
@@ -1235,7 +1235,7 @@
         {{ assets_ccy }} {{ stats.get('original_value', 0) | fmt_currency }}
       </span>
     </div>
-    <div class="stat-label">{{ _acq_lbl }}</div>
+    <div class="stat-label"{% if not _is_expense and not _is_sale %} data-i18n="acquisition_cost"{% endif %}>{{ _acq_lbl }}</div>
   </div>
   <div class="stat-card">
     <div class="stat-value" style="color:var(--success)">
@@ -1243,7 +1243,7 @@
         {{ assets_ccy }} {{ stats.get('residual_value', 0) | fmt_currency }}
       </span>
     </div>
-    <div class="stat-label">{{ _net_lbl }}</div>
+    <div class="stat-label"{% if not _is_expense and not _is_sale %} data-i18n="net_book_value"{% endif %}>{{ _net_lbl }}</div>
   </div>
   <div class="stat-card">
     <div class="stat-value" style="color:var(--danger)">
@@ -1251,7 +1251,7 @@
         {{ assets_ccy }} {{ stats.get('depreciated', 0) | fmt_currency }}
       </span>
     </div>
-    <div class="stat-label">{{ _dep_lbl }}</div>
+    <div class="stat-label"{% if not _is_expense and not _is_sale %} data-i18n="accumulated_dep"{% endif %}>{{ _dep_lbl }}</div>
   </div>
   {% if not _is_expense and not _is_sale %}
   <div class="stat-card">
@@ -1260,7 +1260,7 @@
         {{ assets_ccy }} {{ stats.get('depr_ytd', 0) | fmt_currency }}
       </span>
     </div>
-    <div class="stat-label">Depreciation This Year</div>
+    <div class="stat-label" data-i18n="depreciation_this_year">Depreciation This Year</div>
   </div>
   {# Fully Depreciated card doubles as a table filter — click to scope
      the rows, click again to clear. We rebuild the query string by
@@ -1277,7 +1277,7 @@
      style="cursor:pointer;text-decoration:none;color:inherit"
      title="{{ 'Clear filter' if fully_dep_filter else 'Show only fully depreciated assets' }}">
     <div class="stat-value" style="color:#ea580c">{{ stats.get('fully_depreciated', 0) }}</div>
-    <div class="stat-label">Fully Depreciated{% if fully_dep_filter %} <i class="fa-solid fa-circle-xmark" style="color:var(--danger);font-size:.7em"></i>{% endif %}</div>
+    <div class="stat-label"><span data-i18n="fully_depreciated">Fully Depreciated</span>{% if fully_dep_filter %} <i class="fa-solid fa-circle-xmark" style="color:var(--danger);font-size:.7em"></i>{% endif %}</div>
   </a>
   {% endif %}
 </div>
@@ -1299,7 +1299,7 @@
 <div class="asset-charts-grid">
   <div class="card asset-chart-card">
     <div class="asset-chart-header">
-      <h3 class="asset-chart-title">Assets by Category</h3>
+      <h3 class="asset-chart-title" data-i18n="assets_by_category">Assets by Category</h3>
       {% if category_filter_active %}
         <a class="asset-chart-clear" href="{{ _ac_clear_qs }}">
           <i class="fa-solid fa-circle-xmark"></i> Clear filter
@@ -1317,7 +1317,7 @@
 
   <div class="card asset-chart-card">
     <div class="asset-chart-header">
-      <h3 class="asset-chart-title">Net Book Value by Category</h3>
+      <h3 class="asset-chart-title" data-i18n="net_book_value_by_cat">Net Book Value by Category</h3>
     </div>
     <div class="asset-chart-body" id="assetCategoryNetWrap">
       <canvas id="assetCategoryNetChart"></canvas>
@@ -1353,11 +1353,11 @@
   <input type="hidden" name="asset_type" value="{{ asset_type_filter }}">
   {% endif %}
   <div class="filter-group">
-    <label>Search</label>
+    <label><span data-i18n="search">Search</span></label>
     <input type="text" name="search" class="form-control form-control-sm" placeholder="Name…" value="{{ search }}">
   </div>
   <div class="filter-group">
-    <label>Status</label>
+    <label><span data-i18n="status">Status</span></label>
     <select name="state_filter" class="form-control form-control-sm" onchange="this.form.submit()">
       {% for val, lbl in asset_state_options %}
         <option value="{{ val }}" {% if asset_state_filter == val %}selected{% endif %}>{{ lbl }}</option>
@@ -1366,7 +1366,7 @@
   </div>
   <div class="filter-group" style="justify-content:flex-end">
     <label>&nbsp;</label>
-    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> Filter</button>
+    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> <span data-i18n="filter">Filter</span></button>
   </div>
 </form>
 
@@ -1380,12 +1380,12 @@
   <table class="data-table">
     <thead>
       <tr>
-        <th>{{ 'Description' if _is_expense or _is_sale else 'Asset Name' }}</th>
-        <th>{{ 'Account' if _is_expense or _is_sale else 'Asset Model' }}</th>
-        <th>{{ 'Start Date' if _is_expense or _is_sale else 'Acquisition Date' }}</th>
-        <th>{{ 'Initial Amount' if _is_expense or _is_sale else 'Original Value' }}</th>
-        <th>{{ 'Remaining' if _is_expense or _is_sale else 'Net Value' }}</th>
-        <th>Status</th>
+        <th{% if not _is_expense and not _is_sale %} data-i18n="asset_name"{% endif %}>{{ 'Description' if _is_expense or _is_sale else 'Asset Name' }}</th>
+        <th{% if not _is_expense and not _is_sale %} data-i18n="asset_model"{% endif %}>{{ 'Account' if _is_expense or _is_sale else 'Asset Model' }}</th>
+        <th{% if not _is_expense and not _is_sale %} data-i18n="acquisition_date"{% endif %}>{{ 'Start Date' if _is_expense or _is_sale else 'Acquisition Date' }}</th>
+        <th{% if not _is_expense and not _is_sale %} data-i18n="original_value"{% endif %}>{{ 'Initial Amount' if _is_expense or _is_sale else 'Original Value' }}</th>
+        <th{% if not _is_expense and not _is_sale %} data-i18n="net_value"{% endif %}>{{ 'Remaining' if _is_expense or _is_sale else 'Net Value' }}</th>
+        <th data-i18n="status">Status</th>
       </tr>
     </thead>
     <tbody>
@@ -1608,20 +1608,20 @@
 <form method="GET" action="{{ url_for('financial') }}" class="filter-bar">
   <input type="hidden" name="tab" value="expenses">
   <div class="filter-group">
-    <label>Search</label>
+    <label><span data-i18n="search">Search</span></label>
     <input type="text" name="search" class="form-control form-control-sm" placeholder="Description or employee…" value="{{ search }}">
   </div>
   <div class="filter-group">
-    <label>From</label>
+    <label><span data-i18n="from">From</span></label>
     <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
   </div>
   <div class="filter-group">
-    <label>To</label>
+    <label><span data-i18n="to">To</span></label>
     <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
   </div>
   <div class="filter-group" style="justify-content:flex-end">
     <label>&nbsp;</label>
-    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> Filter</button>
+    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> <span data-i18n="filter">Filter</span></button>
   </div>
 </form>
 
@@ -1811,7 +1811,7 @@
 </style>
 
 <div class="amount-format-toolbar" data-amount-toolbar>
-  <span class="amount-format-label">Show amounts in</span>
+  <span class="amount-format-label" data-i18n="show_amounts_in">Show amounts in</span>
   <div class="amount-format-group" role="group" aria-label="Amount format">
     <button type="button" class="amount-format-btn" data-format="units">Units</button>
     <button type="button" class="amount-format-btn" data-format="k">K</button>
@@ -1932,24 +1932,24 @@
      data-default-from="{{ kpi_date_from }}"
      data-default-to="{{ kpi_date_to }}">
   <div class="kpi-section-header">
-    <div class="kpi-section-title">OVERVIEW PERIOD</div>
+    <div class="kpi-section-title" data-i18n="overview_period">OVERVIEW PERIOD</div>
     <div class="kpi-section-controls">
       <select id="analyticKpiRange" class="kpi-range-select">
-        <option value="today">Today</option>
-        <option value="this_month">This Month</option>
-        <option value="last_month">Last Month</option>
-        <option value="this_quarter">This Quarter</option>
-        <option value="last_quarter">Last Quarter</option>
-        <option value="ytd">Year to Date</option>
-        <option value="last_year">Last Year</option>
-        <option value="all_time">All Time</option>
-        <option value="custom">Custom</option>
+        <option value="today" data-i18n="today">Today</option>
+        <option value="this_month" data-i18n="this_month">This Month</option>
+        <option value="last_month" data-i18n="last_month">Last Month</option>
+        <option value="this_quarter" data-i18n="this_quarter">This Quarter</option>
+        <option value="last_quarter" data-i18n="last_quarter">Last Quarter</option>
+        <option value="ytd" data-i18n="ytd">Year to Date</option>
+        <option value="last_year" data-i18n="last_year">Last Year</option>
+        <option value="all_time" data-i18n="all_time">All Time</option>
+        <option value="custom" data-i18n="custom">Custom</option>
       </select>
       <input type="date" id="analyticKpiDateFrom" style="display:none">
       <input type="date" id="analyticKpiDateTo"   style="display:none">
       <label class="compare-yoy compare-yoy--inline">
         <input type="checkbox" id="analyticKpiCompareYoy" {% if kpi_compare_yoy %}checked{% endif %}>
-        <span>Compare with same period last year</span>
+        <span data-i18n="compare_last_year">Compare with same period last year</span>
       </label>
     </div>
   </div>
@@ -1959,7 +1959,7 @@
     <div class="kpi-group">
       <div class="stat-card">
         <div class="stat-value stat-value-num" id="aKpiCount">{{ kpi_stats.count }}</div>
-        <div class="stat-label">Cost Centers</div>
+        <div class="stat-label" data-i18n="cost_centers">Cost Centers</div>
       </div>
       <div class="stat-card">
         <div class="stat-value stat-value-num" style="color:var(--success)">
@@ -1968,7 +1968,7 @@
             {{ ccy }} {{ kpi_stats.revenue | fmt_currency_int }}
           </span>
         </div>
-        <div class="stat-label">Total Revenue</div>
+        <div class="stat-label" data-i18n="total_revenue">Total Revenue</div>
       </div>
       <div class="stat-card">
         <div class="stat-value stat-value-num" style="color:var(--danger)">
@@ -1977,7 +1977,7 @@
             {{ ccy }} {{ kpi_stats.costs | fmt_currency_int }}
           </span>
         </div>
-        <div class="stat-label">Total Costs</div>
+        <div class="stat-label" data-i18n="total_costs">Total Costs</div>
       </div>
       <div class="stat-card">
         <div class="stat-value stat-value-num"
@@ -1987,7 +1987,7 @@
             {{ ccy }} {{ kpi_stats.net | fmt_currency_int }}
           </span>
         </div>
-        <div class="stat-label">Net Profit / Loss</div>
+        <div class="stat-label" data-i18n="net_pl">Net Profit / Loss</div>
       </div>
     </div>
 
@@ -2000,7 +2000,7 @@
           <span id="aCmpPillCount">{{ compare_pill(kpi_compare_pct.count) }}</span>
           <span class="compare-vs" id="aCmpLabelCount">{{ kpi_compare_label }}</span>
         </div>
-        <div class="stat-label">Cost Centers</div>
+        <div class="stat-label" data-i18n="cost_centers">Cost Centers</div>
       </div>
       <div class="stat-card compare-card">
         <div class="stat-value stat-value-num compare-value">
@@ -2013,7 +2013,7 @@
           <span id="aCmpPillRevenue">{{ compare_pill(kpi_compare_pct.revenue) }}</span>
           <span class="compare-vs" id="aCmpLabelRevenue">{{ kpi_compare_label }}</span>
         </div>
-        <div class="stat-label">Revenue</div>
+        <div class="stat-label" data-i18n="revenue">Revenue</div>
       </div>
       <div class="stat-card compare-card">
         <div class="stat-value stat-value-num compare-value">
@@ -2026,7 +2026,7 @@
           <span id="aCmpPillCosts">{{ compare_pill_inv(kpi_compare_pct.costs) }}</span>
           <span class="compare-vs" id="aCmpLabelCosts">{{ kpi_compare_label }}</span>
         </div>
-        <div class="stat-label">Costs</div>
+        <div class="stat-label" data-i18n="cost">Costs</div>
       </div>
       <div class="stat-card compare-card">
         <div class="stat-value stat-value-num compare-value">
@@ -2039,7 +2039,7 @@
           <span id="aCmpPillNet">{{ compare_pill(kpi_compare_pct.net) }}</span>
           <span class="compare-vs" id="aCmpLabelNet">{{ kpi_compare_label }}</span>
         </div>
-        <div class="stat-label">Net P/L</div>
+        <div class="stat-label" data-i18n="net">Net P/L</div>
       </div>
     </div>
     {% endif %}
@@ -2237,30 +2237,30 @@
 <form method="GET" action="{{ url_for('financial') }}" class="filter-bar">
   <input type="hidden" name="tab" value="analytic">
   <div class="filter-group fg-search">
-    <label>Search</label>
+    <label><span data-i18n="search">Search</span></label>
     <input type="text" name="search" class="form-control form-control-sm"
            placeholder="Cost center, plan, or code…" value="{{ search }}">
   </div>
   <div class="filter-group fg-period">
-    <label>Period</label>
+    <label><span data-i18n="period">Period</span></label>
     <select name="range" class="form-control form-control-sm">
       {% for key, label in period_options %}
-      <option value="{{ key }}" {% if key == range_key %}selected{% endif %}>{{ label }}</option>
+      <option value="{{ key }}" {% if key == range_key %}selected{% endif %} data-i18n="{{ {'today':'today','yesterday':'yesterday','last_7':'last_7_days','this_month':'this_month','last_month':'last_month','last_30':'last_30_days','this_quarter':'this_quarter','last_quarter':'last_quarter','last_90':'last_90_days','ytd':'ytd','last_year':'last_year','last_365':'last_365_days','custom':'custom'}.get(key, key) }}">{{ label }}</option>
       {% endfor %}
     </select>
   </div>
   <div class="filter-group">
-    <label>From</label>
+    <label><span data-i18n="from">From</span></label>
     <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
   </div>
   <div class="filter-group">
-    <label>To</label>
+    <label><span data-i18n="to">To</span></label>
     <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
   </div>
   <div class="filter-group" style="justify-content:flex-end">
     <label>&nbsp;</label>
     <button type="submit" class="btn btn-primary btn-sm">
-      <i class="fa-solid fa-magnifying-glass"></i> Filter
+      <i class="fa-solid fa-magnifying-glass"></i> <span data-i18n="filter">Filter</span>
     </button>
   </div>
 </form>
@@ -2275,7 +2275,7 @@
 {% macro chart_period_select(id, default_key) -%}
   <select id="{{ id }}" class="analytic-chart-range" data-default="{{ default_key }}">
     {% for key, label in analytic_chart_options %}
-    <option value="{{ key }}" {% if key == default_key %}selected{% endif %}>{{ label }}</option>
+    <option value="{{ key }}" {% if key == default_key %}selected{% endif %} data-i18n="{{ {'today':'today','this_month':'this_month','last_month':'last_month','this_quarter':'this_quarter','last_quarter':'last_quarter','ytd':'ytd','last_year':'last_year','last_365':'last_365_days','custom':'custom'}.get(key, key) }}">{{ label }}</option>
     {% endfor %}
   </select>
 {%- endmacro %}
@@ -3526,7 +3526,7 @@
      data-default-to="{{ date_to }}"
      data-currency="{{ ccy }}">
   <div class="analytic-header">
-    <div class="analytic-title"><i class="fa-solid fa-table-cells-large"></i> COST CENTER DISTRIBUTION</div>
+    <div class="analytic-title"><i class="fa-solid fa-table-cells-large"></i> <span data-i18n="cost_center_dist">COST CENTER DISTRIBUTION</span></div>
     <div class="analytic-controls">
       {{ chart_period_select('treemapRange', range_key or 'ytd') }}
       <input type="date" id="treemapFrom" style="display:none">
@@ -3547,7 +3547,7 @@
        data-default-to="{{ date_to }}"
        data-currency="{{ ccy }}">
     <div class="analytic-header">
-      <div class="analytic-title"><i class="fa-solid fa-chart-column"></i> REVENUE vs COST PER CENTER</div>
+      <div class="analytic-title"><i class="fa-solid fa-chart-column"></i> <span data-i18n="revenue_vs_cost">REVENUE vs COST PER CENTER</span></div>
       <div class="analytic-controls">
         {{ chart_period_select('waterfallRange', range_key or 'ytd') }}
         <input type="date" id="waterfallFrom" style="display:none">
@@ -3568,7 +3568,7 @@
        data-default-to="{{ date_to }}"
        data-currency="{{ ccy }}">
     <div class="analytic-header">
-      <div class="analytic-title"><i class="fa-solid fa-circle-nodes"></i> PROFITABILITY MAP</div>
+      <div class="analytic-title"><i class="fa-solid fa-circle-nodes"></i> <span data-i18n="profitability_map">PROFITABILITY MAP</span></div>
       <div class="analytic-controls">
         {{ chart_period_select('bubbleRange', range_key or 'ytd') }}
         <input type="date" id="bubbleFrom" style="display:none">
@@ -3586,13 +3586,13 @@
 <div class="analytic-tables-row">
   <div class="analytic-section">
     <div class="analytic-header">
-      <div class="analytic-title"><i class="fa-solid fa-trophy" style="color:#16a34a"></i> TOP 5 MOST PROFITABLE</div>
+      <div class="analytic-title"><i class="fa-solid fa-trophy" style="color:#16a34a"></i> <span data-i18n="top_5_most_profitable">TOP 5 MOST PROFITABLE</span></div>
     </div>
     <table class="data-table analytic-table">
       <thead>
-        <tr><th>#</th><th>Cost Center</th><th style="text-align:right">Revenue</th>
-            <th style="text-align:right">Costs</th><th style="text-align:right">Net</th>
-            <th style="text-align:right">Margin %</th></tr>
+        <tr><th>#</th><th data-i18n="cost_centers">Cost Center</th><th style="text-align:right" data-i18n="revenue">Revenue</th>
+            <th style="text-align:right" data-i18n="cost">Costs</th><th style="text-align:right" data-i18n="net">Net</th>
+            <th style="text-align:right" data-i18n="margin_pct">Margin %</th></tr>
       </thead>
       <tbody>
         {% for r in top_profitable %}
@@ -3625,13 +3625,13 @@
 
   <div class="analytic-section">
     <div class="analytic-header">
-      <div class="analytic-title"><i class="fa-solid fa-triangle-exclamation" style="color:#dc2626"></i> TOP 5 LOSS-MAKING</div>
+      <div class="analytic-title"><i class="fa-solid fa-triangle-exclamation" style="color:#dc2626"></i> <span data-i18n="top_5_least_profitable">TOP 5 LOSS-MAKING</span></div>
     </div>
     <table class="data-table analytic-table">
       <thead>
-        <tr><th>#</th><th>Cost Center</th><th style="text-align:right">Revenue</th>
-            <th style="text-align:right">Costs</th><th style="text-align:right">Net</th>
-            <th style="text-align:right">Loss %</th></tr>
+        <tr><th>#</th><th data-i18n="cost_centers">Cost Center</th><th style="text-align:right" data-i18n="revenue">Revenue</th>
+            <th style="text-align:right" data-i18n="cost">Costs</th><th style="text-align:right" data-i18n="net">Net</th>
+            <th style="text-align:right" data-i18n="margin_pct">Loss %</th></tr>
       </thead>
       <tbody>
         {% for r in top_loss %}
@@ -3690,12 +3690,12 @@
   <table class="data-table analytic-table" id="analyticTable">
     <thead>
       <tr>
-        <th class="sortable" data-key="name">Cost Center <span class="sort-ind">⇅</span></th>
+        <th class="sortable" data-key="name"><span data-i18n="cost_centers">Cost Center</span> <span class="sort-ind">⇅</span></th>
         <th class="sortable" data-key="plan_name">Plan / Group <span class="sort-ind">⇅</span></th>
-        <th class="sortable" data-key="revenue" style="text-align:right">Revenue <span class="sort-ind">⇅</span></th>
-        <th class="sortable" data-key="costs" style="text-align:right">Costs <span class="sort-ind">⇅</span></th>
-        <th class="sortable" data-key="net" style="text-align:right">Net <span class="sort-ind">⇅</span></th>
-        <th class="sortable" data-key="margin_pct" style="text-align:right">Margin % <span class="sort-ind">⇅</span></th>
+        <th class="sortable" data-key="revenue" style="text-align:right"><span data-i18n="revenue">Revenue</span> <span class="sort-ind">⇅</span></th>
+        <th class="sortable" data-key="costs" style="text-align:right"><span data-i18n="cost">Costs</span> <span class="sort-ind">⇅</span></th>
+        <th class="sortable" data-key="net" style="text-align:right"><span data-i18n="net">Net</span> <span class="sort-ind">⇅</span></th>
+        <th class="sortable" data-key="margin_pct" style="text-align:right"><span data-i18n="margin_pct">Margin %</span> <span class="sort-ind">⇅</span></th>
         <th class="sortable sort-desc" data-key="revenue_contribution_pct" style="text-align:right">
           Revenue Contribution % <span class="sort-ind">↓</span>
         </th>

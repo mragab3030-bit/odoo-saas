@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% block title %}Dashboard · Olens{% endblock %}
-{% block page_title %}Dashboard{% endblock %}
+{% block page_title %}<span data-i18n="dashboard">Dashboard</span>{% endblock %}
 {% block page_subtitle %}<small>{{ odoo_url }}</small>{% endblock %}
 
 {% block content %}
@@ -11,7 +11,7 @@
     <div class="kpi-icon blue"><i class="fa-solid fa-file-invoice-dollar"></i></div>
     <div class="kpi-body">
       <div class="kpi-value">{{ kpis.unpaid_invoices }}</div>
-      <div class="kpi-label">Unpaid Invoices</div>
+      <div class="kpi-label" data-i18n="unpaid_invoices">Unpaid Invoices</div>
       <div class="kpi-sub">{{ kpis.unpaid_amount | fmt_currency }}</div>
     </div>
   </a>
@@ -20,8 +20,8 @@
     <div class="kpi-icon green"><i class="fa-solid fa-cart-shopping"></i></div>
     <div class="kpi-body">
       <div class="kpi-value">{{ kpis.open_orders }}</div>
-      <div class="kpi-label">Open Sales Orders</div>
-      <div class="kpi-sub">{{ kpis.monthly_sales | fmt_currency }} this month</div>
+      <div class="kpi-label" data-i18n="open_sales_orders">Open Sales Orders</div>
+      <div class="kpi-sub">{{ kpis.monthly_sales | fmt_currency }} <span data-i18n="this_month_suffix">this month</span></div>
     </div>
   </a>
 
@@ -29,7 +29,7 @@
     <div class="kpi-icon orange"><i class="fa-solid fa-funnel-dollar"></i></div>
     <div class="kpi-body">
       <div class="kpi-value">{{ kpis.active_leads }}</div>
-      <div class="kpi-label">Active Opportunities</div>
+      <div class="kpi-label" data-i18n="active_opportunities">Active Opportunities</div>
     </div>
   </a>
 
@@ -37,8 +37,8 @@
     <div class="kpi-icon teal"><i class="fa-solid fa-warehouse"></i></div>
     <div class="kpi-body">
       <div class="kpi-value">{{ kpis.stock_products }}</div>
-      <div class="kpi-label">Stock Products</div>
-      <div class="kpi-sub">{{ kpis.stock_value | fmt_currency }} value</div>
+      <div class="kpi-label" data-i18n="stock_products">Stock Products</div>
+      <div class="kpi-sub">{{ kpis.stock_value | fmt_currency }} <span data-i18n="value_suffix">value</span></div>
     </div>
   </a>
 
@@ -46,7 +46,7 @@
     <div class="kpi-icon red"><i class="fa-solid fa-calendar-xmark"></i></div>
     <div class="kpi-body">
       <div class="kpi-value">{{ kpis.pending_leaves }}</div>
-      <div class="kpi-label">Pending Leave Requests</div>
+      <div class="kpi-label" data-i18n="pending_leaves">Pending Leave Requests</div>
     </div>
   </a>
 
@@ -54,7 +54,7 @@
     <div class="kpi-icon purple"><i class="fa-solid fa-users"></i></div>
     <div class="kpi-body">
       <div class="kpi-value">{{ kpis.employees }}</div>
-      <div class="kpi-label">Active Employees</div>
+      <div class="kpi-label" data-i18n="active_employees">Active Employees</div>
     </div>
   </a>
 
@@ -62,7 +62,7 @@
     <div class="kpi-icon indigo"><i class="fa-solid fa-industry"></i></div>
     <div class="kpi-body">
       <div class="kpi-value">{{ kpis.in_progress_mo }}</div>
-      <div class="kpi-label">Production In Progress</div>
+      <div class="kpi-label" data-i18n="production_in_progress">Production In Progress</div>
     </div>
   </a>
 
@@ -70,7 +70,7 @@
     <div class="kpi-icon pink"><i class="fa-solid fa-receipt"></i></div>
     <div class="kpi-body">
       <div class="kpi-value">{{ kpis.pending_expenses }}</div>
-      <div class="kpi-label">Pending Expenses</div>
+      <div class="kpi-label" data-i18n="pending_expenses">Pending Expenses</div>
     </div>
   </a>
 
@@ -82,7 +82,7 @@
   <div class="card">
     <div class="card-header">
       <i class="fa-solid fa-chart-bar" style="color:var(--primary)"></i>
-      <h5>Monthly Revenue (Last 6 Months)</h5>
+      <h5 data-i18n="monthly_revenue_6">Monthly Revenue (Last 6 Months)</h5>
     </div>
     <div class="card-body">
       <div class="chart-container" style="height:220px">
@@ -94,7 +94,7 @@
   <div class="card">
     <div class="card-header">
       <i class="fa-solid fa-chart-pie" style="color:var(--primary)"></i>
-      <h5>Invoice Payment Status</h5>
+      <h5 data-i18n="invoice_payment_status">Invoice Payment Status</h5>
     </div>
     <div class="card-body">
       <div class="chart-container" style="height:220px">
@@ -109,24 +109,24 @@
 <div class="card">
   <div class="card-header">
     <i class="fa-solid fa-bolt" style="color:var(--primary)"></i>
-    <h5>Quick Access</h5>
+    <h5 data-i18n="quick_access">Quick Access</h5>
   </div>
   <div class="card-body">
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.75rem">
       {% set quick = [
-        ('financial', 'invoices', 'fa-file-invoice-dollar', 'blue', 'Invoices'),
-        ('financial', 'banks', 'fa-building-columns', 'green', 'Banks'),
-        ('financial', 'assets', 'fa-boxes-packing', 'orange', 'Assets'),
-        ('financial', 'expenses', 'fa-receipt', 'red', 'Expenses'),
-        ('inventory', 'stock', 'fa-warehouse', 'teal', 'Stock'),
-        ('inventory', 'movements', 'fa-arrows-rotate', 'purple', 'Movements'),
-        ('inventory', 'valuation', 'fa-scale-balanced', 'indigo', 'Valuation'),
-        ('sales', 'pipeline', 'fa-funnel-dollar', 'orange', 'Pipeline'),
-        ('sales', 'orders', 'fa-cart-shopping', 'green', 'Sales Orders'),
-        ('hr', 'attendance', 'fa-clock', 'blue', 'Attendance'),
-        ('hr', 'leave', 'fa-calendar-xmark', 'red', 'Leave'),
+        ('financial', 'invoices', 'fa-file-invoice-dollar', 'blue', 'Invoices', 'invoices'),
+        ('financial', 'banks', 'fa-building-columns', 'green', 'Banks', 'banks'),
+        ('financial', 'assets', 'fa-boxes-packing', 'orange', 'Assets', 'assets'),
+        ('financial', 'expenses', 'fa-receipt', 'red', 'Expenses', 'expenses'),
+        ('inventory', 'stock', 'fa-warehouse', 'teal', 'Stock', 'stock'),
+        ('inventory', 'movements', 'fa-arrows-rotate', 'purple', 'Movements', 'movements'),
+        ('inventory', 'valuation', 'fa-scale-balanced', 'indigo', 'Valuation', 'valuation'),
+        ('sales', 'pipeline', 'fa-funnel-dollar', 'orange', 'Pipeline', 'pipeline'),
+        ('sales', 'orders', 'fa-cart-shopping', 'green', 'Sales Orders', 'sales_orders'),
+        ('hr', 'attendance', 'fa-clock', 'blue', 'Attendance', 'attendance'),
+        ('hr', 'leave', 'fa-calendar-xmark', 'red', 'Leave', 'leave'),
       ] %}
-      {% for section, tab_name, icon, color, label in quick %}
+      {% for section, tab_name, icon, color, label, i18n_key in quick %}
       <a href="{{ url_for(section, tab=tab_name) }}"
          style="display:flex;align-items:center;gap:.625rem;padding:.75rem;
                 background:#f8fafc;border-radius:10px;border:1px solid #e2e8f0;
@@ -137,7 +137,7 @@
         <div class="kpi-icon {{ color }}" style="width:32px;height:32px;border-radius:7px">
           <i class="fa-solid {{ icon }}" style="font-size:13px"></i>
         </div>
-        {{ label }}
+        <span data-i18n="{{ i18n_key }}">{{ label }}</span>
       </a>
       {% endfor %}
       <a href="{{ url_for('manufacturing') }}"
@@ -150,7 +150,7 @@
         <div class="kpi-icon indigo" style="width:32px;height:32px;border-radius:7px">
           <i class="fa-solid fa-industry" style="font-size:13px"></i>
         </div>
-        Production
+        <span data-i18n="production">Production</span>
       </a>
     </div>
   </div>

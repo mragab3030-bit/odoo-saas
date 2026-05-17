@@ -19,10 +19,10 @@
 
 <div class="tab-bar">
   <a href="{{ url_for('sales', tab='orders') }}" class="tab-item {% if tab == 'orders' %}active{% endif %}">
-    <i class="fa-solid fa-cart-shopping"></i> Orders
+    <i class="fa-solid fa-cart-shopping"></i> <span data-i18n="orders">Orders</span>
   </a>
   <a href="{{ url_for('sales', tab='pipeline') }}" class="tab-item {% if tab == 'pipeline' %}active{% endif %}">
-    <i class="fa-solid fa-funnel-dollar"></i> Pipeline
+    <i class="fa-solid fa-funnel-dollar"></i> <span data-i18n="pipeline">Pipeline</span>
   </a>
 </div>
 
@@ -32,19 +32,19 @@
 <div class="stat-grid">
   <div class="stat-card">
     <div class="stat-value">{{ stats.count }}</div>
-    <div class="stat-label">Total Orders</div>
+    <div class="stat-label" data-i18n="total_orders">Total Orders</div>
   </div>
   <div class="stat-card">
     <div class="stat-value" style="color:var(--primary)">{{ stats.total | fmt_currency }}</div>
-    <div class="stat-label">Total Revenue</div>
+    <div class="stat-label" data-i18n="total_revenue">Total Revenue</div>
   </div>
   <div class="stat-card">
     <div class="stat-value" style="color:var(--success)">{{ stats.confirmed | fmt_currency }}</div>
-    <div class="stat-label">Confirmed</div>
+    <div class="stat-label" data-i18n="confirmed">Confirmed</div>
   </div>
   <div class="stat-card">
     <div class="stat-value" style="color:var(--info)">{{ stats.done | fmt_currency }}</div>
-    <div class="stat-label">Done</div>
+    <div class="stat-label" data-i18n="done">Done</div>
   </div>
 </div>
 
@@ -52,20 +52,20 @@
   <form method="GET" action="{{ url_for('sales') }}" class="filter-bar" style="margin-bottom:0">
     <input type="hidden" name="tab" value="orders">
     <div class="filter-group">
-      <label>Search</label>
+      <label data-i18n="search">Search</label>
       <input type="text" name="search" class="form-control form-control-sm" placeholder="Order # or customer…" value="{{ search }}">
     </div>
     <div class="filter-group">
-      <label>From</label>
+      <label data-i18n="from">From</label>
       <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
     </div>
     <div class="filter-group">
-      <label>To</label>
+      <label data-i18n="to">To</label>
       <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
     </div>
     <div class="filter-group" style="justify-content:flex-end">
       <label>&nbsp;</label>
-      <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> Filter</button>
+      <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> <span data-i18n="filter">Filter</span></button>
     </div>
   </form>
 </div>
@@ -74,7 +74,7 @@
   <div class="card table-card">
     <table class="data-table">
       <thead>
-        <tr><th>Order</th><th>Customer</th><th>Date</th><th>Amount</th><th>Status</th><th>Invoice</th></tr>
+        <tr><th data-i18n="order_number">Order</th><th data-i18n="customer">Customer</th><th data-i18n="issue_date">Date</th><th data-i18n="amount">Amount</th><th data-i18n="status">Status</th><th data-i18n="invoice">Invoice</th></tr>
       </thead>
       <tbody>
         {% for o in records %}
@@ -84,21 +84,21 @@
           <td style="font-size:.78rem">{{ o.date_order[:10] if o.date_order else '—' }}</td>
           <td><strong>{{ (o.amount_total or 0) | fmt_currency }}</strong></td>
           <td>
-            {% if o.state == 'sale' %}<span class="badge badge-success">Confirmed</span>
-            {% elif o.state == 'done' %}<span class="badge badge-info">Done</span>
-            {% elif o.state == 'draft' %}<span class="badge badge-secondary">Draft</span>
-            {% elif o.state == 'sent' %}<span class="badge badge-warning">Sent</span>
+            {% if o.state == 'sale' %}<span class="badge badge-success" data-i18n="confirmed">Confirmed</span>
+            {% elif o.state == 'done' %}<span class="badge badge-info" data-i18n="done">Done</span>
+            {% elif o.state == 'draft' %}<span class="badge badge-secondary" data-i18n="draft">Draft</span>
+            {% elif o.state == 'sent' %}<span class="badge badge-warning" data-i18n="sent">Sent</span>
             {% else %}<span class="badge badge-secondary">{{ o.state }}</span>{% endif %}
           </td>
           <td>
-            {% if o.invoice_status == 'invoiced' %}<span class="badge badge-success">Invoiced</span>
-            {% elif o.invoice_status == 'to invoice' %}<span class="badge badge-warning">To Invoice</span>
-            {% elif o.invoice_status == 'nothing' %}<span class="badge badge-secondary">Nothing</span>
+            {% if o.invoice_status == 'invoiced' %}<span class="badge badge-success" data-i18n="invoiced">Invoiced</span>
+            {% elif o.invoice_status == 'to invoice' %}<span class="badge badge-warning" data-i18n="to_invoice">To Invoice</span>
+            {% elif o.invoice_status == 'nothing' %}<span class="badge badge-secondary" data-i18n="nothing">Nothing</span>
             {% else %}<span class="badge badge-secondary">{{ o.invoice_status or '—' }}</span>{% endif %}
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="6"><div class="empty-state"><i class="fa-solid fa-cart-shopping"></i><p>No orders found</p></div></td></tr>
+        <tr><td colspan="6"><div class="empty-state"><i class="fa-solid fa-cart-shopping"></i><p data-i18n="no_orders_found">No orders found</p></div></td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -106,7 +106,7 @@
   </div>
 
   <div class="card">
-    <div class="card-header"><i class="fa-solid fa-chart-bar" style="color:var(--primary)"></i><h5>Monthly Revenue</h5></div>
+    <div class="card-header"><i class="fa-solid fa-chart-bar" style="color:var(--primary)"></i><h5 data-i18n="monthly_revenue">Monthly Revenue</h5></div>
     <div class="card-body" style="padding:.75rem">
       <canvas id="monthlyChart" style="max-height:260px"></canvas>
     </div>
@@ -119,27 +119,27 @@
 <div class="stat-grid">
   <div class="stat-card">
     <div class="stat-value">{{ stats.count }}</div>
-    <div class="stat-label">Opportunities</div>
+    <div class="stat-label" data-i18n="opportunities">Opportunities</div>
   </div>
   <div class="stat-card">
     <div class="stat-value" style="color:var(--primary)">{{ stats.total_revenue | fmt_currency }}</div>
-    <div class="stat-label">Expected Revenue</div>
+    <div class="stat-label" data-i18n="expected_revenue">Expected Revenue</div>
   </div>
   <div class="stat-card">
     <div class="stat-value">{{ stages | length }}</div>
-    <div class="stat-label">Stages</div>
+    <div class="stat-label" data-i18n="stages">Stages</div>
   </div>
 </div>
 
 <form method="GET" action="{{ url_for('sales') }}" class="filter-bar">
   <input type="hidden" name="tab" value="pipeline">
   <div class="filter-group">
-    <label>Search</label>
+    <label data-i18n="search">Search</label>
     <input type="text" name="search" class="form-control form-control-sm" placeholder="Opportunity or customer…" value="{{ search }}">
   </div>
   <div class="filter-group" style="justify-content:flex-end">
     <label>&nbsp;</label>
-    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> Filter</button>
+    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> <span data-i18n="filter">Filter</span></button>
   </div>
 </form>
 
@@ -147,7 +147,7 @@
   <div class="card table-card">
     <table class="data-table">
       <thead>
-        <tr><th>Opportunity</th><th>Customer</th><th>Stage</th><th>Expected Rev.</th><th>Probability</th><th>Deadline</th><th>⭐</th></tr>
+        <tr><th data-i18n="opportunity">Opportunity</th><th data-i18n="customer">Customer</th><th data-i18n="stage">Stage</th><th data-i18n="expected_rev">Expected Rev.</th><th data-i18n="probability">Probability</th><th data-i18n="deadline">Deadline</th><th>⭐</th></tr>
       </thead>
       <tbody>
         {% for lead in records %}
@@ -173,7 +173,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="7"><div class="empty-state"><i class="fa-solid fa-funnel-dollar"></i><p>No opportunities found</p></div></td></tr>
+        <tr><td colspan="7"><div class="empty-state"><i class="fa-solid fa-funnel-dollar"></i><p data-i18n="no_opportunities_found">No opportunities found</p></div></td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -181,7 +181,7 @@
   </div>
 
   <div class="card">
-    <div class="card-header"><i class="fa-solid fa-chart-pie" style="color:var(--primary)"></i><h5>Revenue by Stage</h5></div>
+    <div class="card-header"><i class="fa-solid fa-chart-pie" style="color:var(--primary)"></i><h5 data-i18n="revenue_by_stage">Revenue by Stage</h5></div>
     <div class="card-body" style="padding:.75rem">
       <canvas id="stagesChart" style="max-height:240px"></canvas>
     </div>

@@ -19,13 +19,13 @@
 
 <div class="tab-bar">
   <a href="{{ url_for('inventory', tab='stock') }}" class="tab-item {% if tab == 'stock' %}active{% endif %}">
-    <i class="fa-solid fa-warehouse"></i> Stock
+    <i class="fa-solid fa-warehouse"></i> <span data-i18n="stock">Stock</span>
   </a>
   <a href="{{ url_for('inventory', tab='movements') }}" class="tab-item {% if tab == 'movements' %}active{% endif %}">
-    <i class="fa-solid fa-arrows-rotate"></i> Movements
+    <i class="fa-solid fa-arrows-rotate"></i> <span data-i18n="movements">Movements</span>
   </a>
   <a href="{{ url_for('inventory', tab='valuation') }}" class="tab-item {% if tab == 'valuation' %}active{% endif %}">
-    <i class="fa-solid fa-scale-balanced"></i> Valuation
+    <i class="fa-solid fa-scale-balanced"></i> <span data-i18n="valuation">Valuation</span>
   </a>
 </div>
 
@@ -35,31 +35,31 @@
 <div class="stat-grid">
   <div class="stat-card">
     <div class="stat-value">{{ stats.count }}</div>
-    <div class="stat-label">Stock Lines</div>
+    <div class="stat-label" data-i18n="stock_lines">Stock Lines</div>
   </div>
   <div class="stat-card">
     <div class="stat-value" style="color:var(--primary)">{{ stats.total_value | fmt_currency }}</div>
-    <div class="stat-label">Total Stock Value</div>
+    <div class="stat-label" data-i18n="total_stock_value">Total Stock Value</div>
   </div>
   <div class="stat-card">
     <div class="stat-value">{{ stats.total_qty | round(2) }}</div>
-    <div class="stat-label">Total Qty</div>
+    <div class="stat-label" data-i18n="total_qty">Total Qty</div>
   </div>
   <div class="stat-card">
     <div class="stat-value" style="color:var(--danger)">{{ stats.zero_stock }}</div>
-    <div class="stat-label">Zero Stock Lines</div>
+    <div class="stat-label" data-i18n="zero_stock_lines">Zero Stock Lines</div>
   </div>
 </div>
 
 <form method="GET" action="{{ url_for('inventory') }}" class="filter-bar">
   <input type="hidden" name="tab" value="stock">
   <div class="filter-group">
-    <label>Search Product</label>
+    <label data-i18n="search">Search Product</label>
     <input type="text" name="search" class="form-control form-control-sm" placeholder="Product name…" value="{{ search }}">
   </div>
   <div class="filter-group" style="justify-content:flex-end">
     <label>&nbsp;</label>
-    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> Filter</button>
+    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> <span data-i18n="filter">Filter</span></button>
   </div>
 </form>
 
@@ -67,7 +67,7 @@
   <div class="card table-card">
     <table class="data-table">
       <thead>
-        <tr><th>Product</th><th>Location</th><th>Quantity</th><th>Reserved</th><th>Available</th></tr>
+        <tr><th data-i18n="product">Product</th><th data-i18n="location">Location</th><th data-i18n="quantity">Quantity</th><th data-i18n="reserved">Reserved</th><th data-i18n="available">Available</th></tr>
       </thead>
       <tbody>
         {% for q in records %}
@@ -82,7 +82,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="5"><div class="empty-state"><i class="fa-solid fa-warehouse"></i><p>No stock records found</p></div></td></tr>
+        <tr><td colspan="5"><div class="empty-state"><i class="fa-solid fa-warehouse"></i><p data-i18n="no_stock_data">No stock records found</p></div></td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -90,7 +90,7 @@
   </div>
 
   <div class="card">
-    <div class="card-header"><i class="fa-solid fa-chart-bar" style="color:var(--primary)"></i><h5>Top 10 by Value</h5></div>
+    <div class="card-header"><i class="fa-solid fa-chart-bar" style="color:var(--primary)"></i><h5 data-i18n="top_10_by_value">Top 10 by Value</h5></div>
     <div class="card-body" style="padding:.75rem">
       <canvas id="topChart" style="max-height:280px"></canvas>
     </div>
@@ -103,7 +103,7 @@
 <div class="stat-grid">
   <div class="stat-card">
     <div class="stat-value">{{ stats.count }}</div>
-    <div class="stat-label">Total Moves</div>
+    <div class="stat-label" data-i18n="total_moves">Total Moves</div>
   </div>
   {% for mt in move_types[:3] %}
   <div class="stat-card">
@@ -116,27 +116,27 @@
 <form method="GET" action="{{ url_for('inventory') }}" class="filter-bar">
   <input type="hidden" name="tab" value="movements">
   <div class="filter-group">
-    <label>Search Product</label>
+    <label data-i18n="search">Search Product</label>
     <input type="text" name="search" class="form-control form-control-sm" placeholder="Product name…" value="{{ search }}">
   </div>
   <div class="filter-group">
-    <label>From</label>
+    <label data-i18n="from">From</label>
     <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
   </div>
   <div class="filter-group">
-    <label>To</label>
+    <label data-i18n="to">To</label>
     <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
   </div>
   <div class="filter-group" style="justify-content:flex-end">
     <label>&nbsp;</label>
-    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> Filter</button>
+    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> <span data-i18n="filter">Filter</span></button>
   </div>
 </form>
 
 <div class="card table-card">
   <table class="data-table">
     <thead>
-      <tr><th>Date</th><th>Product</th><th>From</th><th>To</th><th>Qty</th><th>Reference</th></tr>
+      <tr><th data-i18n="issue_date">Date</th><th data-i18n="product">Product</th><th data-i18n="from">From</th><th data-i18n="to">To</th><th data-i18n="qty">Qty</th><th data-i18n="reference">Reference</th></tr>
     </thead>
     <tbody>
       {% for m in records %}
@@ -149,7 +149,7 @@
         <td style="font-size:.78rem;color:var(--text-muted)">{{ m.origin or m.picking_id[1] if m.picking_id else '—' }}</td>
       </tr>
       {% else %}
-      <tr><td colspan="6"><div class="empty-state"><i class="fa-solid fa-arrows-rotate"></i><p>No movements found</p></div></td></tr>
+      <tr><td colspan="6"><div class="empty-state"><i class="fa-solid fa-arrows-rotate"></i><p data-i18n="no_movements">No movements found</p></div></td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -162,34 +162,34 @@
 <div class="stat-grid">
   <div class="stat-card">
     <div class="stat-value">{{ stats.count }}</div>
-    <div class="stat-label">Valuation Layers</div>
+    <div class="stat-label" data-i18n="valuation_layers">Valuation Layers</div>
   </div>
   <div class="stat-card">
     <div class="stat-value" style="color:var(--primary)">{{ stats.total_value | fmt_currency }}</div>
-    <div class="stat-label">Total Value</div>
+    <div class="stat-label" data-i18n="total_value">Total Value</div>
   </div>
   <div class="stat-card">
     <div class="stat-value">{{ (stats.total_qty or 0) | round(2) }}</div>
-    <div class="stat-label">Total Quantity</div>
+    <div class="stat-label" data-i18n="total_quantity">Total Quantity</div>
   </div>
 </div>
 
 <form method="GET" action="{{ url_for('inventory') }}" class="filter-bar">
   <input type="hidden" name="tab" value="valuation">
   <div class="filter-group">
-    <label>Search Product</label>
+    <label data-i18n="search">Search Product</label>
     <input type="text" name="search" class="form-control form-control-sm" placeholder="Product name…" value="{{ search }}">
   </div>
   <div class="filter-group" style="justify-content:flex-end">
     <label>&nbsp;</label>
-    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> Filter</button>
+    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> <span data-i18n="filter">Filter</span></button>
   </div>
 </form>
 
 <div class="card table-card">
   <table class="data-table">
     <thead>
-      <tr><th>Product</th><th>Quantity</th><th>Unit Cost</th><th>Total Value</th><th>Company</th></tr>
+      <tr><th data-i18n="product">Product</th><th data-i18n="quantity">Quantity</th><th data-i18n="unit_cost">Unit Cost</th><th data-i18n="total_value">Total Value</th><th data-i18n="company">Company</th></tr>
     </thead>
     <tbody>
       {% for v in records %}
@@ -205,7 +205,7 @@
         <td style="font-size:.78rem;color:var(--text-muted)">{{ v.company_id[1] if v.company_id else '—' }}</td>
       </tr>
       {% else %}
-      <tr><td colspan="5"><div class="empty-state"><i class="fa-solid fa-scale-balanced"></i><p>No valuation records found</p></div></td></tr>
+      <tr><td colspan="5"><div class="empty-state"><i class="fa-solid fa-scale-balanced"></i><p data-i18n="no_valuation_data">No valuation records found</p></div></td></tr>
       {% endfor %}
     </tbody>
   </table>

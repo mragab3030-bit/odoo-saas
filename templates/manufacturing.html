@@ -20,46 +20,46 @@
 <div class="stat-grid">
   <div class="stat-card">
     <div class="stat-value">{{ stats.count }}</div>
-    <div class="stat-label">Total Orders</div>
+    <div class="stat-label" data-i18n="total_orders_mfg">Total Orders</div>
   </div>
   <div class="stat-card">
     <div class="stat-value" style="color:var(--text-muted)">{{ stats.draft }}</div>
-    <div class="stat-label">Draft</div>
+    <div class="stat-label" data-i18n="draft">Draft</div>
   </div>
   <div class="stat-card">
     <div class="stat-value" style="color:var(--warning)">{{ stats.confirmed }}</div>
-    <div class="stat-label">Confirmed</div>
+    <div class="stat-label" data-i18n="confirmed">Confirmed</div>
   </div>
   <div class="stat-card">
     <div class="stat-value" style="color:var(--primary)">{{ stats.in_progress }}</div>
-    <div class="stat-label">In Progress</div>
+    <div class="stat-label" data-i18n="in_progress">In Progress</div>
   </div>
   <div class="stat-card">
     <div class="stat-value" style="color:var(--success)">{{ stats.done }}</div>
-    <div class="stat-label">Done</div>
+    <div class="stat-label" data-i18n="done">Done</div>
   </div>
   <div class="stat-card">
     <div class="stat-value" style="color:var(--success)">{{ (stats.done_qty or 0) | round(1) }}</div>
-    <div class="stat-label">Qty Produced</div>
+    <div class="stat-label" data-i18n="qty_produced">Qty Produced</div>
   </div>
 </div>
 
 <form method="GET" action="{{ url_for('manufacturing') }}" class="filter-bar">
   <div class="filter-group">
-    <label>Search</label>
+    <label data-i18n="search">Search</label>
     <input type="text" name="search" class="form-control form-control-sm" placeholder="Reference or product…" value="{{ search }}">
   </div>
   <div class="filter-group">
-    <label>From</label>
+    <label data-i18n="from">From</label>
     <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
   </div>
   <div class="filter-group">
-    <label>To</label>
+    <label data-i18n="to">To</label>
     <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
   </div>
   <div class="filter-group" style="justify-content:flex-end">
     <label>&nbsp;</label>
-    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> Filter</button>
+    <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> <span data-i18n="filter">Filter</span></button>
   </div>
 </form>
 
@@ -69,8 +69,8 @@
     <table class="data-table">
       <thead>
         <tr>
-          <th>Reference</th><th>Product</th><th>Qty</th>
-          <th>Planned Start</th><th>Planned End</th><th>Status</th>
+          <th data-i18n="reference">Reference</th><th data-i18n="product">Product</th><th data-i18n="qty">Qty</th>
+          <th data-i18n="planned_start">Planned Start</th><th data-i18n="planned_end">Planned End</th><th data-i18n="status">Status</th>
         </tr>
       </thead>
       <tbody>
@@ -82,12 +82,12 @@
           <td style="font-size:.78rem">{{ mo.date_planned_start[:16] if mo.date_planned_start else '—' }}</td>
           <td style="font-size:.78rem">{{ mo.date_planned_finished[:16] if mo.date_planned_finished else '—' }}</td>
           <td>
-            {% if mo.state == 'draft' %}<span class="badge badge-secondary">Draft</span>
-            {% elif mo.state == 'confirmed' %}<span class="badge badge-warning">Confirmed</span>
-            {% elif mo.state == 'progress' %}<span class="badge badge-primary">In Progress</span>
-            {% elif mo.state == 'to_close' %}<span class="badge badge-info">To Close</span>
-            {% elif mo.state == 'done' %}<span class="badge badge-success">Done</span>
-            {% elif mo.state == 'cancel' %}<span class="badge badge-danger">Cancelled</span>
+            {% if mo.state == 'draft' %}<span class="badge badge-secondary" data-i18n="draft">Draft</span>
+            {% elif mo.state == 'confirmed' %}<span class="badge badge-warning" data-i18n="confirmed">Confirmed</span>
+            {% elif mo.state == 'progress' %}<span class="badge badge-primary" data-i18n="in_progress">In Progress</span>
+            {% elif mo.state == 'to_close' %}<span class="badge badge-info" data-i18n="to_close">To Close</span>
+            {% elif mo.state == 'done' %}<span class="badge badge-success" data-i18n="done">Done</span>
+            {% elif mo.state == 'cancel' %}<span class="badge badge-danger" data-i18n="cancelled">Cancelled</span>
             {% else %}<span class="badge badge-secondary">{{ mo.state }}</span>{% endif %}
           </td>
         </tr>
@@ -96,7 +96,7 @@
           <td colspan="6">
             <div class="empty-state">
               <i class="fa-solid fa-industry"></i>
-              <p>No production orders found — Manufacturing module may not be installed</p>
+              <p data-i18n="no_mo_found">No production orders found — Manufacturing module may not be installed</p>
             </div>
           </td>
         </tr>
@@ -108,29 +108,29 @@
 
   <div>
     <div class="card" style="margin-bottom:1rem">
-      <div class="card-header"><i class="fa-solid fa-chart-pie" style="color:var(--primary)"></i><h5>Status Distribution</h5></div>
+      <div class="card-header"><i class="fa-solid fa-chart-pie" style="color:var(--primary)"></i><h5 data-i18n="status_distribution">Status Distribution</h5></div>
       <div class="card-body" style="padding:.75rem">
         <canvas id="statusChart" style="max-height:220px"></canvas>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-header"><i class="fa-solid fa-bolt" style="color:var(--primary)"></i><h5>Summary</h5></div>
+      <div class="card-header"><i class="fa-solid fa-bolt" style="color:var(--primary)"></i><h5 data-i18n="summary">Summary</h5></div>
       <div class="card-body">
         {% set state_labels = {'draft':'Draft','confirmed':'Confirmed','progress':'In Progress','to_close':'To Close','done':'Done','cancel':'Cancelled'} %}
         {% for state, count in [('draft', stats.draft), ('confirmed', stats.confirmed), ('in_progress', stats.in_progress), ('done', stats.done)] %}
         <div style="display:flex;justify-content:space-between;align-items:center;padding:.5rem 0;border-bottom:1px solid #f1f5f9">
           <span style="font-size:.82rem;color:var(--text-muted)">
-            {% if loop.index == 1 %}Draft
-            {% elif loop.index == 2 %}Confirmed
-            {% elif loop.index == 3 %}In Progress
-            {% else %}Done{% endif %}
+            {% if loop.index == 1 %}<span data-i18n="draft">Draft</span>
+            {% elif loop.index == 2 %}<span data-i18n="confirmed">Confirmed</span>
+            {% elif loop.index == 3 %}<span data-i18n="in_progress">In Progress</span>
+            {% else %}<span data-i18n="done">Done</span>{% endif %}
           </span>
           <strong style="font-size:.9rem">{{ count }}</strong>
         </div>
         {% endfor %}
         <div style="display:flex;justify-content:space-between;align-items:center;padding:.5rem 0;margin-top:.25rem">
-          <span style="font-size:.82rem;color:var(--text-muted)">Total Qty Produced</span>
+          <span style="font-size:.82rem;color:var(--text-muted)" data-i18n="total_qty_produced">Total Qty Produced</span>
           <strong style="color:var(--success)">{{ (stats.done_qty or 0) | round(1) }}</strong>
         </div>
       </div>
