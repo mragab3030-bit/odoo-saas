@@ -369,6 +369,28 @@
     border-radius: 12px;
     overflow: hidden;
     background: #f1f5f9;
+    position: relative;
+  }
+  /* One-time shimmer sweep that fades out so the bar settles cleanly. */
+  .collection-rate-bar::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(110deg,
+      rgba(255,255,255,0) 0%,
+      rgba(255,255,255,0) 35%,
+      rgba(255,255,255,.55) 50%,
+      rgba(255,255,255,0) 65%,
+      rgba(255,255,255,0) 100%);
+    background-size: 220% 100%;
+    background-position: 100% 0;
+    opacity: 0;
+    animation: crShimmer 1.6s ease-out .25s 1 forwards;
+  }
+  @keyframes crShimmer {
+    0%   { opacity: 1; background-position: 100% 0; }
+    100% { opacity: 0; background-position: -20% 0; }
   }
   .collection-rate-seg {
     display: flex;
@@ -377,13 +399,21 @@
     color: #fff;
     font-size: .78rem;
     font-weight: 600;
-    transition: width .25s ease;
+    /* 1.5s width grow on first paint via .cr-anim toggle below. */
+    transition: width 1.5s ease;
     white-space: nowrap;
     overflow: hidden;
   }
-  .collection-rate-seg.paid    { background: #22c55e; }
-  .collection-rate-seg.overdue { background: #ef4444; }
-  .collection-rate-seg.notdue  { background: #eab308; }
+  /* Slight lighter-to-darker gradient inside each segment for depth. */
+  .collection-rate-seg.paid {
+    background: linear-gradient(90deg, #4ade80 0%, #16a34a 100%);
+  }
+  .collection-rate-seg.overdue {
+    background: linear-gradient(90deg, #f87171 0%, #dc2626 100%);
+  }
+  .collection-rate-seg.notdue {
+    background: linear-gradient(90deg, #facc15 0%, #ca8a04 100%);
+  }
   .collection-rate-empty {
     text-align: center;
     padding: 1.25rem .5rem;
@@ -3780,7 +3810,12 @@
       maintainAspectRatio: false,
       cutout: '62%',
       layout: { padding: 18 },
-      animation: { duration: 700, easing: 'easeOutQuart' },
+      animation: {
+        duration: 1200,
+        easing: 'easeOutBounce',
+        animateRotate: true,
+        animateScale: true,
+      },
       animations: {
         // Smoothly animate the slice offset on hover in / out.
         offset:   { duration: 220, easing: 'easeOutCubic' },
@@ -3839,11 +3874,33 @@
       backgroundColor: applySelection(colors, selected),
       borderColor: '#fff',
       borderWidth: 2,
-      hoverOffset: 22,
+      hoverOffset: 12,
       hoverBorderWidth: 3,
       hoverBorderColor: '#fff',
     }];
   }
+
+  // Chart.js plugin: stamp a soft drop shadow under the currently-hovered
+  // segment so it visually "pops" alongside the hoverOffset slide. Active
+  // elements come from chart.getActiveElements() each draw pass.
+  var donutHoverShadow = {
+    id: 'donutHoverShadow',
+    beforeDatasetDraw: function (chart) {
+      var active = chart.getActiveElements();
+      if (!active || !active.length) return;
+      var c = chart.ctx;
+      c.save();
+      c.shadowColor = 'rgba(15, 23, 42, 0.35)';
+      c.shadowBlur = 15;
+      c.shadowOffsetX = 0;
+      c.shadowOffsetY = 4;
+    },
+    afterDatasetDraw: function (chart) {
+      var active = chart.getActiveElements();
+      if (!active || !active.length) return;
+      chart.ctx.restore();
+    },
+  };
 
   var pCanvas = document.getElementById('paymentStatusChart');
   if (pCanvas && paymentData.counts && paymentData.counts.some(function (v) { return v > 0; })) {
@@ -3855,6 +3912,7 @@
                               paymentData.selected),
       },
       options: donutOptions(paymentData),
+      plugins: [donutHoverShadow],
     });
   }
 
@@ -3868,6 +3926,7 @@
                               agingData.selected),
       },
       options: donutOptions(agingData),
+      plugins: [donutHoverShadow],
     });
   }
 })();
@@ -3994,6 +4053,20 @@
     fromInput.value = section.getAttribute('data-date-from') || '';
     toInput.value   = section.getAttribute('data-date-to')   || '';
   }
+
+  // Entry animation: capture target widths, collapse to 0, then on next
+  // frame restore so the CSS `transition: width 1.5s ease` grows them in.
+  (function animateInitialBar() {
+    [segPaid, segOverdue, segNotDue].forEach(function (s) {
+      var target = s.style.width;
+      s.style.transition = 'none';
+      s.style.width = '0%';
+      // Force layout flush so the 0% sticks before we re-enable transition.
+      void s.offsetWidth;
+      s.style.transition = '';
+      requestAnimationFrame(function () { s.style.width = target; });
+    });
+  })();
 
   function fmtPct(v) {
     return (Math.round(v * 10) / 10).toFixed(1);
@@ -4128,47 +4201,78 @@
     return Math.round(v).toLocaleString();
   }
 
+  // Build a vertical gradient (full alpha at top → transparent at bottom)
+  // sized to the current chart area. Returns the rgba() fallback if the
+  // chart hasn't laid out yet (first render).
+  function makeAreaGradient(ctx, area, rgb) {
+    if (!area) return 'rgba(' + rgb + ',.08)';
+    var g = ctx.createLinearGradient(0, area.top, 0, area.bottom);
+    g.addColorStop(0, 'rgba(' + rgb + ',0.4)');
+    g.addColorStop(1, 'rgba(' + rgb + ',0)');
+    return g;
+  }
+
+  var LINE_SPECS = [
+    { key: 'total',       label: 'Total',       color: '#2563eb', rgb: '37,99,235' },
+    { key: 'paid',        label: 'Paid',        color: '#16a34a', rgb: '22,163,74' },
+    { key: 'outstanding', label: 'Outstanding', color: '#dc2626', rgb: '220,38,38' },
+  ];
+
+  // Chart.js plugin: stamp shadowBlur/shadowColor onto the canvas context
+  // before each dataset's stroke so lines render with a soft glow that
+  // matches the line color. Reset afterwards so points/grid stay crisp.
+  var glowPlugin = {
+    id: 'lineGlow',
+    beforeDatasetDraw: function (chart, args) {
+      var spec = LINE_SPECS[args.index];
+      if (!spec) return;
+      var c = chart.ctx;
+      c.save();
+      c.shadowColor = 'rgba(' + spec.rgb + ',0.55)';
+      c.shadowBlur = 10;
+      c.shadowOffsetX = 0;
+      c.shadowOffsetY = 2;
+    },
+    afterDatasetDraw: function (chart) { chart.ctx.restore(); },
+  };
+
   var chart = new Chart(canvas.getContext('2d'), {
     type: 'line',
     data: {
       labels: months.map(function (m) { return m.label; }),
-      datasets: [
-        {
-          label: 'Total',
-          data: months.map(function (m) { return m.total; }),
-          borderColor: '#2563eb',
-          backgroundColor: 'rgba(37,99,235,.08)',
-          tension: .25,
-          borderWidth: 2,
-          pointRadius: 3,
-        },
-        {
-          label: 'Paid',
-          data: months.map(function (m) { return m.paid; }),
-          borderColor: '#16a34a',
-          backgroundColor: 'rgba(22,163,74,.08)',
-          tension: .25,
-          borderWidth: 2,
-          pointRadius: 3,
-        },
-        {
-          label: 'Outstanding',
-          data: months.map(function (m) { return m.outstanding; }),
-          borderColor: '#dc2626',
-          backgroundColor: 'rgba(220,38,38,.08)',
-          tension: .25,
-          borderWidth: 2,
-          pointRadius: 3,
-        },
-      ],
+      datasets: LINE_SPECS.map(function (spec) {
+        return {
+          label: spec.label,
+          data: months.map(function (m) { return m[spec.key]; }),
+          borderColor: spec.color,
+          backgroundColor: function (ctx) {
+            var chart = ctx.chart;
+            return makeAreaGradient(chart.ctx, chart.chartArea, spec.rgb);
+          },
+          fill: true,
+          tension: 0.4,
+          borderWidth: 2.5,
+          pointRadius: 4,
+          pointHoverRadius: 7,
+          pointBackgroundColor: spec.color,
+          pointBorderColor: '#fff',
+          pointBorderWidth: 2,
+          pointHoverBorderWidth: 2.5,
+        };
+      }),
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
+      animation: { duration: 1500, easing: 'easeInOutQuart' },
       plugins: {
-        legend: { position: 'bottom' },
+        legend: { position: 'bottom', labels: { boxWidth: 12, padding: 12 } },
         tooltip: {
+          backgroundColor: 'rgba(15, 23, 42, .92)',
+          padding: 10,
+          cornerRadius: 8,
+          titleFont: { weight: '700' },
           callbacks: {
             label: function (ctx) {
               return ctx.dataset.label + ': ' + fmtAmount(ctx.parsed.y);
@@ -4177,12 +4281,17 @@
         },
       },
       scales: {
+        x: {
+          grid: { color: 'rgba(148,163,184,.12)', drawBorder: false },
+        },
         y: {
           beginAtZero: true,
+          grid: { color: 'rgba(148,163,184,.12)', drawBorder: false },
           ticks: { callback: function (v) { return tickFmt(v); } },
         },
       },
     },
+    plugins: [glowPlugin],
   });
 
   document.addEventListener('odoo:amount-mode-change', function () {
