@@ -489,6 +489,48 @@ a:hover { text-decoration: none; }
 [dir="rtl"] .data-table td {
   text-align: right;
 }
+
+/* ===== Charts: always render LTR internally =====
+   Chart.js (especially the treemap plugin) does not respect RTL
+   gracefully — bars reverse, treemap nodes pile to one side, axis
+   ticks shift. Force every chart container, canvas, and canvas
+   wrapper to LTR regardless of page direction. Surrounding titles
+   and labels inherit the page direction so headers still read in
+   Arabic / English correctly. */
+.chart-container,
+canvas,
+.trend-canvas-wrap,
+.chart-canvas-wrap,
+.analytic-canvas-wrap,
+.analytic-canvas-shell,
+.asset-chart-body {
+  direction: ltr !important;
+  /* `unicode-bidi: isolate` keeps mixed-script axis ticks (currency
+     codes + Arabic digits) from re-ordering inside the canvas. */
+  unicode-bidi: isolate;
+}
+.chart-title,
+.chart-header,
+.analytic-header,
+.trend-header,
+.tax-header,
+.cards-section-header,
+.cashflow-header,
+.kpi-section-header {
+  direction: inherit;
+}
+
+/* Treemap-specific: ensure the wrap fills its section regardless of
+   direction. Previously, the rtl page direction made the canvas
+   appear glued to the right edge of the section. */
+.analytic-canvas-wrap--treemap {
+  width: 100%;
+  text-align: left;
+}
+.analytic-canvas-wrap--treemap > canvas {
+  width: 100% !important;
+  display: block;
+}
 @media (max-width: 1024px) {
   [dir="rtl"] .main-content { margin-right: 0; }
   [dir="rtl"] .sidebar { transform: translateX(100%); }

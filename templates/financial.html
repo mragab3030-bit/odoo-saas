@@ -643,7 +643,7 @@
       <input type="date" id="trendDateTo"   style="display:none" aria-label="To date">
     </div>
   </div>
-  <div class="trend-canvas-wrap">
+  <div class="trend-canvas-wrap" dir="ltr">
     <canvas id="trendChart"></canvas>
   </div>
   <div class="trend-period-label" id="trendPeriodLabel">{{ trend.period_label or '' }}</div>
@@ -885,7 +885,7 @@
         <i class="fa-solid fa-chart-pie" style="color:var(--primary)"></i> <span data-i18n="payment_status_dist">Payment Status Distribution</span>
       </span>
     </div>
-    <div class="chart-canvas-wrap">
+    <div class="chart-canvas-wrap" dir="ltr">
       <canvas id="paymentStatusChart"></canvas>
     </div>
   </div>
@@ -896,7 +896,7 @@
         <i class="fa-solid fa-chart-pie" style="color:var(--primary)"></i> <span data-i18n="aging_distribution">Aging Distribution</span>
       </span>
     </div>
-    <div class="chart-canvas-wrap">
+    <div class="chart-canvas-wrap" dir="ltr">
       <canvas id="agingChart"></canvas>
     </div>
   </div>
@@ -1306,7 +1306,7 @@
         </a>
       {% endif %}
     </div>
-    <div class="asset-chart-body" id="assetCategoryCountWrap">
+    <div class="asset-chart-body" id="assetCategoryCountWrap" dir="ltr">
       <canvas id="assetCategoryCountChart"></canvas>
       <div class="asset-chart-empty" id="assetCategoryCountEmpty" style="display:none">
         <i class="fa-solid fa-chart-pie"></i>
@@ -1319,7 +1319,7 @@
     <div class="asset-chart-header">
       <h3 class="asset-chart-title" data-i18n="net_book_value_by_cat">Net Book Value by Category</h3>
     </div>
-    <div class="asset-chart-body" id="assetCategoryNetWrap">
+    <div class="asset-chart-body" id="assetCategoryNetWrap" dir="ltr">
       <canvas id="assetCategoryNetChart"></canvas>
       <div class="asset-chart-empty" id="assetCategoryNetEmpty" style="display:none">
         <i class="fa-solid fa-chart-column"></i>
@@ -3533,7 +3533,7 @@
       <input type="date" id="treemapTo"   style="display:none">
     </div>
   </div>
-  <div class="analytic-canvas-wrap analytic-canvas-wrap--treemap">
+  <div class="analytic-canvas-wrap analytic-canvas-wrap--treemap" dir="ltr">
     <canvas id="treemapChart"></canvas>
   </div>
   <div class="analytic-period-label" id="treemapPeriodLabel">{{ period_label or '' }}</div>
@@ -3554,8 +3554,8 @@
         <input type="date" id="waterfallTo"   style="display:none">
       </div>
     </div>
-    <div class="analytic-canvas-wrap analytic-canvas-wrap--waterfall" id="waterfallScroll">
-      <div class="analytic-canvas-shell" id="waterfallShell">
+    <div class="analytic-canvas-wrap analytic-canvas-wrap--waterfall" id="waterfallScroll" dir="ltr">
+      <div class="analytic-canvas-shell" id="waterfallShell" dir="ltr">
         <canvas id="waterfallChart"></canvas>
       </div>
     </div>
@@ -3575,7 +3575,7 @@
         <input type="date" id="bubbleTo"   style="display:none">
       </div>
     </div>
-    <div class="analytic-canvas-wrap analytic-canvas-wrap--bubble">
+    <div class="analytic-canvas-wrap analytic-canvas-wrap--bubble" dir="ltr">
       <canvas id="bubbleChart"></canvas>
     </div>
     <div class="analytic-period-label" id="bubblePeriodLabel">{{ period_label or '' }}</div>
