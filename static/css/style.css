@@ -138,7 +138,10 @@ a:hover { text-decoration: none; }
 .sidebar {
   width: var(--sidebar-width);
   background: var(--sidebar-bg);
-  border-right: 1px solid var(--sidebar-border);
+  /* Faint red glow along the trailing edge — works across all 3
+     themes because rgba alpha blends with whatever sidebar-bg is. */
+  border-right: 1px solid rgba(230, 48, 48, .15);
+  box-shadow: inset -1px 0 20px rgba(230, 48, 48, .05);
   display: flex;
   flex-direction: column;
   position: fixed;
@@ -146,6 +149,12 @@ a:hover { text-decoration: none; }
   z-index: 100;
   transition: transform .25s ease, background-color .3s ease;
   overflow-y: auto;
+}
+/* RTL mirrors the sidebar to the right — flip the glow accordingly. */
+[dir="rtl"] .sidebar {
+  border-right: 0;
+  border-left: 1px solid rgba(230, 48, 48, .15);
+  box-shadow: inset 1px 0 20px rgba(230, 48, 48, .05);
 }
 
 .sidebar::-webkit-scrollbar { width: 4px; }
@@ -168,6 +177,10 @@ a:hover { text-decoration: none; }
 
 .sidebar-brand .brand-icon .olens-logo {
   width: 100%; height: 100%; display: block;
+  /* Red drop-shadow on the lens icon — drop-shadow respects the SVG's
+     painted regions (not the bounding box), so the glow hugs the
+     circle + crosshairs rather than appearing as a square halo. */
+  filter: drop-shadow(0 0 6px rgba(230, 48, 48, .7));
 }
 
 .brand-text { overflow: hidden; }
@@ -178,7 +191,10 @@ a:hover { text-decoration: none; }
   /* The two halves carry their own colors below — leave the parent
      unset so the cascade doesn't leak into either span. */
 }
-.brand-name-o    { color: #E63030; }
+.brand-name-o {
+  color: #E63030;
+  text-shadow: 0 0 10px rgba(230, 48, 48, .6);
+}
 /* "lens" defers to the sidebar's strong-text token so it stays legible
    on the light theme (dark text) while reading white on dark/midnight. */
 .brand-name-rest { color: var(--sidebar-text-strong); }
@@ -202,6 +218,7 @@ a:hover { text-decoration: none; }
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
+  box-shadow: 0 0 12px rgba(230, 48, 48, .3);
 }
 
 .user-avatar i { color: #fff; font-size: 14px; }
@@ -301,8 +318,37 @@ a:hover { text-decoration: none; }
   margin-bottom: 2px;
 }
 
-.nav-item:hover { background: var(--sidebar-hover); color: var(--sidebar-text-strong); }
-.nav-item.active { background: var(--primary); color: #fff; }
+.nav-item:hover {
+  background: var(--sidebar-hover);
+  color: var(--sidebar-text-strong);
+  /* Subtle white inner glow on hover — barely visible on light theme
+     where sidebar-hover is already light, but adds a soft sheen on
+     dark/midnight. */
+  box-shadow: inset 0 0 20px rgba(255, 255, 255, .03);
+}
+.nav-item.active {
+  background: var(--primary);
+  color: #fff;
+  /* Pulse animation runs forever — `box-shadow` is interpolatable so
+     the keyframes blend smoothly. The two layers (15px + 30px) give a
+     near-glow + far-bloom that reads as a single soft halo. */
+  animation: navItemActivePulse 2s ease-in-out infinite;
+}
+@keyframes navItemActivePulse {
+  0%, 100% {
+    box-shadow:
+      0 0 15px rgba(230, 48, 48, .4),
+      0 0 30px rgba(230, 48, 48, .15);
+  }
+  50% {
+    box-shadow:
+      0 0 25px rgba(230, 48, 48, .7),
+      0 0 40px rgba(230, 48, 48, .25);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-item.active { animation: none; }
+}
 .nav-item i { width: 16px; text-align: center; font-size: 14px; flex-shrink: 0; }
 
 .nav-item.locked {
@@ -441,6 +487,7 @@ a:hover { text-decoration: none; }
 .lang-btn.active {
   background: var(--primary);
   color: #fff;
+  box-shadow: 0 0 10px rgba(230, 48, 48, .5);
 }
 .lang-sep {
   color: var(--sidebar-text);
@@ -457,8 +504,6 @@ a:hover { text-decoration: none; }
 [dir="rtl"] .sidebar {
   left: auto;
   right: 0;
-  border-right: 0;
-  border-left: 1px solid var(--sidebar-border);
 }
 [dir="rtl"] .main-content {
   margin-left: 0;
