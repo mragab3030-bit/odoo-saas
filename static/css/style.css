@@ -565,23 +565,26 @@ a:hover { text-decoration: none; }
   overflow: hidden;
 }
 
-/* ===== Global hover zoom on individual KPI / summary cards =====
-   Applied to every per-item card across the app (KPI summary,
-   Payment Status, Aging, Cash Flow, Tax, Budget, Asset, etc.). The
-   list is enumerated rather than using `[class*="card"]` to avoid
-   matching layout containers (`.cards-row`, `.cards-section`,
-   `.cashflow-cards`, `.tax-cards`) or full-width table wrappers
-   (`.table-card`, the Top-5 Overdue `.card`) — scaling those would
-   scale whole rows or large tables. The shadow + z-index combo lets
-   the lifted card overlap neighbors without shifting the grid. */
+/* ===== Global hover lift on individual KPI / summary cards =====
+   Card floats up (translateY -4px) with a subtle scale and deeper
+   shadow on hover — reads as "lifted off the page", not "clickable".
+   Cursor stays `default` here; only cards that actually filter the
+   table on click get `pointer` re-applied below (link variants).
+
+   Enumerated rather than using `[class*="card"]` to avoid matching
+   layout containers (`.cards-row`, `.cards-section`, `.cashflow-cards`,
+   `.tax-cards`) or full-width table wrappers (`.table-card`, the
+   Top-5 Overdue `.card`) — lifting those would shift whole rows or
+   large tables. The z-index + position:relative combo lets the
+   lifted card overlap neighbors without shifting the grid. */
 .stat-card,
 .kpi-card,
 .cashflow-card,
 .tax-card,
 .budget-card,
 .asset-chart-card {
-  transition: transform .2s ease, box-shadow .2s ease;
-  cursor: pointer;
+  transition: transform .25s ease, box-shadow .25s ease;
+  cursor: default;
 }
 .stat-card:hover,
 .kpi-card:hover,
@@ -589,10 +592,19 @@ a:hover { text-decoration: none; }
 .tax-card:hover,
 .budget-card:hover,
 .asset-chart-card:hover {
-  transform: scale(1.04);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, .12);
+  transform: translateY(-4px) scale(1.02);
+  box-shadow: 0 12px 35px rgba(0, 0, 0, .15);
   z-index: 10;
   position: relative;
+}
+/* Re-assert pointer on cards that act as filter links. These selectors
+   sit after the default-cursor rule above so `pointer` wins for ties
+   (.cashflow-card lives in both lists by design). Anchor `<a>` tags
+   normally get pointer from the browser, but the .stat-card rule above
+   beats the user-agent style on class specificity. */
+.stat-card.stat-card-link,
+.cashflow-card {
+  cursor: pointer;
 }
 @media (prefers-reduced-motion: reduce) {
   .stat-card,
