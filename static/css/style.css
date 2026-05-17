@@ -565,6 +565,54 @@ a:hover { text-decoration: none; }
   overflow: hidden;
 }
 
+/* ===== Global hover zoom on individual KPI / summary cards =====
+   Applied to every per-item card across the app (KPI summary,
+   Payment Status, Aging, Cash Flow, Tax, Budget, Asset, etc.). The
+   list is enumerated rather than using `[class*="card"]` to avoid
+   matching layout containers (`.cards-row`, `.cards-section`,
+   `.cashflow-cards`, `.tax-cards`) or full-width table wrappers
+   (`.table-card`, the Top-5 Overdue `.card`) — scaling those would
+   scale whole rows or large tables. The shadow + z-index combo lets
+   the lifted card overlap neighbors without shifting the grid. */
+.stat-card,
+.kpi-card,
+.cashflow-card,
+.tax-card,
+.budget-card,
+.asset-chart-card {
+  transition: transform .2s ease, box-shadow .2s ease;
+  cursor: pointer;
+}
+.stat-card:hover,
+.kpi-card:hover,
+.cashflow-card:hover,
+.tax-card:hover,
+.budget-card:hover,
+.asset-chart-card:hover {
+  transform: scale(1.04);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .12);
+  z-index: 10;
+  position: relative;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stat-card,
+  .kpi-card,
+  .cashflow-card,
+  .tax-card,
+  .budget-card,
+  .asset-chart-card {
+    transition: none;
+  }
+  .stat-card:hover,
+  .kpi-card:hover,
+  .cashflow-card:hover,
+  .tax-card:hover,
+  .budget-card:hover,
+  .asset-chart-card:hover {
+    transform: none;
+  }
+}
+
 .card-header {
   padding: 1rem 1.25rem;
   border-bottom: 1px solid var(--border);
