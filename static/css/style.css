@@ -1393,6 +1393,169 @@ a.amount-format-btn.active:focus {
   background: rgba(230, 48, 48, .025);
 }
 
+/* ===== Glassmorphism + neon glow for KPI cards =====
+   Glass background, blurred backdrop, color-tinted halo per card type.
+   Color is detected via :has() reading the inline `style` on the inner
+   .stat-value / .amount-display — covers both CSS tokens (var(--success)
+   etc.) and bare hex (aging buckets / cashflow border-left hexes).
+
+   Scoped to dark + midnight themes via :not([data-theme="light"]) so
+   the Light theme keeps its clean white cards (just a subtle colored
+   border rule lower down). */
+:where(html:not([data-theme="light"])) .stat-card,
+:where(html:not([data-theme="light"])) .kpi-card,
+:where(html:not([data-theme="light"])) .cashflow-card,
+:where(html:not([data-theme="light"])) .tax-card,
+:where(html:not([data-theme="light"])) .budget-card,
+:where(html:not([data-theme="light"])) .asset-chart-card {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.2),
+    0 0 20px rgba(0, 210, 255, 0.15);
+}
+
+/* Per-color glow: green (paid / positive) */
+html:not([data-theme="light"]) .stat-card:has(:is(.stat-value, .amount-display)[style*="--success"]),
+html:not([data-theme="light"]) .stat-card:has(:is(.stat-value, .amount-display)[style*="22c55e"]) {
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.2),
+    0 0 20px rgba(22, 163, 74, 0.2);
+}
+/* red (overdue / outstanding) */
+html:not([data-theme="light"]) .stat-card:has(:is(.stat-value, .amount-display)[style*="--danger"]),
+html:not([data-theme="light"]) .stat-card:has(:is(.stat-value, .amount-display)[style*="ef4444"]),
+html:not([data-theme="light"]) .stat-card:has(:is(.stat-value, .amount-display)[style*="dc2626"]),
+html:not([data-theme="light"]) .stat-card:has(:is(.stat-value, .amount-display)[style*="991b1b"]) {
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.2),
+    0 0 20px rgba(220, 38, 38, 0.2);
+}
+/* orange / amber (warning / aging) */
+html:not([data-theme="light"]) .stat-card:has(:is(.stat-value, .amount-display)[style*="--warning"]),
+html:not([data-theme="light"]) .stat-card:has(:is(.stat-value, .amount-display)[style*="eab308"]),
+html:not([data-theme="light"]) .stat-card:has(:is(.stat-value, .amount-display)[style*="f97316"]) {
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.2),
+    0 0 20px rgba(217, 119, 6, 0.2);
+}
+/* Comparison cards: purple halo */
+html:not([data-theme="light"]) .compare-card {
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.2),
+    0 0 20px rgba(139, 92, 246, 0.15);
+}
+/* Cashflow cards carry color in `border-left:4px solid {hex}` inline. */
+html:not([data-theme="light"]) .cashflow-card[style*="e74c3c"] {
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.2),
+    0 0 20px rgba(220, 38, 38, 0.2);
+}
+html:not([data-theme="light"]) .cashflow-card[style*="27ae60"] {
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.2),
+    0 0 20px rgba(22, 163, 74, 0.2);
+}
+html:not([data-theme="light"]) .cashflow-card[style*="e67e22"],
+html:not([data-theme="light"]) .cashflow-card[style*="f39c12"] {
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.2),
+    0 0 20px rgba(217, 119, 6, 0.2);
+}
+
+/* Number text-shadow per color. Limited to the colored values so neutral
+   counts stay crisp. */
+html:not([data-theme="light"]) :is(.stat-value, .amount-display)[style*="--success"],
+html:not([data-theme="light"]) :is(.stat-value, .amount-display)[style*="22c55e"] {
+  text-shadow: 0 0 20px rgba(22, 163, 74, 0.5);
+}
+html:not([data-theme="light"]) :is(.stat-value, .amount-display)[style*="--danger"],
+html:not([data-theme="light"]) :is(.stat-value, .amount-display)[style*="ef4444"],
+html:not([data-theme="light"]) :is(.stat-value, .amount-display)[style*="dc2626"] {
+  text-shadow: 0 0 20px rgba(220, 38, 38, 0.5);
+}
+html:not([data-theme="light"]) :is(.stat-value, .amount-display)[style*="--warning"],
+html:not([data-theme="light"]) :is(.stat-value, .amount-display)[style*="eab308"],
+html:not([data-theme="light"]) :is(.stat-value, .amount-display)[style*="f97316"] {
+  text-shadow: 0 0 20px rgba(217, 119, 6, 0.5);
+}
+
+/* Hover: brighter border + intensified glow. Lift transform comes from
+   the global card-hover block earlier in this file. */
+html:not([data-theme="light"]) :is(.stat-card, .kpi-card, .cashflow-card, .tax-card, .budget-card, .asset-chart-card):hover {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+html:not([data-theme="light"]) .stat-card:hover:has(:is(.stat-value, .amount-display)[style*="--success"]),
+html:not([data-theme="light"]) .stat-card:hover:has(:is(.stat-value, .amount-display)[style*="22c55e"]) {
+  box-shadow:
+    0 12px 35px rgba(0, 0, 0, 0.25),
+    0 0 30px rgba(22, 163, 74, 0.5);
+}
+html:not([data-theme="light"]) .stat-card:hover:has(:is(.stat-value, .amount-display)[style*="--danger"]),
+html:not([data-theme="light"]) .stat-card:hover:has(:is(.stat-value, .amount-display)[style*="ef4444"]),
+html:not([data-theme="light"]) .stat-card:hover:has(:is(.stat-value, .amount-display)[style*="dc2626"]) {
+  box-shadow:
+    0 12px 35px rgba(0, 0, 0, 0.25),
+    0 0 30px rgba(220, 38, 38, 0.5);
+}
+html:not([data-theme="light"]) .stat-card:hover:has(:is(.stat-value, .amount-display)[style*="--warning"]),
+html:not([data-theme="light"]) .stat-card:hover:has(:is(.stat-value, .amount-display)[style*="eab308"]),
+html:not([data-theme="light"]) .stat-card:hover:has(:is(.stat-value, .amount-display)[style*="f97316"]) {
+  box-shadow:
+    0 12px 35px rgba(0, 0, 0, 0.25),
+    0 0 30px rgba(217, 119, 6, 0.5);
+}
+html:not([data-theme="light"]) .compare-card:hover {
+  box-shadow:
+    0 12px 35px rgba(0, 0, 0, 0.25),
+    0 0 30px rgba(139, 92, 246, 0.45);
+}
+
+/* Active/selected filter card: brighter border + neon pulse. Overrides
+   the static box-shadow on .stat-card-active above. */
+html:not([data-theme="light"]) .stat-card-active {
+  border-color: rgba(230, 48, 48, 0.6) !important;
+  animation: kpiCardActivePulse 2s ease-in-out infinite;
+}
+@keyframes kpiCardActivePulse {
+  0%, 100% {
+    box-shadow:
+      0 0 25px rgba(230, 48, 48, 0.45),
+      0 0 50px rgba(230, 48, 48, 0.15);
+  }
+  50% {
+    box-shadow:
+      0 0 40px rgba(230, 48, 48, 0.75),
+      0 0 70px rgba(230, 48, 48, 0.30);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-theme="light"]) .stat-card-active { animation: none; }
+}
+
+/* Light theme: keep clean white cards, just add a subtle colored border
+   so the same color cue is present without the heavy glass effect. */
+[data-theme="light"] .stat-card:has(:is(.stat-value, .amount-display)[style*="--success"]),
+[data-theme="light"] .stat-card:has(:is(.stat-value, .amount-display)[style*="22c55e"]) {
+  border-color: rgba(22, 163, 74, 0.35);
+}
+[data-theme="light"] .stat-card:has(:is(.stat-value, .amount-display)[style*="--danger"]),
+[data-theme="light"] .stat-card:has(:is(.stat-value, .amount-display)[style*="ef4444"]),
+[data-theme="light"] .stat-card:has(:is(.stat-value, .amount-display)[style*="dc2626"]) {
+  border-color: rgba(220, 38, 38, 0.35);
+}
+[data-theme="light"] .stat-card:has(:is(.stat-value, .amount-display)[style*="--warning"]),
+[data-theme="light"] .stat-card:has(:is(.stat-value, .amount-display)[style*="eab308"]),
+[data-theme="light"] .stat-card:has(:is(.stat-value, .amount-display)[style*="f97316"]) {
+  border-color: rgba(217, 119, 6, 0.35);
+}
+[data-theme="light"] .compare-card {
+  border-color: rgba(139, 92, 246, 0.3);
+}
+
 /* ===== Assets-page category charts ===== */
 .asset-charts-grid {
   display: grid;
