@@ -1416,9 +1416,11 @@ a.amount-format-btn.active:focus {
   -webkit-backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 16px;
-  box-shadow:
-    0 4px 24px rgba(0, 0, 0, 0.2),
-    0 0 20px rgba(0, 210, 255, 0.15);
+  /* Neutral cards (no color-token) start with no glow; the dark-grey
+     halo only appears on hover via the global card-hover rule. Colored
+     cards override this box-shadow via the :has() rules below to keep
+     their colored glow visible at rest. */
+  box-shadow: none;
 }
 
 /* Per-color glow: green (paid / positive) */
