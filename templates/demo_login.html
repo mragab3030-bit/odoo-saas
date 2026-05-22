@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Demo Login · Olens — Odoo Analytics Platform</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('olens.theme');
+        if (t === 'light' || t === 'midnight' || t === 'dark') {
+          document.documentElement.setAttribute('data-theme', t);
+        }
+      } catch (e) {}
+    })();
+  </script>
+  <style>
+    .demo-option-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: .5rem;
+    }
+    .demo-edition-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: .5rem;
+    }
+    .demo-option {
+      position: relative;
+    }
+    .demo-option input[type="radio"] {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .demo-option label {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: .25rem;
+      padding: .8rem .5rem;
+      border: 1px solid rgba(148, 163, 184, .35);
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: .85rem;
+      transition: all .15s ease;
+      background: rgba(255, 255, 255, .03);
+      color: var(--text);
+      text-align: center;
+    }
+    .demo-option label small {
+      font-weight: 400;
+      font-size: .65rem;
+      color: var(--muted);
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .demo-option label:hover {
+      border-color: rgba(230, 48, 48, .55);
+      transform: translateY(-1px);
+    }
+    .demo-option input[type="radio"]:checked + label {
+      border-color: #E63030;
+      background: rgba(230, 48, 48, .12);
+      box-shadow: 0 0 14px rgba(230, 48, 48, .25);
+      color: #E63030;
+    }
+    .demo-section-title {
+      font-size: .75rem;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin: 0 0 .5rem 0;
+    }
+    .demo-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      padding: .2rem .55rem;
+      background: rgba(230, 48, 48, .12);
+      color: #E63030;
+      border-radius: 999px;
+      font-size: .7rem;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      margin-bottom: .75rem;
+    }
+  </style>
+</head>
+<body>
+<div class="login-page">
+  <div class="login-card">
+
+    <div class="login-logo">
+      <div class="logo-icon">
+        <svg class="olens-logo" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <line x1="42" y1="42" x2="58" y2="58" stroke="#E63030" stroke-width="6" stroke-linecap="round"/>
+          <circle cx="27" cy="27" r="22" fill="none" stroke="#E63030" stroke-width="4"/>
+          <circle cx="27" cy="27" r="14" fill="none" stroke="#E63030" stroke-width="2" opacity="0.45"/>
+          <circle cx="27" cy="27" r="7"  fill="none" stroke="#E63030" stroke-width="2" opacity="0.45"/>
+          <line x1="27" y1="7"  x2="27" y2="47" stroke="#E63030" stroke-width="1.5" opacity="0.4"/>
+          <line x1="7"  y1="27" x2="47" y2="27" stroke="#E63030" stroke-width="1.5" opacity="0.4"/>
+          <circle cx="27" cy="27" r="2.5" fill="#E63030"/>
+        </svg>
+      </div>
+      <h1>Olens</h1>
+      <p>Odoo Analytics Platform</p>
+    </div>
+
+    <div style="text-align:center">
+      <span class="demo-badge">
+        <i class="fa-solid fa-flask"></i> Demo Mode
+      </span>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for cat, msg in messages %}
+        <div class="alert alert-{{ cat }}" data-dismiss>
+          <i class="fa-solid fa-circle-exclamation"></i>
+          {{ msg }}
+        </div>
+      {% endfor %}
+    {% endwith %}
+
+    <form method="POST" action="{{ url_for('login') }}" autocomplete="off">
+      <div style="display:flex;flex-direction:column;gap:1.25rem;">
+
+        <div>
+          <p class="demo-section-title">
+            <i class="fa-solid fa-code-branch"></i> Odoo Version
+          </p>
+          <div class="demo-option-grid">
+            {% for v in versions %}
+            <div class="demo-option">
+              <input type="radio" id="ver-{{ v }}" name="version" value="{{ v }}"
+                     {% if v == default_version %}checked{% endif %}>
+              <label for="ver-{{ v }}">
+                V{{ v }}
+                <small>{{ v }}.0</small>
+              </label>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div>
+          <p class="demo-section-title">
+            <i class="fa-solid fa-shield-halved"></i> Edition
+          </p>
+          <div class="demo-edition-grid">
+            <div class="demo-option">
+              <input type="radio" id="ed-community" name="edition" value="community"
+                     {% if default_edition == 'community' %}checked{% endif %}>
+              <label for="ed-community">
+                Community
+                <small>Open Source</small>
+              </label>
+            </div>
+            <div class="demo-option">
+              <input type="radio" id="ed-enterprise" name="edition" value="enterprise"
+                     {% if default_edition == 'enterprise' %}checked{% endif %}>
+              <label for="ed-enterprise">
+                Enterprise
+                <small>Full Suite</small>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary"
+                style="width:100%;justify-content:center;padding:.7rem 1rem;font-size:.95rem;gap:.5rem">
+          <i class="fa-solid fa-play"></i>
+          Launch Demo
+        </button>
+
+      </div>
+    </form>
+
+    <div style="text-align:center;margin-top:1.5rem;padding-top:1.25rem;border-top:1px solid rgba(148,163,184,.25)">
+      <p style="font-size:.75rem;color:var(--muted);margin:0">
+        <i class="fa-solid fa-database"></i>
+        Showing realistic mock data &mdash; no Odoo connection required
+      </p>
+    </div>
+
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

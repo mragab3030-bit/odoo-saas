@@ -26,6 +26,14 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=8)
 
 PAGE_SIZE = 50
 
+# DEMO_MODE: when on, login skips Odoo XML-RPC and the dashboard is hydrated
+# from `mock_data.py`. Toggle via env (`DEMO_MODE=1`) or flip the default here.
+DEMO_MODE = os.environ.get('DEMO_MODE', '1').lower() in ('1', 'true', 'yes', 'on')
+
+SUPPORTED_DEMO_VERSIONS = (15, 16, 17, 18, 19)
+DEMO_DEFAULT_VERSION = 18
+DEMO_DEFAULT_EDITION = 'enterprise'
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -43,6 +51,15 @@ def login_required(f):
 
 def get_client() -> OdooClient:
     if not hasattr(g, 'odoo_client'):
+        if DEMO_MODE:
+            from mock_odoo_client import MockOdooClient
+            g.odoo_client = MockOdooClient(
+                version_major=session.get('odoo_version_major') or DEMO_DEFAULT_VERSION,
+                edition=session.get('odoo_edition') or DEMO_DEFAULT_EDITION,
+                company_id=session.get('company_id'),
+            )
+            return g.odoo_client
+
         g.odoo_client = OdooClient(
             url=session['odoo_url'],
             db=session['odoo_db'],
@@ -1650,6 +1667,10 @@ def _compute_kpi(client, move_type, date_from, date_to, range_key, compare_yoy):
     thread-safe."""
 
     def _fresh():
+        # MockOdooClient doesn't use XML-RPC and is already thread-safe, so
+        # the parallel-fan-out optimization doesn't need its own connection.
+        if DEMO_MODE:
+            return client
         return OdooClient(client.url, client.db, client.uid, client.password,
                           context=dict(client.context))
 
@@ -1802,11 +1823,64 @@ app.jinja_env.filters['fmt_currency_int'] = fmt_currency_int
 # Auth routes
 # ---------------------------------------------------------------------------
 
+def _demo_login():
+    """Replacement login flow used when DEMO_MODE is on. Shows a Version
+    (V15-V19) and Edition (Community/Enterprise) selector and hydrates the
+    session with a fake user — no XML-RPC."""
+    from mock_data import (
+        installed_modules, version_info,
+        DEMO_COMPANY_ID, DEMO_COMPANY_NAME,
+        DEMO_CURRENCY_ID, DEMO_CURRENCY_NAME, DEMO_CURRENCY_SYMBOL,
+    )
+
+    if request.method == 'POST':
+        try:
+            ver = int(request.form.get('version', DEMO_DEFAULT_VERSION))
+        except (TypeError, ValueError):
+            ver = DEMO_DEFAULT_VERSION
+        if ver not in SUPPORTED_DEMO_VERSIONS:
+            ver = DEMO_DEFAULT_VERSION
+        edition = request.form.get('edition', DEMO_DEFAULT_EDITION).lower()
+        if edition not in ('community', 'enterprise'):
+            edition = DEMO_DEFAULT_EDITION
+
+        session.permanent = True
+        session['odoo_url'] = 'https://demo.olens.local'
+        session['odoo_db'] = 'olens-demo'
+        session['odoo_username'] = 'demo@olens.io'
+        session['odoo_uid'] = 2
+        session['odoo_api_key'] = '__demo__'
+        session['odoo_version_info'] = version_info(ver, edition)
+        session['odoo_version_major'] = ver
+        session['odoo_edition'] = edition
+        session['odoo_edition_algo'] = 3
+        session['installed_modules'] = sorted(installed_modules(ver, edition))
+        session['companies'] = [{
+            'id': DEMO_COMPANY_ID,
+            'name': DEMO_COMPANY_NAME,
+            'currency_id': DEMO_CURRENCY_ID,
+            'currency_name': DEMO_CURRENCY_NAME,
+            'currency_symbol': DEMO_CURRENCY_SYMBOL,
+        }]
+        session['company_id'] = DEMO_COMPANY_ID
+        return redirect(url_for('dashboard'))
+
+    return render_template(
+        'demo_login.html',
+        versions=SUPPORTED_DEMO_VERSIONS,
+        default_version=DEMO_DEFAULT_VERSION,
+        default_edition=DEMO_DEFAULT_EDITION,
+    )
+
+
 @app.route('/', methods=['GET', 'POST'])
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if 'odoo_uid' in session:
         return redirect(url_for('dashboard'))
+
+    if DEMO_MODE:
+        return _demo_login()
 
     if request.method == 'POST':
         url = request.form.get('url', '').strip()
@@ -1958,12 +2032,13 @@ def refresh_session():
 
     result = {'ok': True, 'version': '', 'edition': 'community', 'modules': 0}
 
-    try:
-        c.version_info = OdooClient.fetch_version(session['odoo_url'])
-        session['odoo_version_info'] = c.version_info
-        session['odoo_version_major'] = c.version_major
-    except Exception:
-        pass
+    if not DEMO_MODE:
+        try:
+            c.version_info = OdooClient.fetch_version(session['odoo_url'])
+            session['odoo_version_info'] = c.version_info
+            session['odoo_version_major'] = c.version_major
+        except Exception:
+            pass
     result['version'] = c.version_string or ''
 
     try:
