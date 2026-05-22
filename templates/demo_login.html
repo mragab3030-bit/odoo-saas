@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Demo Login · Olens — Odoo Analytics Platform</title>
+  <title>Sign in · Olens — Odoo Analytics Platform</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   <script>
@@ -13,51 +13,84 @@
         if (t === 'light' || t === 'midnight' || t === 'dark') {
           document.documentElement.setAttribute('data-theme', t);
         }
+        var lang = localStorage.getItem('olens.lang');
+        if (lang === 'ar') {
+          document.documentElement.setAttribute('dir', 'rtl');
+          document.documentElement.setAttribute('lang', 'ar');
+        }
       } catch (e) {}
     })();
   </script>
   <style>
-    .demo-option-grid {
-      display: grid;
-      grid-template-columns: repeat(5, 1fr);
-      gap: .5rem;
+    /* ----- Tab switcher ----- */
+    .login-tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid rgba(148, 163, 184, .25);
+      margin: -.5rem 0 1.5rem 0;
     }
-    .demo-edition-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: .5rem;
-    }
-    .demo-option {
-      position: relative;
-    }
-    .demo-option input[type="radio"] {
-      position: absolute;
-      opacity: 0;
-      pointer-events: none;
-    }
-    .demo-option label {
+    .login-tab {
+      flex: 1;
       display: flex;
       align-items: center;
       justify-content: center;
-      flex-direction: column;
-      gap: .25rem;
+      gap: .5rem;
+      padding: .85rem 1rem;
+      background: transparent;
+      border: 0;
+      border-bottom: 2px solid transparent;
+      color: var(--muted);
+      font-weight: 600;
+      font-size: .9rem;
+      cursor: pointer;
+      transition: color .2s ease, border-color .2s ease;
+      margin-bottom: -1px;       /* overlap the .login-tabs bottom border */
+    }
+    .login-tab .tab-emoji {
+      font-size: 1.05rem;
+      filter: grayscale(0);
+    }
+    .login-tab:hover { color: var(--text); }
+    .login-tab.active {
+      color: #E63030;
+      border-bottom-color: #E63030;
+      text-shadow: 0 0 8px rgba(230, 48, 48, .35);
+    }
+
+    /* ----- Tab panels ----- */
+    .login-panel { display: none; }
+    .login-panel.active {
+      display: block;
+      animation: panelFade .25s ease-out;
+    }
+    @keyframes panelFade {
+      from { opacity: 0; transform: translateY(4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ----- Demo: version + edition grids ----- */
+    .demo-option-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: .5rem; }
+    .demo-edition-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+    .demo-option { position: relative; }
+    .demo-option input[type="radio"] {
+      position: absolute; opacity: 0; pointer-events: none;
+    }
+    .demo-option label {
+      display: flex; align-items: center; justify-content: center;
+      flex-direction: column; gap: .25rem;
       padding: .8rem .5rem;
       border: 1px solid rgba(148, 163, 184, .35);
       border-radius: 10px;
       cursor: pointer;
-      font-weight: 600;
-      font-size: .85rem;
+      font-weight: 600; font-size: .85rem;
       transition: all .15s ease;
       background: rgba(255, 255, 255, .03);
       color: var(--text);
       text-align: center;
     }
     .demo-option label small {
-      font-weight: 400;
-      font-size: .65rem;
-      color: var(--muted);
-      letter-spacing: .04em;
-      text-transform: uppercase;
+      font-weight: 400; font-size: .65rem; color: var(--muted);
+      letter-spacing: .04em; text-transform: uppercase;
     }
     .demo-option label:hover {
       border-color: rgba(230, 48, 48, .55);
@@ -70,27 +103,28 @@
       color: #E63030;
     }
     .demo-section-title {
-      font-size: .75rem;
-      font-weight: 700;
-      letter-spacing: .08em;
-      text-transform: uppercase;
+      font-size: .75rem; font-weight: 700;
+      letter-spacing: .08em; text-transform: uppercase;
       color: var(--muted);
       margin: 0 0 .5rem 0;
     }
     .demo-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: .35rem;
+      display: inline-flex; align-items: center; gap: .35rem;
       padding: .2rem .55rem;
       background: rgba(230, 48, 48, .12);
       color: #E63030;
       border-radius: 999px;
-      font-size: .7rem;
-      font-weight: 700;
-      letter-spacing: .06em;
-      text-transform: uppercase;
+      font-size: .7rem; font-weight: 700;
+      letter-spacing: .06em; text-transform: uppercase;
       margin-bottom: .75rem;
     }
+    .demo-footnote {
+      text-align: center;
+      margin-top: 1.5rem;
+      padding-top: 1.25rem;
+      border-top: 1px solid rgba(148, 163, 184, .25);
+    }
+    .demo-footnote p { font-size: .75rem; color: var(--muted); margin: 0; }
   </style>
 </head>
 <body>
@@ -113,12 +147,6 @@
       <p>Odoo Analytics Platform</p>
     </div>
 
-    <div style="text-align:center">
-      <span class="demo-badge">
-        <i class="fa-solid fa-flask"></i> Demo Mode
-      </span>
-    </div>
-
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% for cat, msg in messages %}
         <div class="alert alert-{{ cat }}" data-dismiss>
@@ -128,70 +156,183 @@
       {% endfor %}
     {% endwith %}
 
-    <form method="POST" action="{{ url_for('login') }}" autocomplete="off">
-      <div style="display:flex;flex-direction:column;gap:1.25rem;">
+    {% set active = active_tab|default('demo') %}
 
-        <div>
-          <p class="demo-section-title">
-            <i class="fa-solid fa-code-branch"></i> Odoo Version
-          </p>
-          <div class="demo-option-grid">
-            {% for v in versions %}
-            <div class="demo-option">
-              <input type="radio" id="ver-{{ v }}" name="version" value="{{ v }}"
-                     {% if v == default_version %}checked{% endif %}>
-              <label for="ver-{{ v }}">
-                V{{ v }}
-                <small>{{ v }}.0</small>
-              </label>
-            </div>
-            {% endfor %}
-          </div>
-        </div>
+    <div class="login-tabs" role="tablist">
+      <button type="button" role="tab"
+              class="login-tab {% if active == 'demo' %}active{% endif %}"
+              data-tab="demo" aria-selected="{{ 'true' if active == 'demo' else 'false' }}">
+        <span class="tab-emoji">🎭</span> Demo Mode
+      </button>
+      <button type="button" role="tab"
+              class="login-tab {% if active == 'live' %}active{% endif %}"
+              data-tab="live" aria-selected="{{ 'true' if active == 'live' else 'false' }}">
+        <span class="tab-emoji">⚡</span> Live Data
+      </button>
+    </div>
 
-        <div>
-          <p class="demo-section-title">
-            <i class="fa-solid fa-shield-halved"></i> Edition
-          </p>
-          <div class="demo-edition-grid">
-            <div class="demo-option">
-              <input type="radio" id="ed-community" name="edition" value="community"
-                     {% if default_edition == 'community' %}checked{% endif %}>
-              <label for="ed-community">
-                Community
-                <small>Open Source</small>
-              </label>
-            </div>
-            <div class="demo-option">
-              <input type="radio" id="ed-enterprise" name="edition" value="enterprise"
-                     {% if default_edition == 'enterprise' %}checked{% endif %}>
-              <label for="ed-enterprise">
-                Enterprise
-                <small>Full Suite</small>
-              </label>
-            </div>
-          </div>
-        </div>
+    <!-- Demo panel -->
+    <div class="login-panel {% if active == 'demo' %}active{% endif %}"
+         data-panel="demo" role="tabpanel">
 
-        <button type="submit" class="btn btn-primary"
-                style="width:100%;justify-content:center;padding:.7rem 1rem;font-size:.95rem;gap:.5rem">
-          <i class="fa-solid fa-play"></i>
-          Launch Demo
-        </button>
-
+      <div style="text-align:center">
+        <span class="demo-badge">
+          <i class="fa-solid fa-flask"></i> Demo Mode
+        </span>
       </div>
-    </form>
 
-    <div style="text-align:center;margin-top:1.5rem;padding-top:1.25rem;border-top:1px solid rgba(148,163,184,.25)">
-      <p style="font-size:.75rem;color:var(--muted);margin:0">
-        <i class="fa-solid fa-database"></i>
-        Showing realistic mock data &mdash; no Odoo connection required
-      </p>
+      <form method="POST" action="{{ url_for('login') }}" autocomplete="off">
+        <input type="hidden" name="mode" value="demo">
+        <div style="display:flex;flex-direction:column;gap:1.25rem;">
+
+          <div>
+            <p class="demo-section-title">
+              <i class="fa-solid fa-code-branch"></i> Odoo Version
+            </p>
+            <div class="demo-option-grid">
+              {% for v in versions %}
+              <div class="demo-option">
+                <input type="radio" id="ver-{{ v }}" name="version" value="{{ v }}"
+                       {% if v == default_version %}checked{% endif %}>
+                <label for="ver-{{ v }}">
+                  V{{ v }}
+                  <small>{{ v }}.0</small>
+                </label>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div>
+            <p class="demo-section-title">
+              <i class="fa-solid fa-shield-halved"></i> Edition
+            </p>
+            <div class="demo-edition-grid">
+              <div class="demo-option">
+                <input type="radio" id="ed-community" name="edition" value="community"
+                       {% if default_edition == 'community' %}checked{% endif %}>
+                <label for="ed-community">
+                  Community
+                  <small>Open Source</small>
+                </label>
+              </div>
+              <div class="demo-option">
+                <input type="radio" id="ed-enterprise" name="edition" value="enterprise"
+                       {% if default_edition == 'enterprise' %}checked{% endif %}>
+                <label for="ed-enterprise">
+                  Enterprise
+                  <small>Full Suite</small>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-primary"
+                  style="width:100%;justify-content:center;padding:.7rem 1rem;font-size:.95rem;gap:.5rem">
+            <i class="fa-solid fa-play"></i>
+            Launch Demo
+          </button>
+
+        </div>
+      </form>
+
+      <div class="demo-footnote">
+        <p>
+          <i class="fa-solid fa-database"></i>
+          Showing realistic mock data &mdash; no Odoo connection required
+        </p>
+      </div>
+
+    </div>
+
+    <!-- Live panel -->
+    <div class="login-panel {% if active == 'live' %}active{% endif %}"
+         data-panel="live" role="tabpanel">
+
+      <form method="POST" action="{{ url_for('login') }}" autocomplete="off" dir="ltr">
+        <input type="hidden" name="mode" value="live">
+        <div style="display:flex;flex-direction:column;gap:1rem;">
+
+          <div class="filter-group" style="width:100%">
+            <label for="url">Odoo URL</label>
+            <input type="text" id="url" name="url" class="form-control"
+                   placeholder="https://yourcompany.odoo.com"
+                   value="{{ live_url|default('') }}" required style="width:100%">
+          </div>
+
+          <div class="filter-group" style="width:100%">
+            <label for="database">Database</label>
+            <input type="text" id="database" name="database" class="form-control"
+                   placeholder="mydb"
+                   value="{{ live_database|default('') }}" required style="width:100%">
+          </div>
+
+          <div class="filter-group" style="width:100%">
+            <label for="username">Username</label>
+            <input type="text" id="username" name="username" class="form-control"
+                   placeholder="admin"
+                   value="{{ live_username|default('') }}" required style="width:100%">
+          </div>
+
+          <div class="filter-group" style="width:100%">
+            <label for="api_key">Password</label>
+            <div style="position:relative">
+              <input type="password" id="api_key" name="api_key" class="form-control"
+                     placeholder="Your password or API key" required
+                     style="width:100%;padding-right:2.5rem">
+              <button type="button" onclick="togglePwd()" tabindex="-1"
+                style="position:absolute;right:.75rem;top:50%;transform:translateY(-50%);
+                       background:none;border:none;color:var(--muted);cursor:pointer;padding:0">
+                <i class="fa-solid fa-eye" id="eyeIcon"></i>
+              </button>
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-primary"
+                  style="width:100%;justify-content:center;padding:.7rem 1rem;font-size:.95rem;gap:.5rem">
+            <i class="fa-solid fa-right-to-bracket"></i>
+            Connect to Odoo
+          </button>
+
+        </div>
+      </form>
+
     </div>
 
   </div>
 </div>
 
+<script>
+(function() {
+  const tabs = document.querySelectorAll('.login-tab');
+  const panels = document.querySelectorAll('.login-panel');
+  tabs.forEach(function(tab) {
+    tab.addEventListener('click', function() {
+      const target = tab.getAttribute('data-tab');
+      tabs.forEach(function(t) {
+        const on = t.getAttribute('data-tab') === target;
+        t.classList.toggle('active', on);
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+      panels.forEach(function(p) {
+        p.classList.toggle('active', p.getAttribute('data-panel') === target);
+      });
+    });
+  });
+})();
+
+function togglePwd() {
+  const inp = document.getElementById('api_key');
+  const icon = document.getElementById('eyeIcon');
+  if (inp.type === 'password') {
+    inp.type = 'text';
+    icon.classList.replace('fa-eye', 'fa-eye-slash');
+  } else {
+    inp.type = 'password';
+    icon.classList.replace('fa-eye-slash', 'fa-eye');
+  }
+}
+</script>
 <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>

@@ -1823,54 +1823,59 @@ app.jinja_env.filters['fmt_currency_int'] = fmt_currency_int
 # Auth routes
 # ---------------------------------------------------------------------------
 
-def _demo_login():
-    """Replacement login flow used when DEMO_MODE is on. Shows a Version
-    (V15-V19) and Edition (Community/Enterprise) selector and hydrates the
-    session with a fake user — no XML-RPC."""
+def _process_demo_login():
+    """Hydrate the session for the Demo tab — no XML-RPC."""
     from mock_data import (
         installed_modules, version_info,
         DEMO_COMPANY_ID, DEMO_COMPANY_NAME,
         DEMO_CURRENCY_ID, DEMO_CURRENCY_NAME, DEMO_CURRENCY_SYMBOL,
     )
 
-    if request.method == 'POST':
-        try:
-            ver = int(request.form.get('version', DEMO_DEFAULT_VERSION))
-        except (TypeError, ValueError):
-            ver = DEMO_DEFAULT_VERSION
-        if ver not in SUPPORTED_DEMO_VERSIONS:
-            ver = DEMO_DEFAULT_VERSION
-        edition = request.form.get('edition', DEMO_DEFAULT_EDITION).lower()
-        if edition not in ('community', 'enterprise'):
-            edition = DEMO_DEFAULT_EDITION
+    try:
+        ver = int(request.form.get('version', DEMO_DEFAULT_VERSION))
+    except (TypeError, ValueError):
+        ver = DEMO_DEFAULT_VERSION
+    if ver not in SUPPORTED_DEMO_VERSIONS:
+        ver = DEMO_DEFAULT_VERSION
+    edition = request.form.get('edition', DEMO_DEFAULT_EDITION).lower()
+    if edition not in ('community', 'enterprise'):
+        edition = DEMO_DEFAULT_EDITION
 
-        session.permanent = True
-        session['odoo_url'] = 'https://demo.olens.local'
-        session['odoo_db'] = 'olens-demo'
-        session['odoo_username'] = 'demo@olens.io'
-        session['odoo_uid'] = 2
-        session['odoo_api_key'] = '__demo__'
-        session['odoo_version_info'] = version_info(ver, edition)
-        session['odoo_version_major'] = ver
-        session['odoo_edition'] = edition
-        session['odoo_edition_algo'] = 3
-        session['installed_modules'] = sorted(installed_modules(ver, edition))
-        session['companies'] = [{
-            'id': DEMO_COMPANY_ID,
-            'name': DEMO_COMPANY_NAME,
-            'currency_id': DEMO_CURRENCY_ID,
-            'currency_name': DEMO_CURRENCY_NAME,
-            'currency_symbol': DEMO_CURRENCY_SYMBOL,
-        }]
-        session['company_id'] = DEMO_COMPANY_ID
-        return redirect(url_for('dashboard'))
+    session.permanent = True
+    session['odoo_url'] = 'https://demo.olens.local'
+    session['odoo_db'] = 'olens-demo'
+    session['odoo_username'] = 'demo@olens.io'
+    session['odoo_uid'] = 2
+    session['odoo_api_key'] = '__demo__'
+    session['odoo_version_info'] = version_info(ver, edition)
+    session['odoo_version_major'] = ver
+    session['odoo_edition'] = edition
+    session['odoo_edition_algo'] = 3
+    session['installed_modules'] = sorted(installed_modules(ver, edition))
+    session['companies'] = [{
+        'id': DEMO_COMPANY_ID,
+        'name': DEMO_COMPANY_NAME,
+        'currency_id': DEMO_CURRENCY_ID,
+        'currency_name': DEMO_CURRENCY_NAME,
+        'currency_symbol': DEMO_CURRENCY_SYMBOL,
+    }]
+    session['company_id'] = DEMO_COMPANY_ID
+    return redirect(url_for('dashboard'))
 
-    return render_template(
-        'demo_login.html',
-        versions=SUPPORTED_DEMO_VERSIONS,
-        default_version=DEMO_DEFAULT_VERSION,
-        default_edition=DEMO_DEFAULT_EDITION,
-    )
+
+def _render_login_page(active_tab='demo', url='', database='', username=''):
+    """Render the login page. In DEMO_MODE this is the unified tabbed
+    page; otherwise the original real-Odoo login form."""
+    if DEMO_MODE:
+        return render_template(
+            'demo_login.html',
+            versions=SUPPORTED_DEMO_VERSIONS,
+            default_version=DEMO_DEFAULT_VERSION,
+            default_edition=DEMO_DEFAULT_EDITION,
+            active_tab=active_tab,
+            live_url=url, live_database=database, live_username=username,
+        )
+    return render_template('login.html', url=url, database=database, username=username)
 
 
 @app.route('/', methods=['GET', 'POST'])
@@ -1879,10 +1884,14 @@ def login():
     if 'odoo_uid' in session:
         return redirect(url_for('dashboard'))
 
-    if DEMO_MODE:
-        return _demo_login()
+    # Dispatch by the hidden `mode` field so a single endpoint can serve both
+    # the Demo tab and the Live Odoo tab when DEMO_MODE is on.
+    mode = request.form.get('mode')
 
-    if request.method == 'POST':
+    if request.method == 'POST' and mode == 'demo' and DEMO_MODE:
+        return _process_demo_login()
+
+    if request.method == 'POST' and mode != 'demo':
         url = request.form.get('url', '').strip()
         db = request.form.get('database', '').strip()
         username = request.form.get('username', '').strip()
@@ -1890,7 +1899,7 @@ def login():
 
         if not all([url, db, username, api_key]):
             flash('All fields are required.', 'danger')
-            return render_template('login.html', url=url, database=db, username=username)
+            return _render_login_page(active_tab='live', url=url, database=db, username=username)
 
         if not url.startswith(('http://', 'https://')):
             url = 'https://' + url
@@ -1899,10 +1908,10 @@ def login():
             client = OdooClient.authenticate(url, db, username, api_key)
         except OdooAuthError as e:
             flash(str(e), 'danger')
-            return render_template('login.html', url=url, database=db, username=username)
+            return _render_login_page(active_tab='live', url=url, database=db, username=username)
         except OdooConnectionError as e:
             flash(str(e), 'danger')
-            return render_template('login.html', url=url, database=db, username=username)
+            return _render_login_page(active_tab='live', url=url, database=db, username=username)
 
         session.permanent = True
         session['odoo_url'] = url
@@ -1992,7 +2001,7 @@ def login():
         )
         return redirect(url_for('dashboard'))
 
-    return render_template('login.html')
+    return _render_login_page(active_tab='demo' if DEMO_MODE else 'live')
 
 
 @app.route('/logout')
