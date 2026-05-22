@@ -763,7 +763,10 @@ canvas,
 .budget-card:hover,
 .asset-chart-card:hover {
   transform: translateY(-4px) scale(1.02);
-  box-shadow: 0 12px 35px rgba(0, 0, 0, .15);
+  /* Neutral cards (dark numbers, no color token) get a dark-grey halo
+     instead of a near-black drop shadow. Colored cards override this
+     with their own colored glow further down. */
+  box-shadow: 0 12px 35px rgba(107, 114, 128, .25);
   z-index: 10;
   position: relative;
 }
