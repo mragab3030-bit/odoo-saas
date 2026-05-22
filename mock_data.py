@@ -119,24 +119,96 @@ LEAVE_TYPES = [
 
 
 ANALYTIC_PLANS = [
-    (1, "Departments"),
-    (2, "Projects"),
-    (3, "Cost Centers"),
+    (1, "Cost Centers"),
 ]
 
 
+# Cost centers and their target revenue / cost totals (in SAR).
+# Drives both the analytic page KPIs and the budget vs actual section.
 ANALYTIC_ACCOUNTS = [
-    (1, "Riyadh HQ Operations",       "RYD-OPS",  1),
-    (2, "Jeddah Branch",              "JED-BR",   1),
-    (3, "Dammam Branch",              "DMM-BR",   1),
-    (4, "Tabuk Pilot Project",        "TBK-PROJ", 2),
-    (5, "NEOM Construction",          "NEOM-01",  2),
-    (6, "Solar Farm Phase 2",         "SOLAR-2",  2),
-    (7, "IT Modernization Program",   "IT-MOD",   2),
-    (8, "Finance & Admin",            "FIN-ADM",  3),
-    (9, "Sales & Marketing",          "S-MKT",    3),
-    (10, "Manufacturing Plant A",     "MFG-A",    3),
+    # (id, name, code, plan, target_revenue, target_costs, budget_planned)
+    (1, "Operations",          "OPS",   1,   850_000,  620_000,  700_000),
+    (2, "Sales & Marketing",   "SMK",   1, 1_200_000,  480_000,  500_000),
+    (3, "IT & Technology",     "ITT",   1,   320_000,  290_000,  250_000),
+    (4, "HR & Admin",          "HRA",   1,   150_000,  380_000,  400_000),
+    (5, "Logistics",           "LOG",   1,   670_000,  510_000,  480_000),
 ]
+
+
+# GL accounts referenced by analytic lines. The P&L statement classifies
+# lines by `account_type`; the Account View filter (default 'pnl') keeps
+# only income / income_other / expense* lines.
+DEMO_GL_ACCOUNTS = [
+    # (id, code, name, account_type)
+    (101, "4000", "Sales Revenue",               "income"),
+    (102, "4100", "Service Revenue",             "income"),
+    (103, "4900", "Other Operating Income",      "income_other"),
+    (201, "5000", "Cost of Goods Sold",          "expense_direct_cost"),
+    (202, "5100", "Salary Expense",              "expense"),
+    (203, "5200", "Travel Expense",              "expense"),
+    (204, "5300", "Office Rent",                 "expense"),
+    (205, "5400", "Utilities",                   "expense"),
+    (206, "5500", "Marketing & Advertising",     "expense"),
+    (207, "5600", "IT Software & Licenses",      "expense"),
+    # Balance-sheet accounts (kept for completeness but unused by P&L view)
+    (301, "1200", "Accounts Receivable",         "asset_receivable"),
+    (302, "1100", "Cash & Banks",                "asset_cash"),
+    (401, "2100", "Accounts Payable",            "liability_payable"),
+    (501, "3000", "Equity",                      "equity"),
+]
+
+
+# Per-cost-center signed amounts. Each entry is a list of
+# (gl_account_id, signed_amount_in_SAR, label) that sums to the spec
+# revenue / cost target for the cost center.
+DEMO_ANALYTIC_LINE_SPECS = {
+    # Operations: Rev 850K (+), Costs 620K (-)
+    1: [
+        (101,  600_000, "Operations — Product sales (Q1-Q2)"),
+        (102,  200_000, "Operations — Service contracts"),
+        (103,   50_000, "Operations — Scrap & recoveries"),
+        (202, -380_000, "Operations — Payroll"),
+        (203,  -45_000, "Operations — Site visits"),
+        (204, -120_000, "Operations — Riyadh HQ rent"),
+        (205,  -50_000, "Operations — Power & water"),
+        (206,  -25_000, "Operations — Trade events"),
+    ],
+    # Sales & Marketing: Rev 1.2M (+), Costs 480K (-)
+    2: [
+        (101,  950_000, "Sales — New customer wins"),
+        (102,  250_000, "Sales — Account upsell"),
+        (202, -280_000, "Sales — Salesforce payroll"),
+        (203,  -85_000, "Sales — Customer travel"),
+        (206,  -90_000, "Sales — Digital campaigns"),
+        (204,  -25_000, "Sales — Office allocation"),
+    ],
+    # IT & Technology: Rev 320K (+), Costs 290K (-)
+    3: [
+        (102,  250_000, "IT — Internal billings"),
+        (103,   70_000, "IT — Project rebates"),
+        (202, -150_000, "IT — Engineering payroll"),
+        (207,  -95_000, "IT — SaaS subscriptions"),
+        (205,  -30_000, "IT — Datacenter power"),
+        (204,  -15_000, "IT — Server room rent"),
+    ],
+    # HR & Admin: Rev 150K (+), Costs 380K (-)
+    4: [
+        (103,  150_000, "HR — Training reimbursements"),
+        (202, -270_000, "HR — Admin payroll"),
+        (204,  -60_000, "HR — Office rent share"),
+        (203,  -25_000, "HR — Recruitment travel"),
+        (205,  -25_000, "HR — Office utilities"),
+    ],
+    # Logistics: Rev 670K (+), Costs 510K (-)
+    5: [
+        (101,  470_000, "Logistics — Freight pass-through"),
+        (102,  200_000, "Logistics — Storage fees"),
+        (202, -290_000, "Logistics — Warehouse payroll"),
+        (203, -120_000, "Logistics — Last-mile travel"),
+        (204,  -50_000, "Logistics — Warehouse rent"),
+        (205,  -50_000, "Logistics — Warehouse utilities"),
+    ],
+}
 
 
 # ---------------------------------------------------------------------------
@@ -629,12 +701,19 @@ def _build_assets(rng, version_major):
 
 
 def _build_analytic_lines(rng, version_major):
+    """Build 5 cost centers + analytic lines whose sums match
+    DEMO_ANALYTIC_LINE_SPECS exactly, so the Analytic dashboard KPI
+    cards and P&L statement reflect the demo spec deterministically."""
     today = date.today()
-    plan_field = 'plan_id'
-    if version_major <= 16:
-        plan_field = 'group_id'
+    plan_field = 'plan_id' if version_major >= 17 else 'group_id'
+
+    # Lookup for GL accounts (name + type) — used to attach general_account_id
+    # tuples to each analytic line.
+    gl_by_id = {gid: (code, name, atype)
+                for gid, code, name, atype in DEMO_GL_ACCOUNTS}
+
     accounts = []
-    for aid, name, code, plan in ANALYTIC_ACCOUNTS:
+    for aid, name, code, plan, *_ in ANALYTIC_ACCOUNTS:
         accounts.append({
             'id': aid,
             'name': name,
@@ -645,36 +724,74 @@ def _build_analytic_lines(rng, version_major):
             'active': True,
         })
 
+    # Spread postings across the YTD window so KPI cards with the default
+    # YTD range pick up everything.
+    year_start = date(today.year, 1, 1)
+    ytd_days = max(1, (today - year_start).days)
+
     lines = []
     lid = 14000
-    for _ in range(220):
-        lid += 1
-        acc = rng.choice(accounts)
-        d = today - timedelta(days=rng.randint(0, 200))
-        # mix of revenue (negative in Odoo convention) and cost (positive)
-        # We'll keep ~55% expense (positive) / 45% income (negative)
-        if rng.random() < 0.55:
-            amount = round(rng.uniform(120, 18000), 2)
-        else:
-            amount = -round(rng.uniform(200, 35000), 2)
-        row = {
-            'id': lid,
-            'date': _iso(d),
-            'name': rng.choice([
-                "Consultancy services", "Material purchase", "Travel expenses",
-                "Subcontractor invoice", "Sales commission", "Vendor settlement",
-                "Project labor", "Logistics fee", "Software subscription",
-            ]),
-            'amount': amount,
-            'company_id': list(_COM),
-        }
-        if version_major >= 17:
-            row['account_id'] = [acc['id'], acc['name']]
-            row['auto_account_id'] = [acc['id'], acc['name']]
-        else:
-            row['account_id'] = [acc['id'], acc['name']]
-        lines.append(row)
+    for aid, specs in DEMO_ANALYTIC_LINE_SPECS.items():
+        acc_name = next(a['name'] for a in accounts if a['id'] == aid)
+        for gl_id, amount, label in specs:
+            lid += 1
+            gl_code, gl_name, _gl_type = gl_by_id[gl_id]
+            # Pick a date inside YTD (deterministic via rng → stable demo).
+            d = year_start + timedelta(days=rng.randint(0, ytd_days))
+            row = {
+                'id': lid,
+                'date': _iso(d),
+                'name': label,
+                'amount': float(amount),
+                'unit_amount': 0.0,
+                'company_id': list(_COM),
+                'general_account_id': [gl_id, f"[{gl_code}] {gl_name}"],
+            }
+            if version_major >= 17:
+                row['account_id'] = [aid, acc_name]
+                row['auto_account_id'] = [aid, acc_name]
+            else:
+                row['account_id'] = [aid, acc_name]
+            lines.append(row)
     return accounts, lines
+
+
+def _build_budget_lines(rng, version_major):
+    """Build crossovered.budget.lines for the demo cost centers.
+    One line per cost center for the full current year, with
+    planned_amount = budget target and practical_amount = realized costs."""
+    today = date.today()
+    yr = today.year
+    df = _iso(date(yr, 1, 1))
+    dt = _iso(date(yr, 12, 31))
+
+    parent = {'id': 9001, 'name': f'Annual Budget {yr}'}
+
+    posts = []
+    lines = []
+    bid = 16000
+    pid = 17000
+    for aid, name, code, plan, _rev, costs, budget in ANALYTIC_ACCOUNTS:
+        pid += 1
+        posts.append({
+            'id': pid,
+            'name': f'{name} — Operating Budget',
+            'account_ids': [],
+            'company_id': list(_COM),
+        })
+        bid += 1
+        lines.append({
+            'id': bid,
+            'analytic_account_id': [aid, name],
+            'planned_amount': float(budget),
+            'practical_amount': float(costs),
+            'general_budget_id': [pid, f'{name} — Operating Budget'],
+            'crossovered_budget_id': [parent['id'], parent['name']],
+            'date_from': df,
+            'date_to': dt,
+            'company_id': list(_COM),
+        })
+    return posts, lines, parent
 
 
 # ---------------------------------------------------------------------------
@@ -685,6 +802,7 @@ def _build_analytic_lines(rng, version_major):
 _BASE_MODULES = {
     'base', 'web', 'mail', 'contacts',
     'account',                # base accounting
+    'account_budget',         # Budgets (community-friendly)
     'sale', 'sale_management', # Sales
     'purchase',
     'stock',                  # Inventory
@@ -750,7 +868,18 @@ def model_fields(model, version_major):
         },
         'account.analytic.line': {
             'id', 'name', 'date', 'amount', 'unit_amount',
-            'company_id', 'partner_id',
+            'company_id', 'partner_id', 'general_account_id',
+        },
+        'crossovered.budget.lines': {
+            'id', 'analytic_account_id', 'planned_amount', 'practical_amount',
+            'general_budget_id', 'crossovered_budget_id',
+            'date_from', 'date_to', 'company_id',
+        },
+        'crossovered.budget': {
+            'id', 'name', 'company_id', 'state',
+        },
+        'account.budget.post': {
+            'id', 'name', 'account_ids', 'company_id',
         },
         'res.users': {'id', 'name', 'login', 'company_id', 'company_ids'},
         'res.company': {'id', 'name', 'currency_id'},
@@ -852,6 +981,7 @@ def build_dataset(version_major, edition):
     expenses = _build_expenses(rng, employees)
     assets = _build_assets(rng, version_major)
     analytic_accounts, analytic_lines = _build_analytic_lines(rng, version_major)
+    budget_posts, budget_lines, budget_parent = _build_budget_lines(rng, version_major)
     payments = _build_payments(rng, invoices)
 
     dataset = {
@@ -863,19 +993,18 @@ def build_dataset(version_major, edition):
         ],
         'account.bank.statement.line':  payments,
         'account.account':              [
-            {'id': 100 + i, 'name': n, 'code': f"{4000 + i}", 'account_type': t,
+            {'id': gid, 'name': n, 'code': c, 'account_type': t,
              'company_id': list(_COM)}
-            for i, (n, t) in enumerate([
-                ("Sales Revenue", "income"), ("Cost of Goods Sold", "expense"),
-                ("Operating Expenses", "expense"), ("Salary Expense", "expense"),
-                ("Travel Expense", "expense"), ("Office Rent", "expense"),
-                ("Utilities", "expense"), ("Marketing", "expense"),
-                ("Accounts Receivable", "asset"), ("Cash & Banks", "asset"),
-                ("Accounts Payable", "liability"), ("Equity", "equity"),
-            ])
+            for gid, c, n, t in DEMO_GL_ACCOUNTS
         ],
         'account.analytic.account':     analytic_accounts,
         'account.analytic.line':        analytic_lines,
+        'crossovered.budget':           [{
+            'id': budget_parent['id'], 'name': budget_parent['name'],
+            'company_id': list(_COM), 'state': 'validate',
+        }],
+        'crossovered.budget.lines':     budget_lines,
+        'account.budget.post':          budget_posts,
         'res.users':                    [{'id': 2, 'name': 'Demo Admin',
                                          'login': 'demo@olens.io',
                                          'company_id': list(_COM),
