@@ -1478,6 +1478,17 @@ html:not([data-theme="light"]) .stat-card-active {
   html:not([data-theme="light"]) .stat-card-active { animation: none; }
 }
 
+/* Selected + hovered: pause the red pulse and use the card-colored
+   halo so the hover glow matches the border that main.js paints from
+   the number's text color. The animation resumes at rest, preserving
+   the existing selected-state effect. Specificity (0,2,1) beats both
+   `html:not([data-theme="light"]) .stat-card-active` (0,1,1) and
+   `.stat-card-link:hover` (0,2,0) so we win on every non-light theme. */
+html:not([data-theme="light"]) .stat-card-active:hover {
+  animation: none;
+  box-shadow: var(--card-glow-color, 0 0 30px rgba(107, 114, 128, 0.35));
+}
+
 /* Light theme: keep clean white cards, just add a subtle colored border
    so the same color cue is present without the heavy glass effect. */
 [data-theme="light"] .stat-card:has(:is(.stat-value, .amount-display)[style*="--success"]),
