@@ -1382,7 +1382,13 @@ a.amount-format-btn.active:focus {
 .stat-card-link:hover {
   transform: translateY(-1px);
   border-color: var(--primary);
-  box-shadow: 0 2px 8px rgba(0,0,0,.06);
+  /* Filter cards (Aging buckets, Fully Depreciated, ...) get the same
+     per-card colored halo as regular KPI cards. main.js writes
+     `--card-glow-color` from the number's text color; the literal
+     fallback covers the brief moment before main.js runs. The red
+     border-color above (existing behavior) and the .stat-card-active
+     red ring stay intact because they're separate properties. */
+  box-shadow: var(--card-glow-color, 0 0 30px rgba(107, 114, 128, 0.35));
 }
 .stat-card-active {
   border: 2px solid var(--primary) !important;
