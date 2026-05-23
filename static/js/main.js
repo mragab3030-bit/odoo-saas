@@ -346,26 +346,32 @@ document.querySelectorAll('input[type="date"][data-default-today]').forEach(el =
   window.olensApplyChartDefaults = applyChartDefaults;
 })();
 
-/* ===== KPI card hover glow — derive shadow color from number text ===========
-   For every KPI/stat/cashflow/tax/budget/asset-chart card on the page we read
-   the computed `color` of its inner value element, then write
-   `--card-glow-color` on the card itself. The CSS hover rule consumes that
-   variable so each card glows in its own number color on hover.
+/* ===== KPI card glow + selected-border color (driven from number text) =====
+   For every KPI/stat/cashflow/tax/budget/asset-chart card on the page we
+   read the computed `color` of its inner value element and:
 
-   Exception: very dark numbers (rgb all < 50, i.e. effectively black) would
-   produce a near-black halo on hover, which reads as a hard drop shadow.
-   Those cards fall back to #6b7280 (slate-500) at the same opacity.
+     1. write `--card-glow-color` (full box-shadow string) on the card so
+        the CSS :hover rule glows in that color
+     2. write `data-glow-color="rgb(...)"` as a debug-readable attribute
+     3. if the card is selected (.stat-card-active), paint its border in
+        the same color via inline + !important — wins over the CSS
 
-   Runs on DOMContentLoaded, after theme changes, after language changes, and
-   exposes window.olensRefreshCardGlow() so any future AJAX flow that rerenders
-   KPI cards can call it without reloading the page. ============================ */
+   Selected cards use 0.4 opacity for the hover halo; unselected use 0.35.
+   Numbers whose RGB is below 50 on every channel (effectively black) fall
+   back to #6b7280 so the halo never reads as a hard black drop shadow.
+
+   Runs on DOMContentLoaded, window.load (defence in depth in case CSS or
+   web-fonts shift colors slightly after first paint), after theme/language
+   changes, and is exposed as window.olensRefreshCardGlow() so any AJAX
+   flow that rerenders cards can call it without reloading. ================== */
 (function () {
   var CARD_SELECTOR =
     '.stat-card, .kpi-card, .cashflow-card, .tax-card, .budget-card, .asset-chart-card';
   var VALUE_SELECTOR = '.stat-value, .kpi-value, .amount-display';
-  var GLOW_OPACITY = 0.35;
   var DARK_THRESHOLD = 50;
   var FALLBACK_GREY = [107, 114, 128]; // #6b7280
+  var OPACITY_ACTIVE   = 0.4;
+  var OPACITY_INACTIVE = 0.35;
 
   function parseRgb(s) {
     if (!s) return null;
@@ -374,19 +380,10 @@ document.querySelectorAll('input[type="date"][data-default-today]').forEach(el =
     return [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10)];
   }
 
-  function buildShadow(rgb) {
-    return (
-      '0 0 30px rgba(' + rgb[0] + ', ' + rgb[1] + ', ' + rgb[2] +
-      ', ' + GLOW_OPACITY + ')'
-    );
-  }
-
   function applyCardGlows(root) {
     var scope = root || document;
-    var cards = scope.querySelectorAll
-      ? scope.querySelectorAll(CARD_SELECTOR)
-      : [];
-    cards.forEach(function (card) {
+    if (!scope || !scope.querySelectorAll) return;
+    scope.querySelectorAll(CARD_SELECTOR).forEach(function (card) {
       var valueEl = card.querySelector(VALUE_SELECTOR);
       if (!valueEl) return;
       var rgb = parseRgb(window.getComputedStyle(valueEl).color);
@@ -396,34 +393,46 @@ document.querySelectorAll('input[type="date"][data-default-today]').forEach(el =
           rgb[2] < DARK_THRESHOLD) {
         rgb = FALLBACK_GREY;
       }
-      card.style.setProperty('--card-glow-color', buildShadow(rgb));
+      var r = rgb[0], g = rgb[1], b = rgb[2];
+      var solid    = 'rgb(' + r + ', ' + g + ', ' + b + ')';
+      var isActive = card.classList.contains('stat-card-active');
+      var alpha    = isActive ? OPACITY_ACTIVE : OPACITY_INACTIVE;
+      var shadow   = '0 0 30px rgba(' + r + ', ' + g + ', ' + b + ', ' + alpha + ')';
 
-      // Active filter cards (Bill Aging / Payment Status / Fully
-      // Depreciated / ...) get their border painted in the same color
-      // so the selected highlight matches the number. Background
-      // tint and box-shadow ring stay as the existing red because
-      // the spec only changes the border. setProperty's 3rd-arg
-      // 'important' beats the !important red border in the CSS.
-      if (card.classList.contains('stat-card-active')) {
-        var solid = 'rgb(' + rgb[0] + ', ' + rgb[1] + ', ' + rgb[2] + ')';
+      card.style.setProperty('--card-glow-color', shadow);
+      card.setAttribute('data-glow-color', solid);
+
+      if (isActive) {
+        // Border-color is OWNED by JS — the CSS rule deliberately omits
+        // border-color so the inline value applies cleanly. !important
+        // beats any future selector that tries to set it.
         card.style.setProperty('border-color', solid, 'important');
       } else {
-        // Card is no longer active (rare in practice — selection flips
-        // by full page reload — but cheap to keep stale borders from
-        // sticking around after dynamic rerenders).
         card.style.removeProperty('border-color');
       }
     });
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', function () { applyCardGlows(); });
-  } else {
-    applyCardGlows();
+  function scheduleApply() {
+    // requestAnimationFrame defers to the next paint so all CSS (including
+    // CSS variables resolved through inheritance) has settled before we
+    // read getComputedStyle.
+    if (window.requestAnimationFrame) {
+      window.requestAnimationFrame(function () { applyCardGlows(); });
+    } else {
+      applyCardGlows();
+    }
   }
-  // Re-run when text colors may have changed.
-  document.addEventListener('olens:theme-change',    function () { applyCardGlows(); });
-  document.addEventListener('olens:language-change', function () { applyCardGlows(); });
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', scheduleApply);
+  } else {
+    scheduleApply();
+  }
+  // Defence in depth: re-run after late-loading fonts/styles settle.
+  window.addEventListener('load', scheduleApply);
+  document.addEventListener('olens:theme-change',    scheduleApply);
+  document.addEventListener('olens:language-change', scheduleApply);
 
   window.olensRefreshCardGlow = applyCardGlows;
 })();

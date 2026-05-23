@@ -1391,7 +1391,12 @@ a.amount-format-btn.active:focus {
   box-shadow: var(--card-glow-color, 0 0 30px rgba(107, 114, 128, 0.35));
 }
 .stat-card-active {
-  border: 2px solid var(--primary) !important;
+  /* Border WIDTH + STYLE only; main.js paints border-color from the
+     number's computed color (with #6b7280 fallback for near-black).
+     Background tint and box-shadow ring stay red as the existing
+     selected-state effect. */
+  border-width: 2px !important;
+  border-style: solid !important;
   background: rgba(230, 48, 48, .05);
   box-shadow: 0 0 0 3px rgba(230, 48, 48, .15);
 }
@@ -1456,10 +1461,9 @@ html:not([data-theme="light"]) :is(.stat-value, .amount-display)[style*="f97316"
   border-color: rgba(255, 255, 255, 0.2);
 }
 
-/* Active/selected filter card: brighter border + neon pulse. Overrides
-   the static box-shadow on .stat-card-active above. */
+/* Active/selected filter card: pulse animation on non-light themes.
+   Border color is set inline by main.js (per number color), not here. */
 html:not([data-theme="light"]) .stat-card-active {
-  border-color: rgba(230, 48, 48, 0.6) !important;
   animation: kpiCardActivePulse 2s ease-in-out infinite;
 }
 @keyframes kpiCardActivePulse {
