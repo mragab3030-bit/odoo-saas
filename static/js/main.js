@@ -397,6 +397,22 @@ document.querySelectorAll('input[type="date"][data-default-today]').forEach(el =
         rgb = FALLBACK_GREY;
       }
       card.style.setProperty('--card-glow-color', buildShadow(rgb));
+
+      // Active filter cards (Bill Aging / Payment Status / Fully
+      // Depreciated / ...) get their border painted in the same color
+      // so the selected highlight matches the number. Background
+      // tint and box-shadow ring stay as the existing red because
+      // the spec only changes the border. setProperty's 3rd-arg
+      // 'important' beats the !important red border in the CSS.
+      if (card.classList.contains('stat-card-active')) {
+        var solid = 'rgb(' + rgb[0] + ', ' + rgb[1] + ', ' + rgb[2] + ')';
+        card.style.setProperty('border-color', solid, 'important');
+      } else {
+        // Card is no longer active (rare in practice — selection flips
+        // by full page reload — but cheap to keep stale borders from
+        // sticking around after dynamic rerenders).
+        card.style.removeProperty('border-color');
+      }
     });
   }
 
