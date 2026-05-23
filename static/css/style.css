@@ -763,10 +763,11 @@ canvas,
 .budget-card:hover,
 .asset-chart-card:hover {
   transform: translateY(-4px) scale(1.02);
-  /* Neutral cards (dark numbers, no color token) get a dark-grey halo
-     instead of a near-black drop shadow. Colored cards override this
-     with their own colored glow further down. */
-  box-shadow: 0 12px 35px rgba(107, 114, 128, .25);
+  /* Neutral cards (dark numbers, no color token): soft dark-grey halo,
+     no hard drop shadow — matches the soft-glow look of colored cards
+     but in #6b7280. Colored cards override box-shadow via the :has()
+     rules below to swap the halo color. */
+  box-shadow: 0 0 30px rgba(107, 114, 128, 0.4);
   z-index: 10;
   position: relative;
 }
@@ -1396,25 +1397,19 @@ a.amount-format-btn.active:focus {
   background: rgba(230, 48, 48, .025);
 }
 
-/* ===== Glassmorphism + neon glow for KPI cards =====
-   Glass background, blurred backdrop, color-tinted halo per card type.
-   Color is detected via :has() reading the inline `style` on the inner
-   .stat-value / .amount-display — covers both CSS tokens (var(--success)
-   etc.) and bare hex (aging buckets / cashflow border-left hexes).
-
-   Scoped to dark + midnight themes via :not([data-theme="light"]) so
-   the Light theme keeps its clean white cards (just a subtle colored
-   border rule lower down). */
-:where(html:not([data-theme="light"])) .stat-card,
-:where(html:not([data-theme="light"])) .kpi-card,
-:where(html:not([data-theme="light"])) .cashflow-card,
-:where(html:not([data-theme="light"])) .tax-card,
-:where(html:not([data-theme="light"])) .budget-card,
-:where(html:not([data-theme="light"])) .asset-chart-card {
-  /* Visible glass container — identical for every card regardless of
-     number color. Background + border alpha are tuned so the card
-     reads as a contained box on dark/midnight backgrounds without
-     relying on box-shadow. */
+/* ===== Glassmorphism KPI containers — Midnight theme only =====
+   The default and `data-theme="dark"` themes ship with LIGHT-looking
+   colors (white --surface, near-white --bg), so a semi-transparent
+   white glass would vanish into the page. Only true-dark
+   [data-theme="midnight"] gets the glass treatment; every other
+   theme keeps the visible solid card from `.stat-card { background:
+   var(--surface); border: 1px solid var(--border); ... }`. */
+:where([data-theme="midnight"]) .stat-card,
+:where([data-theme="midnight"]) .kpi-card,
+:where([data-theme="midnight"]) .cashflow-card,
+:where([data-theme="midnight"]) .tax-card,
+:where([data-theme="midnight"]) .budget-card,
+:where([data-theme="midnight"]) .asset-chart-card {
   background: rgba(255, 255, 255, 0.06);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
