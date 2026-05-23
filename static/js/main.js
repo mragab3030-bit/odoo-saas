@@ -403,12 +403,37 @@ document.querySelectorAll('input[type="date"][data-default-today]').forEach(el =
       card.setAttribute('data-glow-color', solid);
 
       if (isActive) {
-        // Border-color is OWNED by JS — the CSS rule deliberately omits
-        // border-color so the inline value applies cleanly. !important
-        // beats any future selector that tries to set it.
+        // Border-color (the actual 2px border) — JS owns this. The
+        // CSS rule deliberately omits border-color so the inline
+        // value applies cleanly. !important beats any future selector.
         card.style.setProperty('border-color', solid, 'important');
+
+        // 3px outset ring (visually the "outer border" of a selected
+        // card). Tinted at 0.2 alpha — matches the previous red
+        // ring's intensity but in the card's number color.
+        card.style.setProperty(
+          '--card-ring-color',
+          'rgba(' + r + ', ' + g + ', ' + b + ', 0.2)'
+        );
+
+        // Midnight pulse animation keyframes. Both stops resolved
+        // through CSS vars so the pulse breathes in the right color
+        // instead of always pulsing red.
+        card.style.setProperty(
+          '--card-pulse-low',
+          '0 0 25px rgba(' + r + ', ' + g + ', ' + b + ', 0.45), ' +
+          '0 0 50px rgba(' + r + ', ' + g + ', ' + b + ', 0.15)'
+        );
+        card.style.setProperty(
+          '--card-pulse-high',
+          '0 0 40px rgba(' + r + ', ' + g + ', ' + b + ', 0.75), ' +
+          '0 0 70px rgba(' + r + ', ' + g + ', ' + b + ', 0.30)'
+        );
       } else {
         card.style.removeProperty('border-color');
+        card.style.removeProperty('--card-ring-color');
+        card.style.removeProperty('--card-pulse-low');
+        card.style.removeProperty('--card-pulse-high');
       }
     });
   }

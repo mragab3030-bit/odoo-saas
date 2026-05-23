@@ -1391,14 +1391,14 @@ a.amount-format-btn.active:focus {
   box-shadow: var(--card-glow-color, 0 0 30px rgba(107, 114, 128, 0.35));
 }
 .stat-card-active {
-  /* Border WIDTH + STYLE only; main.js paints border-color from the
-     number's computed color (with #6b7280 fallback for near-black).
-     Background tint and box-shadow ring stay red as the existing
-     selected-state effect. */
+  /* main.js owns BOTH the 2px border-color AND the 3px outset ring
+     so the visible "outline" around a selected card always matches
+     its number color. Only the background tint stays red as the
+     existing selected-state highlight. */
   border-width: 2px !important;
   border-style: solid !important;
   background: rgba(230, 48, 48, .05);
-  box-shadow: 0 0 0 3px rgba(230, 48, 48, .15);
+  box-shadow: 0 0 0 3px var(--card-ring-color, rgba(230, 48, 48, .15));
 }
 
 /* When a card-driven filter is active (e.g. Assets > Fully Depreciated),
@@ -1467,15 +1467,22 @@ html:not([data-theme="light"]) .stat-card-active {
   animation: kpiCardActivePulse 2s ease-in-out infinite;
 }
 @keyframes kpiCardActivePulse {
+  /* Pulse box-shadows resolve through CSS vars main.js writes per
+     card (rgba alphas baked in there). Fallbacks keep the original
+     red pulse if the JS hasn't run yet. */
   0%, 100% {
-    box-shadow:
+    box-shadow: var(
+      --card-pulse-low,
       0 0 25px rgba(230, 48, 48, 0.45),
-      0 0 50px rgba(230, 48, 48, 0.15);
+      0 0 50px rgba(230, 48, 48, 0.15)
+    );
   }
   50% {
-    box-shadow:
+    box-shadow: var(
+      --card-pulse-high,
       0 0 40px rgba(230, 48, 48, 0.75),
-      0 0 70px rgba(230, 48, 48, 0.30);
+      0 0 70px rgba(230, 48, 48, 0.30)
+    );
   }
 }
 @media (prefers-reduced-motion: reduce) {
