@@ -763,11 +763,13 @@ canvas,
 .budget-card:hover,
 .asset-chart-card:hover {
   transform: translateY(-4px) scale(1.02);
-  /* Neutral cards (dark numbers, no color token): soft dark-grey halo,
-     no hard drop shadow — matches the soft-glow look of colored cards
-     but in #6b7280. Colored cards override box-shadow via the :has()
-     rules below to swap the halo color. */
-  box-shadow: 0 0 30px rgba(107, 114, 128, 0.4);
+  /* The shadow color is computed per card by main.js — it reads the
+     number text color and writes `--card-glow-color` (full box-shadow
+     value, e.g. `0 0 30px rgba(220,38,38,.35)`). Cards whose number
+     is effectively black (rgb all < 50) fall back to slate-500. The
+     literal fallback below covers the brief moment before main.js
+     runs and any card where the value element couldn't be read. */
+  box-shadow: var(--card-glow-color, 0 0 30px rgba(107, 114, 128, 0.35));
   z-index: 10;
   position: relative;
 }
@@ -1438,35 +1440,14 @@ html:not([data-theme="light"]) :is(.stat-value, .amount-display)[style*="f97316"
   text-shadow: 0 0 20px rgba(217, 119, 6, 0.5);
 }
 
-/* Hover: brighter border + intensified glow. Lift transform comes from
-   the global card-hover block earlier in this file. */
-html:not([data-theme="light"]) :is(.stat-card, .kpi-card, .cashflow-card, .tax-card, .budget-card, .asset-chart-card):hover {
+/* Hover border on midnight glass: brighten the translucent border so the
+   card edge stays visible against the intensified halo. Lift transform
+   and the per-card box-shadow come from the global card-hover block
+   earlier in this file (which reads `--card-glow-color` written by
+   main.js — main.js drives the per-card hover color globally so no
+   per-color :has() override is needed here.) */
+[data-theme="midnight"] :is(.stat-card, .kpi-card, .cashflow-card, .tax-card, .budget-card, .asset-chart-card):hover {
   border-color: rgba(255, 255, 255, 0.2);
-}
-html:not([data-theme="light"]) .stat-card:hover:has(:is(.stat-value, .amount-display)[style*="--success"]),
-html:not([data-theme="light"]) .stat-card:hover:has(:is(.stat-value, .amount-display)[style*="22c55e"]) {
-  box-shadow:
-    0 12px 35px rgba(0, 0, 0, 0.25),
-    0 0 30px rgba(22, 163, 74, 0.5);
-}
-html:not([data-theme="light"]) .stat-card:hover:has(:is(.stat-value, .amount-display)[style*="--danger"]),
-html:not([data-theme="light"]) .stat-card:hover:has(:is(.stat-value, .amount-display)[style*="ef4444"]),
-html:not([data-theme="light"]) .stat-card:hover:has(:is(.stat-value, .amount-display)[style*="dc2626"]) {
-  box-shadow:
-    0 12px 35px rgba(0, 0, 0, 0.25),
-    0 0 30px rgba(220, 38, 38, 0.5);
-}
-html:not([data-theme="light"]) .stat-card:hover:has(:is(.stat-value, .amount-display)[style*="--warning"]),
-html:not([data-theme="light"]) .stat-card:hover:has(:is(.stat-value, .amount-display)[style*="eab308"]),
-html:not([data-theme="light"]) .stat-card:hover:has(:is(.stat-value, .amount-display)[style*="f97316"]) {
-  box-shadow:
-    0 12px 35px rgba(0, 0, 0, 0.25),
-    0 0 30px rgba(217, 119, 6, 0.5);
-}
-html:not([data-theme="light"]) .compare-card:hover {
-  box-shadow:
-    0 12px 35px rgba(0, 0, 0, 0.25),
-    0 0 30px rgba(139, 92, 246, 0.45);
 }
 
 /* Active/selected filter card: brighter border + neon pulse. Overrides

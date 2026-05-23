@@ -345,3 +345,69 @@ document.querySelectorAll('input[type="date"][data-default-today]').forEach(el =
   // chart (e.g. financial charts built after DOMContentLoaded).
   window.olensApplyChartDefaults = applyChartDefaults;
 })();
+
+/* ===== KPI card hover glow — derive shadow color from number text ===========
+   For every KPI/stat/cashflow/tax/budget/asset-chart card on the page we read
+   the computed `color` of its inner value element, then write
+   `--card-glow-color` on the card itself. The CSS hover rule consumes that
+   variable so each card glows in its own number color on hover.
+
+   Exception: very dark numbers (rgb all < 50, i.e. effectively black) would
+   produce a near-black halo on hover, which reads as a hard drop shadow.
+   Those cards fall back to #6b7280 (slate-500) at the same opacity.
+
+   Runs on DOMContentLoaded, after theme changes, after language changes, and
+   exposes window.olensRefreshCardGlow() so any future AJAX flow that rerenders
+   KPI cards can call it without reloading the page. ============================ */
+(function () {
+  var CARD_SELECTOR =
+    '.stat-card, .kpi-card, .cashflow-card, .tax-card, .budget-card, .asset-chart-card';
+  var VALUE_SELECTOR = '.stat-value, .kpi-value, .amount-display';
+  var GLOW_OPACITY = 0.35;
+  var DARK_THRESHOLD = 50;
+  var FALLBACK_GREY = [107, 114, 128]; // #6b7280
+
+  function parseRgb(s) {
+    if (!s) return null;
+    var m = s.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+    if (!m) return null;
+    return [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10)];
+  }
+
+  function buildShadow(rgb) {
+    return (
+      '0 0 30px rgba(' + rgb[0] + ', ' + rgb[1] + ', ' + rgb[2] +
+      ', ' + GLOW_OPACITY + ')'
+    );
+  }
+
+  function applyCardGlows(root) {
+    var scope = root || document;
+    var cards = scope.querySelectorAll
+      ? scope.querySelectorAll(CARD_SELECTOR)
+      : [];
+    cards.forEach(function (card) {
+      var valueEl = card.querySelector(VALUE_SELECTOR);
+      if (!valueEl) return;
+      var rgb = parseRgb(window.getComputedStyle(valueEl).color);
+      if (!rgb) return;
+      if (rgb[0] < DARK_THRESHOLD &&
+          rgb[1] < DARK_THRESHOLD &&
+          rgb[2] < DARK_THRESHOLD) {
+        rgb = FALLBACK_GREY;
+      }
+      card.style.setProperty('--card-glow-color', buildShadow(rgb));
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { applyCardGlows(); });
+  } else {
+    applyCardGlows();
+  }
+  // Re-run when text colors may have changed.
+  document.addEventListener('olens:theme-change',    function () { applyCardGlows(); });
+  document.addEventListener('olens:language-change', function () { applyCardGlows(); });
+
+  window.olensRefreshCardGlow = applyCardGlows;
+})();
