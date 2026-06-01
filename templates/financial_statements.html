@@ -75,6 +75,11 @@
     width: 100%; border-collapse: collapse;
     font-size: .85rem;
   }
+  /* P&L-only: fixed layout so the <colgroup> widths are authoritative.
+     Without this, browsers fall back to auto-sizing on content, which
+     made AR rendering subtly wider/narrower than EN because the Arabic
+     subtotal labels are different lengths than their English peers. */
+  .fs-table-pnl { table-layout: fixed; }
   .fs-table th {
     background: var(--surface-2);
     color: var(--text-muted);
@@ -164,7 +169,20 @@
 
   /* P&L charts row */
   .fs-chart-card { padding: 1.25rem; }
-  .fs-chart-wrap { position: relative; height: 320px; }
+  /* Chart wrapper always renders LTR, full width. In RTL the page
+     direction would otherwise push the canvas to the inline-start
+     (right) edge of the container, leaving the inline-end (left)
+     blank. The canvas itself is already forced to LTR globally in
+     style.css — we re-isolate the wrap so Chart.js's responsive
+     sizing measures a stable, left-anchored container. The chart
+     title above stays in page direction and is unaffected. */
+  .fs-chart-wrap {
+    position: relative;
+    height: 320px;
+    width: 100%;
+    direction: ltr;
+    unicode-bidi: isolate;
+  }
 
   /* Balance Sheet two-column layout */
   .fs-bs-grid {
@@ -940,7 +958,26 @@
       <span data-i18n="fs_pnl_full">Income Statement</span>
     </h5>
     <div style="overflow-x:auto">
-      <table class="fs-table">
+      <table class="fs-table fs-table-pnl">
+        {# Explicit column widths so AR and EN render identically. With
+           dir="rtl" on the table the same source-order cols visually
+           flip; widths remain the same because <col> indexes columns
+           by source position, not screen position. #}
+        {% if compare_yoy %}
+        <colgroup>
+          <col style="width:35%"><!-- Account -->
+          <col style="width:18%"><!-- Current Period -->
+          <col style="width:18%"><!-- Last Year -->
+          <col style="width:14%"><!-- Change % -->
+          <col style="width:15%"><!-- % of Revenue -->
+        </colgroup>
+        {% else %}
+        <colgroup>
+          <col style="width:52%"><!-- Account -->
+          <col style="width:26%"><!-- Current Period -->
+          <col style="width:22%"><!-- % of Revenue -->
+        </colgroup>
+        {% endif %}
         <thead>
           <tr>
             <th data-i18n="fs_account">Account</th>
