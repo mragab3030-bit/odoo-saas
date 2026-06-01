@@ -85,13 +85,29 @@
     border-bottom: 1px solid var(--border);
     white-space: nowrap;
   }
-  .fs-table th.num { text-align: right; }
+  .fs-table th { text-align: start; }
+  .fs-table th.num { text-align: end; }
   .fs-table td {
     padding: .55rem 1rem;
     border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
     vertical-align: middle;
+    text-align: start;
   }
-  .fs-table td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .fs-table td.num { text-align: end; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  /* When the page is RTL the cell still aligns to its inline-end
+     (visually the left side of the row), but the digit sequence
+     inside reads LTR. unicode-bidi:plaintext on the cell makes the
+     bidi algorithm treat each cell as its own paragraph; with no
+     strong character (digits + % are weak) the content falls back
+     to LTR. .amount-display and .fs-change-pill already isolate
+     themselves, so this only matters for bare-text percent cells. */
+  [dir="rtl"] .fs-table td.num {
+    unicode-bidi: plaintext;
+  }
+  [dir="rtl"] .fs-table .fs-change-pill {
+    direction: ltr;
+    unicode-bidi: isolate;
+  }
   .fs-table tbody tr:hover { background: var(--surface-2); }
 
   .fs-row-section-header td {
@@ -941,7 +957,9 @@
           {% for sec in pnl.sections %}
             {% if sec.label %}
             <tr class="fs-row-section-header">
-              <td colspan="{{ 5 if compare_yoy else 3 }}">{{ sec.label }}</td>
+              <td colspan="{{ 5 if compare_yoy else 3 }}"
+                  data-text-en="{{ sec.label }}"
+                  data-text-ar="{{ sec.label_ar or sec.label }}">{{ sec.label }}</td>
             </tr>
             {% endif %}
             {% for line in sec.lines %}
@@ -957,9 +975,12 @@
             {% endfor %}
             <tr class="{% if loop.last %}fs-row-grand{% else %}fs-row-subtotal{% endif %}">
               <td>
-                {{ sec.subtotal_label }}
+                <span data-text-en="{{ sec.subtotal_label }}"
+                      data-text-ar="{{ sec.subtotal_label_ar or sec.subtotal_label }}">{{ sec.subtotal_label }}</span>
                 {% if sec.subtotal_pct_label %}
-                <span class="fs-subtotal-pct">{{ sec.subtotal_pct_label }}: {{ '%.1f' % sec.subtotal_pct_current }}%</span>
+                <span class="fs-subtotal-pct"
+                      data-text-en="{{ sec.subtotal_pct_label }}: {{ '%.1f' % sec.subtotal_pct_current }}%"
+                      data-text-ar="{{ sec.subtotal_pct_label_ar or sec.subtotal_pct_label }}: {{ '%.1f' % sec.subtotal_pct_current }}%">{{ sec.subtotal_pct_label }}: {{ '%.1f' % sec.subtotal_pct_current }}%</span>
                 {% endif %}
               </td>
               <td class="num {{ 'pos' if sec.subtotal_current >= 0 else 'neg' }}">
@@ -1129,7 +1150,7 @@
           </tr>
           {% endfor %}
           <tr class="fs-row-subtotal">
-            <td>Total Current Assets</td>
+            <td data-i18n="fs_total_current_assets">Total Current Assets</td>
             <td class="num">{{ amt(bs.assets.total_current) }}</td>
             {% if compare_yoy %}
             <td class="num">{{ amt(bs.assets.total_current_prev) }}</td>
@@ -1151,7 +1172,7 @@
           </tr>
           {% endfor %}
           <tr class="fs-row-subtotal">
-            <td>Total Non-Current Assets</td>
+            <td data-i18n="fs_total_non_current_assets">Total Non-Current Assets</td>
             <td class="num">{{ amt(bs.assets.total_non_current) }}</td>
             {% if compare_yoy %}
             <td class="num">{{ amt(bs.assets.total_non_current_prev) }}</td>
@@ -1203,7 +1224,7 @@
           </tr>
           {% endfor %}
           <tr class="fs-row-subtotal">
-            <td>Total Current Liabilities</td>
+            <td data-i18n="fs_total_current_liabilities">Total Current Liabilities</td>
             <td class="num">{{ amt(bs.liabilities.total_current) }}</td>
             {% if compare_yoy %}
             <td class="num">{{ amt(bs.liabilities.total_current_prev) }}</td>
@@ -1225,7 +1246,7 @@
           </tr>
           {% endfor %}
           <tr class="fs-row-subtotal">
-            <td>Total Non-Current Liabilities</td>
+            <td data-i18n="fs_total_non_current_liabilities">Total Non-Current Liabilities</td>
             <td class="num">{{ amt(bs.liabilities.total_non_current) }}</td>
             {% if compare_yoy %}
             <td class="num">{{ amt(bs.liabilities.total_non_current_prev) }}</td>
@@ -1247,7 +1268,7 @@
           </tr>
           {% endfor %}
           <tr class="fs-row-subtotal">
-            <td>Total Equity</td>
+            <td data-i18n="fs_total_equity">Total Equity</td>
             <td class="num">{{ amt(bs.equity.total) }}</td>
             {% if compare_yoy %}
             <td class="num">{{ amt(bs.equity.total_prev) }}</td>
@@ -1256,7 +1277,7 @@
           </tr>
 
           <tr class="fs-row-grand">
-            <td>TOTAL LIABILITIES &amp; EQUITY</td>
+            <td data-i18n="fs_total_liab_equity">TOTAL LIABILITIES &amp; EQUITY</td>
             <td class="num">{{ amt(bs.total_liab_equity) }}</td>
             {% if compare_yoy %}
             <td class="num">{{ amt(bs.total_liab_equity_prev) }}</td>
@@ -1385,6 +1406,15 @@
     'equity': 'Equity', 'revenue': 'Revenue', 'expense': 'Expense'
   } %}
   {% set type_filter_match = type_filter_label[type_filter] %}
+  {# AR translations for account-type rows. Keep this map close to
+     `type_order` so adding a type later only requires one update. #}
+  {% set type_label_ar = {
+    'Asset': 'الأصول',
+    'Liability': 'الالتزامات',
+    'Equity': 'حقوق الملكية',
+    'Revenue': 'الإيرادات',
+    'Expense': 'المصروفات',
+  } %}
 
   <div class="fs-section">
     <h5 class="fs-section-title">
@@ -1422,14 +1452,18 @@
             {% if rows_in_group %}
               {% set ns.any_shown = true %}
               <tr class="fs-tb-group-row">
-                <td colspan="9">{{ t }}</td>
+                <td colspan="9"
+                    data-text-en="{{ t }}"
+                    data-text-ar="{{ type_label_ar[t] }}">{{ t }}</td>
               </tr>
               {% set gns = namespace(od=0, oc=0, md=0, mc=0, cd=0, cc=0) %}
               {% for line in rows_in_group %}
                 <tr>
                   <td>{{ line.code }}</td>
                   <td>{{ line.name }}</td>
-                  <td><span class="badge badge-secondary">{{ line.type }}</span></td>
+                  <td><span class="badge badge-secondary"
+                            data-text-en="{{ line.type }}"
+                            data-text-ar="{{ type_label_ar[line.type] }}">{{ line.type }}</span></td>
                   <td class="num">{{ amt(line.opening_debit) }}</td>
                   <td class="num">{{ amt(line.opening_credit) }}</td>
                   <td class="num">{{ amt(line.movement_debit) }}</td>
@@ -1445,7 +1479,9 @@
                 {% set gns.cc = gns.cc + line.closing_credit %}
               {% endfor %}
               <tr class="fs-tb-subtotal">
-                <td colspan="3">Subtotal — {{ t }}</td>
+                <td colspan="3"
+                    data-text-en="Subtotal — {{ t }}"
+                    data-text-ar="الإجمالي الفرعي — {{ type_label_ar[t] }}">Subtotal — {{ t }}</td>
                 <td class="num">{{ amt(gns.od) }}</td>
                 <td class="num">{{ amt(gns.oc) }}</td>
                 <td class="num">{{ amt(gns.md) }}</td>
@@ -1779,35 +1815,42 @@
     }
     document.addEventListener('DOMContentLoaded', tint);
     window.addEventListener('load', tint);
-
-    // ---- Ratio tooltip + name localization ----
-    // Built-in ratio names, formulas, interpretations, and benchmark
-    // labels are rendered as data-text-en + data-text-ar pairs. We swap
-    // textContent here on every language change AND on first paint —
-    // covers the case where the user landed with AR pre-saved in
-    // localStorage.
-    function applyRatioLang(lang) {
-      var attr = (lang === 'ar') ? 'data-text-ar' : 'data-text-en';
-      document.querySelectorAll('[data-text-en][data-text-ar]').forEach(function (el) {
-        var v = el.getAttribute(attr);
-        if (v != null) el.textContent = v;
-      });
-    }
-    function currentLang() {
-      var l = document.documentElement.getAttribute('data-lang')
-            || document.documentElement.lang || '';
-      return l === 'ar' ? 'ar' : 'en';
-    }
-    document.addEventListener('DOMContentLoaded', function () {
-      applyRatioLang(currentLang());
-    });
-    document.addEventListener('olens:language-change', function (e) {
-      applyRatioLang((e.detail && e.detail.lang) || currentLang());
-    });
   })();
   </script>
 
 {% endif %}{# end tab dispatch #}
+
+{# ----- Shared FS language swap -----
+   Runs on every tab. Swaps text content of data-text-en/ar pairs
+   (ratio names, P&L labels, TB type labels, etc.) and toggles the
+   `dir` attribute on every statement table so columns reverse in
+   Arabic. Lives outside the tab dispatch so P&L/BS/TB get it too. #}
+<script>
+(function () {
+  function currentLang() {
+    var l = document.documentElement.getAttribute('data-lang')
+          || document.documentElement.lang || '';
+    return l === 'ar' ? 'ar' : 'en';
+  }
+  function applyFsLang(lang) {
+    var attr = (lang === 'ar') ? 'data-text-ar' : 'data-text-en';
+    document.querySelectorAll('[data-text-en][data-text-ar]').forEach(function (el) {
+      var v = el.getAttribute(attr);
+      if (v != null) el.textContent = v;
+    });
+    var tdir = (lang === 'ar') ? 'rtl' : 'ltr';
+    document.querySelectorAll('table.fs-table').forEach(function (t) {
+      t.setAttribute('dir', tdir);
+    });
+  }
+  document.addEventListener('DOMContentLoaded', function () {
+    applyFsLang(currentLang());
+  });
+  document.addEventListener('olens:language-change', function (e) {
+    applyFsLang((e.detail && e.detail.lang) || currentLang());
+  });
+})();
+</script>
 
 {% endif %}{# end snapshot check — drawer below stays available even when
               the page can't render data so users can still configure mapping. #}
