@@ -75,11 +75,22 @@
     width: 100%; border-collapse: collapse;
     font-size: .85rem;
   }
-  /* P&L-only: fixed layout so the <colgroup> widths are authoritative.
-     Without this, browsers fall back to auto-sizing on content, which
-     made AR rendering subtly wider/narrower than EN because the Arabic
-     subtotal labels are different lengths than their English peers. */
-  .fs-table-pnl { table-layout: fixed; }
+  /* P&L-only: fixed layout so the <colgroup> + per-th widths are
+     authoritative. With table-layout:auto the browser falls back to
+     content-based sizing and headers/data columns can drift apart;
+     "fixed" makes thead and tbody share the exact same column grid
+     so each th sits above its corresponding td in LTR and RTL alike.
+     box-sizing:border-box ensures the explicit widths include the
+     1rem inline padding, so the cell's outer width is exactly the
+     percentage we ask for and never grows by content overflow. */
+  .fs-table-pnl {
+    table-layout: fixed;
+    width: 100%;
+  }
+  .fs-table-pnl th,
+  .fs-table-pnl td {
+    box-sizing: border-box;
+  }
   .fs-table th {
     background: var(--surface-2);
     color: var(--text-muted);
@@ -972,10 +983,12 @@
     </h5>
     <div style="overflow-x:auto">
       <table class="fs-table fs-table-pnl">
-        {# Explicit column widths so AR and EN render identically. With
-           dir="rtl" on the table the same source-order cols visually
-           flip; widths remain the same because <col> indexes columns
-           by source position, not screen position. #}
+        {# Column widths live BOTH on <colgroup> and on each <th> so
+           the browser has unambiguous widths whether it reads the
+           colgroup, the first row, or both. With table-layout:fixed
+           every column in every row inherits the same width slot,
+           so each th in thead sits exactly above its td in tbody —
+           in LTR and RTL alike. #}
         {% if compare_yoy %}
         <colgroup>
           <col style="width:35%"><!-- Account -->
@@ -992,15 +1005,21 @@
         </colgroup>
         {% endif %}
         <thead>
+          {% if compare_yoy %}
           <tr>
-            <th data-i18n="fs_account">Account</th>
-            <th class="num" data-i18n="fs_current_period">Current Period</th>
-            {% if compare_yoy %}
-            <th class="num" data-i18n="fs_last_year">Last Year</th>
-            <th class="num" data-i18n="fs_change_pct">Change %</th>
-            {% endif %}
-            <th class="num" data-i18n="fs_pct_of_revenue">% of Revenue</th>
+            <th style="width:35%" data-i18n="fs_account">Account</th>
+            <th class="num" style="width:18%" data-i18n="fs_current_period">Current Period</th>
+            <th class="num" style="width:18%" data-i18n="fs_last_year">Last Year</th>
+            <th class="num" style="width:14%" data-i18n="fs_change_pct">Change %</th>
+            <th class="num" style="width:15%" data-i18n="fs_pct_of_revenue">% of Revenue</th>
           </tr>
+          {% else %}
+          <tr>
+            <th style="width:52%" data-i18n="fs_account">Account</th>
+            <th class="num" style="width:26%" data-i18n="fs_current_period">Current Period</th>
+            <th class="num" style="width:22%" data-i18n="fs_pct_of_revenue">% of Revenue</th>
+          </tr>
+          {% endif %}
         </thead>
         <tbody>
           {% set revenue_cur = k.total_revenue or 1 %}
