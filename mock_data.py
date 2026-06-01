@@ -1208,6 +1208,47 @@ FS_DEMO_INVENTORY_DEFAULTS = [1101, 1102, 1103, 1104]
 FS_DEMO_CASH_DEFAULTS = [1010, 1015, 1016, 1020]
 
 
+# Seed Custom Ratios shown the first time a demo user opens the Ratios
+# tab — wired so the feature is immediately visible without forcing the
+# user to fill in the builder before seeing anything.
+FS_DEMO_CUSTOM_RATIOS = [
+    {
+        'id': 'demo_operating_efficiency',
+        'name_en': 'Operating Efficiency',
+        'name_ar': 'كفاءة التشغيل',
+        'description': 'Operating profit as a percentage of revenue.',
+        'section': 'profitability',
+        'numerator':   [{'op': '+', 'var': 'operating_profit'}],
+        'denominator': [{'op': '+', 'var': 'revenue'}],
+        'chart_type': 'bar',
+        'result_format': 'percentage',
+        'benchmarks': [
+            {'label': 'Strong',  'min': 20, 'max': 100, 'color': 'green'},
+            {'label': 'Average', 'min': 10, 'max': 20,  'color': 'yellow'},
+            {'label': 'Weak',    'min': 0,  'max': 10,  'color': 'red'},
+        ],
+        'interpretation': 'Operating profit keeps {value} of every SAR of revenue.',
+    },
+    {
+        'id': 'demo_asset_coverage',
+        'name_en': 'Asset Coverage',
+        'name_ar': 'تغطية الأصول',
+        'description': 'How many times total assets cover total liabilities.',
+        'section': 'leverage',
+        'numerator':   [{'op': '+', 'var': 'total_assets'}],
+        'denominator': [{'op': '+', 'var': 'total_liabilities'}],
+        'chart_type': 'gauge',
+        'result_format': 'multiplier',
+        'benchmarks': [
+            {'label': 'Strong',   'min': 2.0, 'max': 999, 'color': 'green'},
+            {'label': 'Adequate', 'min': 1.5, 'max': 2.0, 'color': 'yellow'},
+            {'label': 'Risk',     'min': 0,   'max': 1.5, 'color': 'red'},
+        ],
+        'interpretation': 'Total assets cover total liabilities {value} over.',
+    },
+]
+
+
 FS_TRIAL_BALANCE = [
     # ASSETS — normally debit balance
     ('1100', 'Cash & Bank',                 'Asset',      2_100_000,        0, 18_400_000, 17_700_000),

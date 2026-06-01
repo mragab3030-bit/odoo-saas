@@ -3,6 +3,13 @@
 {% block page_title %}Financial Statements{% endblock %}
 
 {% block topbar_actions %}
+{% if tab == 'ratios' %}
+<button type="button" class="btn btn-primary btn-sm" data-fs-custom-open
+        title="Build a custom ratio">
+  <i class="fa-solid fa-plus"></i>
+  <span class="d-none d-sm-inline" data-i18n="fs_build_custom_ratio">Build Custom Ratio</span>
+</button>
+{% endif %}
 <button type="button" class="btn btn-outline btn-sm" data-fs-settings-open
         title="Account Mapping Settings">
   <i class="fa-solid fa-gear"></i>
@@ -419,6 +426,300 @@
   }
   .fs-banner-warning i { color: #d97706; font-size: 1.1rem; }
   .fs-banner-warning p { margin: 0; flex: 1; font-size: .88rem; }
+
+  /* ===== Custom ratio card affordances ===== */
+  .fs-ratio-card-custom { padding-top: 1.4rem; }
+  .fs-ratio-custom-badge {
+    position: absolute;
+    top: .55rem; inset-inline-start: .65rem;
+    background: color-mix(in srgb, var(--primary) 12%, transparent);
+    color: var(--primary);
+    border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent);
+    border-radius: 999px;
+    padding: .08rem .55rem;
+    font-size: .62rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+  .fs-ratio-actions {
+    position: absolute;
+    top: .5rem; inset-inline-end: .5rem;
+    display: flex; gap: .25rem;
+    opacity: 0;
+    transition: opacity .15s ease;
+    pointer-events: none;
+  }
+  .fs-ratio-card-custom:hover .fs-ratio-actions,
+  .fs-ratio-card-custom:focus-within .fs-ratio-actions {
+    opacity: 1; pointer-events: auto;
+  }
+  .fs-ratio-action-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    width: 26px; height: 26px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: .75rem;
+    padding: 0;
+    transition: color .15s, background .15s, border-color .15s;
+  }
+  .fs-ratio-action-btn:hover {
+    color: var(--text); background: var(--surface-2);
+  }
+  .fs-ratio-action-danger:hover {
+    color: #dc2626; border-color: #fecaca; background: #fef2f2;
+  }
+
+  /* ===== Custom Ratio Builder modal ===== */
+  .fs-modal-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(15, 23, 42, .55);
+    opacity: 0; pointer-events: none;
+    transition: opacity .2s ease;
+    z-index: 60;
+  }
+  .fs-modal-backdrop.open { opacity: 1; pointer-events: auto; }
+
+  .fs-modal {
+    position: fixed; top: 50%; left: 50%;
+    transform: translate(-50%, -50%) scale(.96);
+    width: min(760px, 96vw);
+    max-height: 92vh;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, .25);
+    opacity: 0; pointer-events: none;
+    transition: opacity .2s ease, transform .2s ease;
+    z-index: 61;
+    display: flex; flex-direction: column;
+  }
+  .fs-modal.open {
+    opacity: 1; pointer-events: auto;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  .fs-modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .fs-modal-title {
+    margin: 0; font-size: 1rem; font-weight: 700;
+    display: flex; align-items: center; gap: .5rem;
+  }
+  .fs-modal-close {
+    background: none; border: 0; font-size: 1.5rem; cursor: pointer;
+    color: var(--text-muted); padding: 0 .25rem; line-height: 1;
+  }
+  .fs-modal-body { overflow-y: auto; padding: 1rem 1.25rem; flex: 1; }
+  .fs-modal-footer {
+    border-top: 1px solid var(--border);
+    padding: .85rem 1.25rem;
+    display: flex; gap: .5rem;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  /* Step pills */
+  .fs-builder-steps {
+    display: flex; gap: .35rem; flex-wrap: wrap;
+    margin: -.25rem 0 1rem;
+    padding-bottom: .5rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .fs-builder-step-pill {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 999px;
+    padding: .3rem .75rem;
+    font-size: .72rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex; align-items: center; gap: .35rem;
+    transition: all .15s ease;
+  }
+  .fs-builder-step-pill:hover { color: var(--text); border-color: var(--primary); }
+  .fs-builder-step-pill.active {
+    background: var(--primary); color: #fff; border-color: var(--primary);
+  }
+  .fs-builder-step-pill .num {
+    background: var(--surface); color: var(--primary);
+    border-radius: 999px;
+    width: 18px; height: 18px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: .65rem; font-weight: 800;
+  }
+  .fs-builder-step-pill.active .num { background: #fff; color: var(--primary); }
+
+  .fs-builder-pane { animation: fsPaneFade .2s ease-out; }
+  @keyframes fsPaneFade {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .fs-builder-pane h6 {
+    margin: 0 0 .85rem; font-size: .85rem;
+    text-transform: uppercase; letter-spacing: .05em;
+    color: var(--text);
+  }
+
+  .fs-field { margin-bottom: .85rem; }
+  .fs-field label {
+    display: block;
+    font-size: .72rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    margin-bottom: .3rem;
+  }
+  .fs-field input[type=text],
+  .fs-field input[type=number],
+  .fs-field textarea,
+  .fs-field select {
+    width: 100%;
+    padding: .55rem .7rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text);
+    font-size: .85rem;
+    font-family: inherit;
+  }
+  .fs-field textarea { resize: vertical; min-height: 70px; }
+  .fs-field small { color: var(--text-muted); font-size: .7rem; }
+
+  /* Formula builder */
+  .fs-formula-side {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: .75rem;
+  }
+  .fs-formula-side-label {
+    font-size: .68rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .06em;
+    color: var(--text-muted);
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: .5rem;
+  }
+  .fs-formula-divider {
+    text-align: center;
+    font-size: 1.6rem; font-weight: 700;
+    color: var(--text-muted);
+    padding: .35rem 0;
+  }
+  .fs-formula-component {
+    display: flex; align-items: center; gap: .4rem;
+    margin-bottom: .35rem;
+  }
+  .fs-formula-component:last-child { margin-bottom: 0; }
+  .fs-formula-component .op-select { width: 50px; }
+  .fs-formula-component .var-select { flex: 1; }
+  .fs-formula-component select {
+    padding: .4rem .55rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+    font-size: .82rem;
+    font-family: inherit;
+  }
+  .fs-formula-component .remove-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    width: 28px; height: 28px;
+    border-radius: 6px;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .fs-formula-component .remove-btn:hover {
+    color: #dc2626; border-color: #fecaca; background: #fef2f2;
+  }
+  .fs-add-component {
+    background: transparent;
+    border: 1px dashed var(--border);
+    color: var(--text-muted);
+    border-radius: 8px;
+    padding: .35rem .7rem;
+    font-size: .78rem;
+    cursor: pointer;
+    width: 100%;
+    margin-top: .35rem;
+  }
+  .fs-add-component:hover { color: var(--primary); border-color: var(--primary); }
+
+  .fs-formula-preview {
+    background: color-mix(in srgb, var(--primary) 6%, var(--surface-2));
+    border: 1px solid color-mix(in srgb, var(--primary) 25%, var(--border));
+    border-radius: 10px;
+    padding: .75rem .9rem;
+    margin-top: 1rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .85rem;
+  }
+  .fs-formula-preview-label {
+    font-size: .65rem; font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    margin-bottom: .35rem;
+    font-family: inherit;
+  }
+  .fs-formula-preview-result {
+    margin-top: .45rem;
+    font-size: 1rem; font-weight: 800;
+    color: var(--text);
+    font-family: inherit;
+  }
+  .fs-formula-warning {
+    margin-top: .5rem;
+    padding: .35rem .55rem;
+    background: #fef3c7;
+    border: 1px solid #fcd34d;
+    color: #92400e;
+    border-radius: 6px;
+    font-size: .75rem;
+    font-family: inherit;
+  }
+
+  /* Benchmarks builder */
+  .fs-bench-level {
+    display: grid;
+    grid-template-columns: 24px 1fr 100px 24px 100px;
+    gap: .5rem;
+    align-items: center;
+    padding: .55rem;
+    background: var(--surface-2);
+    border-radius: 8px;
+    margin-bottom: .5rem;
+  }
+  .fs-bench-color {
+    width: 18px; height: 18px;
+    border-radius: 4px;
+    display: inline-block;
+  }
+  .fs-bench-color.green  { background: #22c55e; }
+  .fs-bench-color.yellow { background: #f59e0b; }
+  .fs-bench-color.red    { background: #ef4444; }
+  .fs-bench-level input { font-size: .82rem; }
+  .fs-bench-level input[type=text]  { padding: .35rem .55rem; }
+  .fs-bench-level input[type=number]{ padding: .35rem .55rem; }
+  .fs-bench-divider { text-align: center; color: var(--text-muted); }
+
+  .fs-modal-error {
+    background: #fee2e2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+    border-radius: 8px;
+    padding: .55rem .75rem;
+    font-size: .8rem;
+    margin: 0 0 .85rem;
+  }
 </style>
 {% endblock %}
 
@@ -1203,10 +1504,13 @@
   {%- endmacro %}
 
   {% macro ratio_card(r) %}
-    {% set color = bench_color(r.value, r.benchmarks) %}
-    <div class="fs-ratio-card"
+    {# Custom ratios precompute their color in app.py; built-ins use the
+       benchmark-walking macro. #}
+    {% set color = r.color if r.color else bench_color(r.value, r.benchmarks) %}
+    <div class="fs-ratio-card{% if r.is_custom %} fs-ratio-card-custom{% endif %}"
          data-ratio="{{ r.key }}"
-         data-ratio-color="{{ color }}">
+         data-ratio-color="{{ color }}"
+         {% if r.is_custom %}data-custom-id="{{ r.id }}"{% endif %}>
       <div class="fs-ratio-card-head">
         <h6 class="fs-ratio-name">{{ r.name }}</h6>
         <span class="fs-ratio-bench {{ color }}" title="Benchmark indicator"></span>
@@ -1218,11 +1522,30 @@
         {% elif r.viz == 'bar' %}
           {{ ratio_bar(r, color) }}
         {% elif r.viz == 'donut' %}
-          {{ ratio_donut(r) }}
+          {{ ratio_donut(r, color) }}
         {% elif r.viz == 'sparkline' %}
           {{ ratio_sparkline(r, color) }}
+        {% elif r.viz == 'number' %}
+          {# number-only: no viz #}
         {% endif %}
       </div>
+
+      {% if r.is_custom %}
+      <div class="fs-ratio-actions">
+        <button type="button" class="fs-ratio-action-btn"
+                data-fs-custom-edit="{{ r.id }}"
+                title="Edit">
+          <i class="fa-solid fa-pen"></i>
+        </button>
+        <button type="button" class="fs-ratio-action-btn fs-ratio-action-danger"
+                data-fs-custom-delete="{{ r.id }}"
+                data-fs-custom-name="{{ r.name }}"
+                title="Delete">
+          <i class="fa-solid fa-trash"></i>
+        </button>
+      </div>
+      <span class="fs-ratio-custom-badge" data-i18n="fs_custom_badge">Custom</span>
+      {% endif %}
 
       <div class="fs-ratio-tooltip">
         <div class="fs-tt-row">
@@ -1238,7 +1561,7 @@
           {% for b in r.benchmarks %}
           <div class="fs-tt-bench-row">
             <span class="fs-ratio-bench {{ b.color }}"></span>
-            <span>{{ b.label }}</span>
+            <span>{{ b.label }}{% if b.min is defined and b.max is defined %} ({{ b.min }} – {{ b.max }}){% endif %}</span>
           </div>
           {% endfor %}
         </div>
@@ -1290,8 +1613,9 @@
     </div>
   {% endmacro %}
 
-  {% macro ratio_donut(r) %}
+  {% macro ratio_donut(r, color='green') %}
     {% set parts = r.parts %}
+    {% if parts %}
     {% set total = parts | sum(attribute='value') %}
     {% if total == 0 %}{% set total = 1 %}{% endif %}
     {% set ns = namespace(offset=0) %}
@@ -1312,10 +1636,32 @@
         {{ r.value_str }}
       </text>
     </svg>
+    {% else %}
+    {# Custom ratio without parts → progress donut filling proportional
+       to value/max from the benchmark range. #}
+    {% set v_min = r.min if r.min is not none else 0 %}
+    {% set v_max = r.max if r.max is not none else 1 %}
+    {% set v = r.value %}
+    {% if v < v_min %}{% set v = v_min %}{% endif %}
+    {% if v > v_max %}{% set v = v_max %}{% endif %}
+    {% set pct = (v - v_min) / (v_max - v_min) * 100 if v_max != v_min else 0 %}
+    {% set fill = {'green':'#22c55e','yellow':'#f59e0b','red':'#ef4444'}[color] %}
+    <svg class="fs-donut" viewBox="0 0 36 36" dir="ltr">
+      <circle cx="18" cy="18" r="14" fill="none" stroke="#e5e7eb" stroke-width="6"/>
+      <circle cx="18" cy="18" r="14" fill="none"
+              stroke="{{ fill }}" stroke-width="6"
+              stroke-dasharray="{{ '%.2f' % pct }} {{ '%.2f' % (100 - pct) }}"
+              pathLength="100"
+              transform="rotate(-90 18 18)"/>
+      <text x="18" y="20" text-anchor="middle" font-size="6" font-weight="700" fill="var(--text)">
+        {{ r.value_str }}
+      </text>
+    </svg>
+    {% endif %}
   {% endmacro %}
 
   {% macro ratio_sparkline(r, color) %}
-    {% set history = r.history %}
+    {% set history = r.history or [r.value, r.value, r.value, r.value, r.value] %}
     {% set max_v = history | max %}
     {% set min_v = history | min %}
     {% set range = max_v - min_v if max_v != min_v else 1 %}
@@ -1378,6 +1724,18 @@
       {% for r in ratios.efficiency %}{{ ratio_card(r) }}{% endfor %}
     </div>
   </div>
+
+  {% if ratios.custom %}
+  <div class="fs-ratio-section">
+    <h6 class="fs-ratio-section-title">
+      <i class="fa-solid fa-wand-magic-sparkles"></i>
+      <span data-i18n="fs_custom_ratios">Custom Ratios</span>
+    </h6>
+    <div class="fs-ratio-grid">
+      {% for r in ratios.custom %}{{ ratio_card(r) }}{% endfor %}
+    </div>
+  </div>
+  {% endif %}
 
   <script>
   (function () {
@@ -1559,6 +1917,497 @@
   backdrop.addEventListener('click', close);
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && drawer.classList.contains('open')) close();
+  });
+})();
+</script>
+
+
+<!-- ===== Custom Ratio Builder modal ===== -->
+<div class="fs-modal-backdrop" id="fsCustomBackdrop" aria-hidden="true"></div>
+<div class="fs-modal" id="fsCustomModal" role="dialog" aria-modal="true"
+     aria-labelledby="fsCustomTitle" hidden>
+  <div class="fs-modal-header">
+    <h3 class="fs-modal-title" id="fsCustomTitle">
+      <i class="fa-solid fa-wand-magic-sparkles"></i>
+      <span id="fsCustomTitleText" data-i18n="fs_build_custom_ratio">Build Custom Ratio</span>
+    </h3>
+    <button type="button" class="fs-modal-close" data-fs-custom-close
+            aria-label="Close" title="Close">&times;</button>
+  </div>
+
+  <form method="POST" action="{{ url_for('financial_statements_custom_ratio') }}"
+        id="fsCustomForm">
+    <input type="hidden" name="action" value="save">
+    <input type="hidden" name="payload" id="fsCustomPayload">
+
+    <div class="fs-modal-body">
+
+      <div id="fsCustomError" class="fs-modal-error" hidden></div>
+
+      <div class="fs-builder-steps" role="tablist">
+        <button type="button" class="fs-builder-step-pill active" data-fs-step="1">
+          <span class="num">1</span>
+          <span data-i18n="fs_step_basic">Basic</span>
+        </button>
+        <button type="button" class="fs-builder-step-pill" data-fs-step="2">
+          <span class="num">2</span>
+          <span data-i18n="fs_step_formula">Formula</span>
+        </button>
+        <button type="button" class="fs-builder-step-pill" data-fs-step="3">
+          <span class="num">3</span>
+          <span data-i18n="fs_step_display">Display</span>
+        </button>
+        <button type="button" class="fs-builder-step-pill" data-fs-step="4">
+          <span class="num">4</span>
+          <span data-i18n="fs_step_benchmarks">Benchmarks</span>
+        </button>
+        <button type="button" class="fs-builder-step-pill" data-fs-step="5">
+          <span class="num">5</span>
+          <span data-i18n="fs_step_interpretation">Interpretation</span>
+        </button>
+      </div>
+
+      <!-- Step 1 — Basic -->
+      <div class="fs-builder-pane" data-fs-pane="1">
+        <h6 data-i18n="fs_step1_title">Step 1 — Basic Info</h6>
+        <div class="fs-field">
+          <label for="fsCrName"><span data-i18n="fs_ratio_name_en">Ratio Name (EN)</span> <span style="color:#dc2626">*</span></label>
+          <input type="text" id="fsCrName" maxlength="120" required>
+        </div>
+        <div class="fs-field">
+          <label for="fsCrNameAr"><span data-i18n="fs_ratio_name_ar">Ratio Name (AR)</span> <small>— <span data-i18n="optional">optional</span></small></label>
+          <input type="text" id="fsCrNameAr" maxlength="120" dir="auto">
+        </div>
+        <div class="fs-field">
+          <label for="fsCrDesc" data-i18n="fs_description">Description / tooltip text</label>
+          <textarea id="fsCrDesc" maxlength="400"></textarea>
+        </div>
+        <div class="fs-field">
+          <label for="fsCrSection" data-i18n="fs_section">Section</label>
+          <select id="fsCrSection">
+            <option value="liquidity"     data-i18n="fs_liquidity_ratios">Liquidity</option>
+            <option value="profitability" data-i18n="fs_profitability_ratios">Profitability</option>
+            <option value="leverage"      data-i18n="fs_leverage_ratios">Leverage</option>
+            <option value="efficiency"    data-i18n="fs_efficiency_ratios">Efficiency</option>
+            <option value="custom"        selected data-i18n="fs_custom_ratios">Custom</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Step 2 — Formula -->
+      <div class="fs-builder-pane" data-fs-pane="2" hidden>
+        <h6 data-i18n="fs_step2_title">Step 2 — Formula Builder</h6>
+
+        <div class="fs-formula-side">
+          <div class="fs-formula-side-label">
+            <span data-i18n="fs_numerator">Numerator</span>
+            <span>—</span>
+          </div>
+          <div id="fsCrNumerator"></div>
+          <button type="button" class="fs-add-component" data-fs-add="numerator">
+            <i class="fa-solid fa-plus"></i>
+            <span data-i18n="fs_add_component">Add component</span>
+          </button>
+        </div>
+
+        <div class="fs-formula-divider">÷</div>
+
+        <div class="fs-formula-side">
+          <div class="fs-formula-side-label">
+            <span data-i18n="fs_denominator">Denominator</span>
+            <span>—</span>
+          </div>
+          <div id="fsCrDenominator"></div>
+          <button type="button" class="fs-add-component" data-fs-add="denominator">
+            <i class="fa-solid fa-plus"></i>
+            <span data-i18n="fs_add_component">Add component</span>
+          </button>
+        </div>
+
+        <div class="fs-formula-preview">
+          <div class="fs-formula-preview-label" data-i18n="fs_preview">Preview</div>
+          <div id="fsCrFormulaText" dir="ltr">—</div>
+          <div class="fs-formula-preview-result">
+            <span data-i18n="fs_result">Result</span>:
+            <span id="fsCrResultText" dir="ltr">—</span>
+          </div>
+          <div class="fs-formula-warning" id="fsCrZeroWarning" hidden>
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            <span data-i18n="fs_zero_warning">Denominator evaluates to zero. The result will be undefined.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 3 — Display -->
+      <div class="fs-builder-pane" data-fs-pane="3" hidden>
+        <h6 data-i18n="fs_step3_title">Step 3 — Display Settings</h6>
+        <div class="fs-field">
+          <label for="fsCrChartType" data-i18n="fs_chart_type">Chart Type</label>
+          <select id="fsCrChartType">
+            <option value="gauge"     data-i18n="fs_chart_gauge">Gauge</option>
+            <option value="bar"       data-i18n="fs_chart_bar">Progress Bar</option>
+            <option value="donut"     data-i18n="fs_chart_donut">Donut</option>
+            <option value="sparkline" data-i18n="fs_chart_sparkline">Sparkline</option>
+            <option value="number"    data-i18n="fs_chart_number">Number Only</option>
+          </select>
+        </div>
+        <div class="fs-field">
+          <label for="fsCrFormat" data-i18n="fs_result_format">Result Format</label>
+          <select id="fsCrFormat">
+            <option value="number"      data-i18n="fs_format_number">Number (2 decimals)</option>
+            <option value="percentage"  data-i18n="fs_format_percentage">Percentage %</option>
+            <option value="multiplier"  data-i18n="fs_format_multiplier">Multiplier ×</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Step 4 — Benchmarks -->
+      <div class="fs-builder-pane" data-fs-pane="4" hidden>
+        <h6 data-i18n="fs_step4_title">Step 4 — Benchmarks</h6>
+        <p style="font-size:.78rem;color:var(--text-muted);margin:0 0 .75rem">
+          <span data-i18n="fs_benchmark_helper">Set three levels. The first matching range determines the card color.</span>
+        </p>
+        {% for lvl in [1, 2, 3] %}
+        <div class="fs-bench-level" data-fs-bench-level="{{ lvl }}">
+          <span class="fs-bench-color {{ 'green' if lvl == 1 else ('yellow' if lvl == 2 else 'red') }}"
+                data-fs-bench-color="{{ 'green' if lvl == 1 else ('yellow' if lvl == 2 else 'red') }}"></span>
+          <input type="text" placeholder="Label"
+                 data-fs-bench="label"
+                 value="{{ 'Healthy' if lvl == 1 else ('Warning' if lvl == 2 else 'Critical') }}">
+          <input type="number" placeholder="Min" step="0.01"
+                 data-fs-bench="min"
+                 value="{{ 1.5 if lvl == 1 else (1.0 if lvl == 2 else 0) }}">
+          <span class="fs-bench-divider">→</span>
+          <input type="number" placeholder="Max" step="0.01"
+                 data-fs-bench="max"
+                 value="{{ 999 if lvl == 1 else (1.5 if lvl == 2 else 1.0) }}">
+        </div>
+        {% endfor %}
+      </div>
+
+      <!-- Step 5 — Interpretation -->
+      <div class="fs-builder-pane" data-fs-pane="5" hidden>
+        <h6 data-i18n="fs_step5_title">Step 5 — Interpretation</h6>
+        <div class="fs-field">
+          <label for="fsCrInterpretation" data-i18n="fs_interpretation_label">
+            Interpretation text
+          </label>
+          <textarea id="fsCrInterpretation" maxlength="400"
+                    placeholder='e.g. "Company covers short-term debt {value} without selling inventory."'></textarea>
+          <small>
+            <span data-i18n="fs_interpretation_hint">Use </span>
+            <code>{value}</code>
+            <span data-i18n="fs_interpretation_hint2">to insert the calculated result dynamically.</span>
+          </small>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="fs-modal-footer">
+      <button type="button" class="btn btn-outline btn-sm" data-fs-custom-close
+              data-i18n="cancel">Cancel</button>
+      <button type="submit" class="btn btn-primary btn-sm" id="fsCustomSubmit">
+        <i class="fa-solid fa-floppy-disk"></i>
+        <span data-i18n="fs_save">Save</span>
+      </button>
+    </div>
+  </form>
+</div>
+
+<!-- Hidden delete form (one per page, target chosen at click time) -->
+<form method="POST" action="{{ url_for('financial_statements_custom_ratio') }}"
+      id="fsCustomDeleteForm" style="display:none">
+  <input type="hidden" name="action" value="delete">
+  <input type="hidden" name="id" id="fsCustomDeleteId">
+</form>
+
+<!-- Variable catalog + existing customs exposed to the builder JS -->
+<script id="fsVariableCatalog" type="application/json">{{ fs_variable_catalog | tojson }}</script>
+<script id="fsCustomRatiosRaw" type="application/json">{{ fs_custom_ratios_raw | tojson }}</script>
+
+<script>
+(function () {
+  // -------- Custom Ratio Builder --------
+
+  var modal     = document.getElementById('fsCustomModal');
+  var backdrop  = document.getElementById('fsCustomBackdrop');
+  if (!modal || !backdrop) return;
+
+  var catalog = [];
+  var existingCustoms = [];
+  try { catalog = JSON.parse(document.getElementById('fsVariableCatalog').textContent || '[]'); } catch (e) {}
+  try { existingCustoms = JSON.parse(document.getElementById('fsCustomRatiosRaw').textContent || '[]'); } catch (e) {}
+
+  var catLabelMap = {};
+  catalog.forEach(function (c) { catLabelMap[c.key] = c.label_en; });
+
+  function buildVarOptions() {
+    var html = '<option value="">— select —</option>';
+    catalog.forEach(function (c) {
+      html += '<option value="' + c.key + '">' + c.label_en + '</option>';
+    });
+    return html;
+  }
+
+  function open(prefill) {
+    state.id = (prefill && prefill.id) || '';
+    state.numerator   = (prefill && prefill.numerator)   ? prefill.numerator.slice()   : [];
+    state.denominator = (prefill && prefill.denominator) ? prefill.denominator.slice() : [];
+    document.getElementById('fsCrName').value           = (prefill && prefill.name_en) || '';
+    document.getElementById('fsCrNameAr').value         = (prefill && prefill.name_ar) || '';
+    document.getElementById('fsCrDesc').value           = (prefill && prefill.description) || '';
+    document.getElementById('fsCrSection').value        = (prefill && prefill.section) || 'custom';
+    document.getElementById('fsCrChartType').value      = (prefill && prefill.chart_type) || 'gauge';
+    document.getElementById('fsCrFormat').value         = (prefill && prefill.result_format) || 'number';
+    document.getElementById('fsCrInterpretation').value = (prefill && prefill.interpretation) || '';
+
+    // Benchmarks
+    var benches = (prefill && prefill.benchmarks) || [
+      { label: 'Healthy',  min: 1.5, max: 999, color: 'green'  },
+      { label: 'Warning',  min: 1.0, max: 1.5, color: 'yellow' },
+      { label: 'Critical', min: 0,   max: 1.0, color: 'red'    },
+    ];
+    document.querySelectorAll('[data-fs-bench-level]').forEach(function (row, i) {
+      var b = benches[i] || { label: '', min: 0, max: 0, color: 'red' };
+      row.querySelector('[data-fs-bench="label"]').value = b.label || '';
+      row.querySelector('[data-fs-bench="min"]').value   = b.min  != null ? b.min : 0;
+      row.querySelector('[data-fs-bench="max"]').value   = b.max  != null ? b.max : 0;
+      row.querySelector('[data-fs-bench-color]').setAttribute('data-fs-bench-color', b.color || 'red');
+      var swatch = row.querySelector('.fs-bench-color');
+      swatch.className = 'fs-bench-color ' + (b.color || 'red');
+    });
+
+    document.getElementById('fsCustomTitleText').textContent = state.id
+      ? (window.olensI18n && window.olensI18n.t ? window.olensI18n.t('fs_edit_custom_ratio') : 'Edit Custom Ratio')
+      : (window.olensI18n && window.olensI18n.t ? window.olensI18n.t('fs_build_custom_ratio') : 'Build Custom Ratio');
+
+    showStep(1);
+    renderSides();
+    document.getElementById('fsCustomError').hidden = true;
+
+    modal.removeAttribute('hidden');
+    backdrop.classList.add('open');
+    requestAnimationFrame(function () { modal.classList.add('open'); });
+    document.body.style.overflow = 'hidden';
+  }
+  function close() {
+    modal.classList.remove('open');
+    backdrop.classList.remove('open');
+    document.body.style.overflow = '';
+    setTimeout(function () {
+      if (!modal.classList.contains('open')) modal.setAttribute('hidden', '');
+    }, 200);
+  }
+
+  // -------- State + side rendering --------
+
+  var state = { id: '', numerator: [], denominator: [] };
+
+  function renderSide(target) {
+    var container = document.getElementById(
+      target === 'numerator' ? 'fsCrNumerator' : 'fsCrDenominator');
+    container.innerHTML = '';
+    state[target].forEach(function (comp, idx) {
+      var row = document.createElement('div');
+      row.className = 'fs-formula-component';
+      row.innerHTML =
+        '<select class="op-select">' +
+          '<option value="+"' + (comp.op === '-' ? '' : ' selected') + '>+</option>' +
+          '<option value="-"' + (comp.op === '-' ? ' selected' : '') + '>−</option>' +
+        '</select>' +
+        '<select class="var-select">' + buildVarOptions() + '</select>' +
+        '<button type="button" class="remove-btn" title="Remove">×</button>';
+      row.querySelector('.var-select').value = comp.var || '';
+      row.querySelector('.op-select').addEventListener('change', function (e) {
+        state[target][idx].op = e.target.value;
+        updatePreview();
+      });
+      row.querySelector('.var-select').addEventListener('change', function (e) {
+        state[target][idx].var = e.target.value;
+        updatePreview();
+      });
+      row.querySelector('.remove-btn').addEventListener('click', function () {
+        state[target].splice(idx, 1);
+        renderSide(target);
+        updatePreview();
+      });
+      container.appendChild(row);
+    });
+  }
+  function renderSides() { renderSide('numerator'); renderSide('denominator'); }
+
+  function addComponent(target) {
+    state[target].push({ op: '+', var: '' });
+    renderSide(target);
+    updatePreview();
+  }
+
+  function sideValue(side) {
+    var total = 0;
+    side.forEach(function (c) {
+      if (!c.var) return;
+      var entry = catalog.find(function (x) { return x.key === c.var; });
+      if (!entry) return;
+      total += (c.op === '-' ? -1 : 1) * (Number(entry.value) || 0);
+    });
+    return total;
+  }
+  function sideText(side) {
+    if (!side.length) return '?';
+    var parts = side.map(function (c, i) {
+      var label = catLabelMap[c.var] || '?';
+      if (i === 0) return (c.op === '-' ? '−' : '') + label;
+      return (c.op === '-' ? '− ' : '+ ') + label;
+    });
+    return side.length === 1 ? parts[0] : '(' + parts.join(' ') + ')';
+  }
+  function fmtResult(raw) {
+    var fmt = document.getElementById('fsCrFormat').value;
+    if (!isFinite(raw)) return '—';
+    if (fmt === 'percentage')  return (raw * 100).toFixed(1) + '%';
+    if (fmt === 'multiplier')  return raw.toFixed(2) + '×';
+    return raw.toFixed(2);
+  }
+
+  function updatePreview() {
+    var numTxt = sideText(state.numerator);
+    var denTxt = sideText(state.denominator);
+    document.getElementById('fsCrFormulaText').textContent =
+      numTxt + ' ÷ ' + denTxt;
+
+    var num = sideValue(state.numerator);
+    var den = sideValue(state.denominator);
+    var result = den ? num / den : NaN;
+    document.getElementById('fsCrResultText').textContent =
+      isFinite(result) ? fmtResult(result) : '—';
+    document.getElementById('fsCrZeroWarning').hidden = den !== 0 || state.denominator.length === 0;
+  }
+
+  // -------- Step navigation --------
+
+  function showStep(n) {
+    document.querySelectorAll('[data-fs-step]').forEach(function (btn) {
+      btn.classList.toggle('active',
+        btn.getAttribute('data-fs-step') === String(n));
+    });
+    document.querySelectorAll('[data-fs-pane]').forEach(function (pane) {
+      var match = pane.getAttribute('data-fs-pane') === String(n);
+      if (match) pane.removeAttribute('hidden');
+      else pane.setAttribute('hidden', '');
+    });
+  }
+
+  // -------- Open/close hooks --------
+
+  document.querySelectorAll('[data-fs-custom-open]').forEach(function (el) {
+    el.addEventListener('click', function () { open(null); });
+  });
+  document.querySelectorAll('[data-fs-custom-close]').forEach(function (el) {
+    el.addEventListener('click', close);
+  });
+  backdrop.addEventListener('click', close);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && modal.classList.contains('open')) close();
+  });
+
+  // Edit existing custom ratio
+  document.querySelectorAll('[data-fs-custom-edit]').forEach(function (el) {
+    el.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      var id = el.getAttribute('data-fs-custom-edit');
+      var match = existingCustoms.find(function (r) { return r.id === id; });
+      if (match) open(match);
+    });
+  });
+
+  // Delete existing custom ratio
+  document.querySelectorAll('[data-fs-custom-delete]').forEach(function (el) {
+    el.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      var id = el.getAttribute('data-fs-custom-delete');
+      var name = el.getAttribute('data-fs-custom-name') || 'this ratio';
+      if (!window.confirm('Delete "' + name + '"? This cannot be undone.')) return;
+      document.getElementById('fsCustomDeleteId').value = id;
+      document.getElementById('fsCustomDeleteForm').submit();
+    });
+  });
+
+  // Step pill clicks
+  document.querySelectorAll('[data-fs-step]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      showStep(btn.getAttribute('data-fs-step'));
+    });
+  });
+
+  // Add-component buttons
+  document.querySelectorAll('[data-fs-add]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      addComponent(btn.getAttribute('data-fs-add'));
+    });
+  });
+
+  // Re-format result preview on format change
+  document.getElementById('fsCrFormat').addEventListener('change', updatePreview);
+
+  // -------- Submit handler: validate + serialize payload --------
+
+  document.getElementById('fsCustomForm').addEventListener('submit', function (e) {
+    var errEl = document.getElementById('fsCustomError');
+    function err(msg) {
+      errEl.textContent = msg;
+      errEl.hidden = false;
+      e.preventDefault();
+    }
+
+    var name = document.getElementById('fsCrName').value.trim();
+    if (!name) {
+      showStep(1);
+      return err('Ratio name (EN) is required.');
+    }
+    if (!state.numerator.length || state.numerator.some(function (c) { return !c.var; })) {
+      showStep(2);
+      return err('Numerator must have at least one component with a variable selected.');
+    }
+    if (!state.denominator.length || state.denominator.some(function (c) { return !c.var; })) {
+      showStep(2);
+      return err('Denominator must have at least one component with a variable selected.');
+    }
+    var dupe = existingCustoms.some(function (r) {
+      return (r.name_en || '').toLowerCase() === name.toLowerCase() && r.id !== state.id;
+    });
+    if (dupe) {
+      showStep(1);
+      return err('A ratio named "' + name + '" already exists.');
+    }
+
+    var benchmarks = [];
+    document.querySelectorAll('[data-fs-bench-level]').forEach(function (row) {
+      benchmarks.push({
+        label: row.querySelector('[data-fs-bench="label"]').value.trim(),
+        min:   Number(row.querySelector('[data-fs-bench="min"]').value) || 0,
+        max:   Number(row.querySelector('[data-fs-bench="max"]').value) || 0,
+        color: row.querySelector('[data-fs-bench-color]').getAttribute('data-fs-bench-color'),
+      });
+    });
+
+    var payload = {
+      id: state.id,
+      name_en: name,
+      name_ar: document.getElementById('fsCrNameAr').value.trim(),
+      description: document.getElementById('fsCrDesc').value.trim(),
+      section: document.getElementById('fsCrSection').value,
+      numerator: state.numerator,
+      denominator: state.denominator,
+      chart_type: document.getElementById('fsCrChartType').value,
+      result_format: document.getElementById('fsCrFormat').value,
+      benchmarks: benchmarks,
+      interpretation: document.getElementById('fsCrInterpretation').value.trim(),
+    };
+    document.getElementById('fsCustomPayload').value = JSON.stringify(payload);
+    errEl.hidden = true;
   });
 })();
 </script>

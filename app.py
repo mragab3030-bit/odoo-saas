@@ -5009,6 +5009,325 @@ def financial_statements_mapping():
     return redirect(url_for('financial_statements', tab=return_tab))
 
 
+# ---- Custom Ratio Builder ----
+
+FS_CUSTOM_SECTIONS = ('liquidity', 'profitability', 'leverage', 'efficiency', 'custom')
+FS_CUSTOM_CHART_TYPES = ('gauge', 'bar', 'donut', 'sparkline', 'number')
+FS_CUSTOM_FORMATS = ('number', 'percentage', 'multiplier')
+
+
+def _fs_variable_catalog(snapshot):
+    """Returns `{var_key: {'label_en', 'label_ar', 'value'}}` covering the
+    20+ named figures the Custom Ratio Builder lets the user plug into a
+    formula. Order matters — the picker shows variables in this order."""
+    if snapshot.get('unavailable'):
+        return []
+    bs = snapshot['balance_sheet']
+    k = snapshot['pnl']['kpis']
+    mi = snapshot.get('mapping_inputs') or {}
+
+    def _find(lines, label):
+        return next((r['current'] for r in lines if r['label'] == label), 0)
+
+    cash_bank = _find(bs['assets']['current'], 'Cash & Bank')
+    ar_val    = _find(bs['assets']['current'], 'Accounts Receivable')
+    ap_val    = _find(bs['liabilities']['current'], 'Accounts Payable')
+    share_cap = _find(bs['equity']['lines'], 'Share Capital')
+    retained  = _find(bs['equity']['lines'], 'Retained Earnings')
+
+    # Detail P&L aggregates (cogs / opex / tax) come from FS_PNL_LINES
+    # in demo mode. In live mode this would walk account.move.line by
+    # account_type; for now we expose 0 to keep the picker usable.
+    cogs = opex = tax = 0
+    if DEMO_MODE:
+        from mock_data import FS_PNL_LINES
+        for _label, cat, cur, _prev in FS_PNL_LINES.values():
+            if cat == 'cogs':
+                cogs += cur
+            elif cat == 'opex':
+                opex += cur
+            elif cat == 'tax':
+                tax += cur
+
+    cash_only_mapped = mi.get('cash_total', cash_bank)
+    inventory_mapped = mi.get('inventory_total', 0)
+
+    rows = [
+        ('revenue',                 'Total Revenue',            'إجمالي الإيرادات',       k['total_revenue']),
+        ('gross_profit',            'Gross Profit',             'الربح الإجمالي',         k['gross_profit']),
+        ('operating_profit',        'Operating Profit',         'الربح التشغيلي',         k['operating_profit']),
+        ('net_profit',              'Net Profit',               'صافي الربح',             k['net_profit']),
+        ('total_assets',            'Total Assets',             'إجمالي الأصول',          bs['assets']['total']),
+        ('current_assets',          'Current Assets',           'الأصول المتداولة',       bs['assets']['total_current']),
+        ('non_current_assets',      'Non-Current Assets',       'الأصول غير المتداولة',   bs['assets']['total_non_current']),
+        ('cash_bank',               'Cash & Bank (auto)',       'النقد والبنك',           cash_bank),
+        ('cash_only',               'Cash Only (mapping)',      'النقد فقط (الربط)',      cash_only_mapped),
+        ('accounts_receivable',     'Accounts Receivable',      'حسابات القبض',           ar_val),
+        ('inventory',               'Inventory (mapping)',      'المخزون (الربط)',        inventory_mapped),
+        ('total_liabilities',       'Total Liabilities',        'إجمالي الالتزامات',      bs['liabilities']['total']),
+        ('current_liabilities',     'Current Liabilities (ST)', 'الالتزامات قصيرة الأجل', bs['liabilities']['total_current']),
+        ('non_current_liabilities', 'Non-Current Liabilities (LT)', 'الالتزامات طويلة الأجل', bs['liabilities']['total_non_current']),
+        ('accounts_payable',        'Accounts Payable',         'حسابات الدفع',           ap_val),
+        ('total_equity',            'Total Equity',             'إجمالي حقوق الملكية',    bs['equity']['total']),
+        ('share_capital',           'Share Capital',            'رأس المال',              share_cap),
+        ('retained_earnings',       'Retained Earnings',        'الأرباح المحتجزة',       retained),
+        ('cogs',                    'COGS',                     'تكلفة البضاعة المباعة',   cogs),
+        ('operating_expenses',      'Operating Expenses',       'المصروفات التشغيلية',    opex),
+        ('tax_expense',             'Tax Expense',              'مصروفات الضرائب',        tax),
+    ]
+    return [{'key': key, 'label_en': en, 'label_ar': ar, 'value': v}
+            for key, en, ar, v in rows]
+
+
+def _fs_get_custom_ratios():
+    """Per-company list of saved custom ratios. Demo users get a seeded
+    pair on first visit so the feature is visible immediately."""
+    saved_all = session.get('fs_custom_ratios') or {}
+    if _fs_company_key() in saved_all:
+        return list(saved_all[_fs_company_key()])
+    if DEMO_MODE:
+        from mock_data import FS_DEMO_CUSTOM_RATIOS
+        return [dict(r) for r in FS_DEMO_CUSTOM_RATIOS]
+    return []
+
+
+def _fs_save_custom_ratio_list(ratios):
+    saved_all = dict(session.get('fs_custom_ratios') or {})
+    saved_all[_fs_company_key()] = list(ratios)
+    session['fs_custom_ratios'] = saved_all
+    session.modified = True
+
+
+def _fs_upsert_custom_ratio(ratio):
+    existing = _fs_get_custom_ratios()
+    by_id = {r.get('id'): r for r in existing}
+    by_id[ratio['id']] = ratio
+    # Preserve original order; append new at the end.
+    out = []
+    seen = set()
+    for r in existing:
+        rid = r.get('id')
+        if rid in by_id and rid not in seen:
+            out.append(by_id[rid])
+            seen.add(rid)
+    if ratio['id'] not in seen:
+        out.append(ratio)
+    _fs_save_custom_ratio_list(out)
+
+
+def _fs_delete_custom_ratio(ratio_id):
+    existing = _fs_get_custom_ratios()
+    out = [r for r in existing if r.get('id') != ratio_id]
+    _fs_save_custom_ratio_list(out)
+
+
+def _fs_eval_custom_ratio(ratio, catalog):
+    """Compute value + classify color. Returns a dict matching the shape
+    `ratio_card` already expects, with `is_custom=True` so the template
+    knows to render the badge + edit/delete affordances."""
+    cat_index = {c['key']: c for c in catalog}
+
+    def _sum_side(side):
+        total = 0
+        for comp in side or []:
+            v = (cat_index.get(comp.get('var'), {}) or {}).get('value', 0) or 0
+            if (comp.get('op') or '+') == '-':
+                total -= v
+            else:
+                total += v
+        return total
+
+    num = _sum_side(ratio.get('numerator'))
+    den = _sum_side(ratio.get('denominator'))
+    raw = (num / den) if den else 0
+
+    fmt = ratio.get('result_format', 'number')
+    if fmt == 'percentage':
+        value = raw * 100
+        value_str = f'{value:.1f}%'
+        unit = '%'
+    elif fmt == 'multiplier':
+        value = raw
+        value_str = f'{value:.2f}×'
+        unit = 'x'
+    else:
+        value = raw
+        value_str = f'{value:.2f}'
+        unit = ''
+
+    # Classify into benchmark by range
+    color = 'red'
+    matched_label = ''
+    for bench in ratio.get('benchmarks') or []:
+        try:
+            lo = float(bench.get('min', 0))
+            hi = float(bench.get('max', 1e12))
+        except (TypeError, ValueError):
+            continue
+        if lo <= value <= hi:
+            color = bench.get('color', 'red')
+            matched_label = bench.get('label', '')
+            break
+
+    # Auto-derived gauge/bar range (used by template viz)
+    try:
+        all_mins = [float(b.get('min', 0)) for b in (ratio.get('benchmarks') or [])]
+        all_maxs = [float(b.get('max', 1)) for b in (ratio.get('benchmarks') or [])]
+        v_min = min(all_mins) if all_mins else 0
+        v_max = max(all_maxs) if all_maxs else max(1, value)
+    except (TypeError, ValueError):
+        v_min, v_max = 0, max(1, value)
+    if fmt == 'percentage' and v_max > 100:
+        v_max = 100
+
+    # Interpretation with {value} placeholder
+    interp = (ratio.get('interpretation') or '').replace('{value}', value_str)
+
+    # Formula text — parens around a multi-component side
+    def _side_str(side):
+        if not side:
+            return '?'
+        parts = []
+        for i, comp in enumerate(side):
+            label = (cat_index.get(comp.get('var'), {}) or {}).get('label_en', comp.get('var', '?'))
+            op = comp.get('op', '+')
+            if i == 0:
+                parts.append(('−' if op == '-' else '') + label)
+            else:
+                parts.append(('−' if op == '-' else '+') + ' ' + label)
+        if len(side) == 1:
+            return parts[0]
+        return '(' + ' '.join(parts) + ')'
+
+    formula = f"{_side_str(ratio.get('numerator'))} ÷ {_side_str(ratio.get('denominator'))}"
+
+    return {
+        'key':            'custom_' + str(ratio.get('id', '')),
+        'id':             ratio.get('id'),
+        'name':           ratio.get('name_en') or 'Custom Ratio',
+        'name_ar':        ratio.get('name_ar', ''),
+        'description':    ratio.get('description', ''),
+        'value':          value,
+        'value_str':      value_str,
+        'formula':        formula,
+        'numerator':      num,
+        'denominator':    den,
+        'unit':           unit,
+        'viz':            ratio.get('chart_type', 'gauge'),
+        'min':            v_min,
+        'max':            v_max,
+        'benchmarks':     ratio.get('benchmarks') or [],
+        'interpretation': interp,
+        'is_custom':      True,
+        'section':        ratio.get('section', 'custom'),
+        'color':          color,
+        'matched_label':  matched_label,
+    }
+
+
+def _fs_gen_ratio_id():
+    """Short, URL-safe identifier — adequate for per-session storage."""
+    import secrets
+    return 'cr_' + secrets.token_urlsafe(8)
+
+
+@app.route('/financial-statements/custom-ratio', methods=['POST'])
+@login_required
+def financial_statements_custom_ratio():
+    action = (request.form.get('action') or 'save').strip().lower()
+
+    if action == 'delete':
+        ratio_id = (request.form.get('id') or '').strip()
+        if ratio_id:
+            _fs_delete_custom_ratio(ratio_id)
+            flash('Custom ratio deleted.', 'success')
+        else:
+            flash('Missing ratio id.', 'danger')
+        return redirect(url_for('financial_statements', tab='ratios'))
+
+    # save / update
+    try:
+        payload = json.loads(request.form.get('payload') or '{}')
+    except (json.JSONDecodeError, TypeError):
+        flash('Invalid ratio payload.', 'danger')
+        return redirect(url_for('financial_statements', tab='ratios'))
+
+    name_en = (payload.get('name_en') or '').strip()
+    numerator = payload.get('numerator') or []
+    denominator = payload.get('denominator') or []
+    ratio_id = (payload.get('id') or '').strip()
+
+    # Validation: name + non-empty sides
+    if not name_en:
+        flash('Ratio name is required.', 'danger')
+        return redirect(url_for('financial_statements', tab='ratios'))
+    if not numerator or not denominator:
+        flash('Both Numerator and Denominator must have at least one component.', 'danger')
+        return redirect(url_for('financial_statements', tab='ratios'))
+
+    # Duplicate name (case-insensitive, ignoring the row being edited)
+    existing = _fs_get_custom_ratios()
+    for r in existing:
+        if (r.get('name_en') or '').strip().lower() == name_en.lower() \
+                and r.get('id') != ratio_id:
+            flash(f'A ratio named "{name_en}" already exists.', 'danger')
+            return redirect(url_for('financial_statements', tab='ratios'))
+
+    section = (payload.get('section') or 'custom').lower()
+    if section not in FS_CUSTOM_SECTIONS:
+        section = 'custom'
+    chart_type = (payload.get('chart_type') or 'gauge').lower()
+    if chart_type not in FS_CUSTOM_CHART_TYPES:
+        chart_type = 'gauge'
+    result_format = (payload.get('result_format') or 'number').lower()
+    if result_format not in FS_CUSTOM_FORMATS:
+        result_format = 'number'
+
+    # Normalize benchmark levels — only keep ones with at least a color
+    benchmarks = []
+    for b in (payload.get('benchmarks') or []):
+        try:
+            lo = float(b.get('min', 0))
+            hi = float(b.get('max', 0))
+        except (TypeError, ValueError):
+            continue
+        color = (b.get('color') or 'green').lower()
+        if color not in ('green', 'yellow', 'red'):
+            color = 'green'
+        benchmarks.append({
+            'label': (b.get('label') or '').strip()[:60],
+            'min': lo, 'max': hi, 'color': color,
+        })
+
+    ratio = {
+        'id':              ratio_id or _fs_gen_ratio_id(),
+        'name_en':         name_en[:120],
+        'name_ar':         (payload.get('name_ar') or '').strip()[:120],
+        'description':     (payload.get('description') or '').strip()[:400],
+        'section':         section,
+        'numerator':       _sanitize_side(numerator),
+        'denominator':     _sanitize_side(denominator),
+        'chart_type':      chart_type,
+        'result_format':   result_format,
+        'benchmarks':      benchmarks,
+        'interpretation':  (payload.get('interpretation') or '').strip()[:400],
+    }
+    _fs_upsert_custom_ratio(ratio)
+    flash('Custom ratio saved.', 'success')
+    return redirect(url_for('financial_statements', tab='ratios'))
+
+
+def _sanitize_side(side):
+    out = []
+    for comp in side or []:
+        var = (comp.get('var') or '').strip()
+        if not var:
+            continue
+        op = '-' if (comp.get('op') or '+') == '-' else '+'
+        out.append({'op': op, 'var': var})
+    return out
+
+
 @app.route('/financial-statements')
 @login_required
 def financial_statements():
@@ -5032,6 +5351,25 @@ def financial_statements():
     accounts_by_type = _fs_accounts_by_type(c)
     inv_accounts, cash_accounts, short_term_count, long_term_count = \
         _fs_pickers_and_counts(accounts_by_type)
+
+    # Custom ratio builder — evaluate each saved ratio against the live
+    # variable catalog, then merge into the snapshot's ratio sections so
+    # the existing ratio_card macro renders both built-in and custom ones.
+    custom_ratios_raw = _fs_get_custom_ratios()
+    variable_catalog = _fs_variable_catalog(snapshot)
+    evaluated_customs = []
+    if not snapshot.get('unavailable'):
+        for r in custom_ratios_raw:
+            try:
+                evaluated_customs.append(_fs_eval_custom_ratio(r, variable_catalog))
+            except Exception as exc:
+                logger.warning('Custom ratio %s eval failed: %s', r.get('id'), exc)
+        # Inject into ratio sections (creates 'custom' bucket on demand).
+        sections = snapshot.get('ratios') or {}
+        for evd in evaluated_customs:
+            section = evd['section']
+            sections.setdefault(section, []).append(evd)
+        snapshot['ratios'] = sections
 
     ccy = snapshot.get('currency', '') or (
         (g.get('odoo_client') and getattr(g.odoo_client, 'company_currency_name', '')) or 'SAR'
@@ -5059,6 +5397,11 @@ def financial_statements():
         fs_cash_accounts=cash_accounts,
         fs_short_term_count=short_term_count,
         fs_long_term_count=long_term_count,
+        fs_variable_catalog=variable_catalog,
+        fs_custom_ratios_raw=custom_ratios_raw,
+        fs_custom_sections=FS_CUSTOM_SECTIONS,
+        fs_custom_chart_types=FS_CUSTOM_CHART_TYPES,
+        fs_custom_formats=FS_CUSTOM_FORMATS,
     )
     return render_template('financial_statements.html', **ctx)
 
