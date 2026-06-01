@@ -75,9 +75,9 @@
     width: 100%; border-collapse: collapse;
     font-size: .85rem;
   }
-  /* P&L-only: fixed layout so the <colgroup> + per-th widths are
-     authoritative. With table-layout:auto the browser falls back to
-     content-based sizing and headers/data columns can drift apart;
+  /* P&L-only: fixed layout so the per-th widths in the first row
+     are authoritative. With table-layout:auto the browser falls back
+     to content-based sizing and headers/data columns can drift apart;
      "fixed" makes thead and tbody share the exact same column grid
      so each th sits above its corresponding td in LTR and RTL alike.
      box-sizing:border-box ensures the explicit widths include the
@@ -983,27 +983,13 @@
     </h5>
     <div style="overflow-x:auto">
       <table class="fs-table fs-table-pnl">
-        {# Column widths live BOTH on <colgroup> and on each <th> so
-           the browser has unambiguous widths whether it reads the
-           colgroup, the first row, or both. With table-layout:fixed
-           every column in every row inherits the same width slot,
-           so each th in thead sits exactly above its td in tbody —
-           in LTR and RTL alike. #}
-        {% if compare_yoy %}
-        <colgroup>
-          <col style="width:35%"><!-- Account -->
-          <col style="width:18%"><!-- Current Period -->
-          <col style="width:18%"><!-- Last Year -->
-          <col style="width:14%"><!-- Change % -->
-          <col style="width:15%"><!-- % of Revenue -->
-        </colgroup>
-        {% else %}
-        <colgroup>
-          <col style="width:52%"><!-- Account -->
-          <col style="width:26%"><!-- Current Period -->
-          <col style="width:22%"><!-- % of Revenue -->
-        </colgroup>
-        {% endif %}
+        {# Column widths live ONLY on the first row's <th> cells.
+           A previous attempt also declared them on <colgroup>, but
+           browsers vary on which source wins when both are present
+           and dir="rtl" is set — Chrome honoured one, Safari the
+           other, and column boundaries drifted between thead and
+           tbody. With table-layout:fixed, the FIRST row's widths
+           are authoritative and propagate to every row below. #}
         <thead>
           {% if compare_yoy %}
           <tr>
