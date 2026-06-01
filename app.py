@@ -5180,16 +5180,21 @@ def _fs_eval_custom_ratio(ratio, catalog):
     if fmt == 'percentage' and v_max > 100:
         v_max = 100
 
-    # Interpretation with {value} placeholder
-    interp = (ratio.get('interpretation') or '').replace('{value}', value_str)
+    # Interpretation with {value} placeholder — same substitution in both
+    # languages so users only need to write the AR text once.
+    interp    = (ratio.get('interpretation')    or '').replace('{value}', value_str)
+    interp_ar = (ratio.get('interpretation_ar') or '').replace('{value}', value_str)
 
-    # Formula text — parens around a multi-component side
-    def _side_str(side):
+    # Formula text — parens around a multi-component side.
+    # Same generator used for EN (label_en) and AR (label_ar) so the
+    # operators / parens / divider stay identical across languages.
+    def _side_str(side, label_field):
         if not side:
             return '?'
         parts = []
         for i, comp in enumerate(side):
-            label = (cat_index.get(comp.get('var'), {}) or {}).get('label_en', comp.get('var', '?'))
+            label = (cat_index.get(comp.get('var'), {}) or {}).get(label_field,
+                    comp.get('var', '?'))
             op = comp.get('op', '+')
             if i == 0:
                 parts.append(('−' if op == '-' else '') + label)
@@ -5199,29 +5204,37 @@ def _fs_eval_custom_ratio(ratio, catalog):
             return parts[0]
         return '(' + ' '.join(parts) + ')'
 
-    formula = f"{_side_str(ratio.get('numerator'))} ÷ {_side_str(ratio.get('denominator'))}"
+    formula    = (_side_str(ratio.get('numerator'),   'label_en') + ' ÷ '
+                  + _side_str(ratio.get('denominator'), 'label_en'))
+    formula_ar = (_side_str(ratio.get('numerator'),   'label_ar') + ' ÷ '
+                  + _side_str(ratio.get('denominator'), 'label_ar'))
+
+    name_en = ratio.get('name_en') or 'Custom Ratio'
+    name_ar = ratio.get('name_ar') or name_en
 
     return {
-        'key':            'custom_' + str(ratio.get('id', '')),
-        'id':             ratio.get('id'),
-        'name':           ratio.get('name_en') or 'Custom Ratio',
-        'name_ar':        ratio.get('name_ar', ''),
-        'description':    ratio.get('description', ''),
-        'value':          value,
-        'value_str':      value_str,
-        'formula':        formula,
-        'numerator':      num,
-        'denominator':    den,
-        'unit':           unit,
-        'viz':            ratio.get('chart_type', 'gauge'),
-        'min':            v_min,
-        'max':            v_max,
-        'benchmarks':     ratio.get('benchmarks') or [],
-        'interpretation': interp,
-        'is_custom':      True,
-        'section':        ratio.get('section', 'custom'),
-        'color':          color,
-        'matched_label':  matched_label,
+        'key':                'custom_' + str(ratio.get('id', '')),
+        'id':                 ratio.get('id'),
+        'name':               name_en,
+        'name_ar':            name_ar,
+        'description':        ratio.get('description', ''),
+        'value':              value,
+        'value_str':          value_str,
+        'formula':            formula,
+        'formula_ar':         formula_ar,
+        'numerator':          num,
+        'denominator':        den,
+        'unit':               unit,
+        'viz':                ratio.get('chart_type', 'gauge'),
+        'min':                v_min,
+        'max':                v_max,
+        'benchmarks':         ratio.get('benchmarks') or [],
+        'interpretation':     interp,
+        'interpretation_ar':  interp_ar or interp,
+        'is_custom':          True,
+        'section':            ratio.get('section', 'custom'),
+        'color':              color,
+        'matched_label':      matched_label,
     }
 
 
@@ -5300,17 +5313,18 @@ def financial_statements_custom_ratio():
         })
 
     ratio = {
-        'id':              ratio_id or _fs_gen_ratio_id(),
-        'name_en':         name_en[:120],
-        'name_ar':         (payload.get('name_ar') or '').strip()[:120],
-        'description':     (payload.get('description') or '').strip()[:400],
-        'section':         section,
-        'numerator':       _sanitize_side(numerator),
-        'denominator':     _sanitize_side(denominator),
-        'chart_type':      chart_type,
-        'result_format':   result_format,
-        'benchmarks':      benchmarks,
-        'interpretation':  (payload.get('interpretation') or '').strip()[:400],
+        'id':                 ratio_id or _fs_gen_ratio_id(),
+        'name_en':            name_en[:120],
+        'name_ar':            (payload.get('name_ar') or '').strip()[:120],
+        'description':        (payload.get('description') or '').strip()[:400],
+        'section':            section,
+        'numerator':          _sanitize_side(numerator),
+        'denominator':        _sanitize_side(denominator),
+        'chart_type':         chart_type,
+        'result_format':      result_format,
+        'benchmarks':         benchmarks,
+        'interpretation':     (payload.get('interpretation')    or '').strip()[:400],
+        'interpretation_ar':  (payload.get('interpretation_ar') or '').strip()[:400],
     }
     _fs_upsert_custom_ratio(ratio)
     flash('Custom ratio saved.', 'success')

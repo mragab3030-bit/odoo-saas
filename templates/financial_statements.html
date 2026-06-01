@@ -1507,12 +1507,19 @@
     {# Custom ratios precompute their color in app.py; built-ins use the
        benchmark-walking macro. #}
     {% set color = r.color if r.color else bench_color(r.value, r.benchmarks) %}
+    {# AR fallback to EN when the AR variant is missing — keeps the card
+       readable even for custom ratios whose author skipped the AR text. #}
+    {% set name_ar    = r.name_ar    or r.name %}
+    {% set formula_ar = r.formula_ar or r.formula %}
+    {% set interp_ar  = r.interpretation_ar or r.interpretation %}
     <div class="fs-ratio-card{% if r.is_custom %} fs-ratio-card-custom{% endif %}"
          data-ratio="{{ r.key }}"
          data-ratio-color="{{ color }}"
          {% if r.is_custom %}data-custom-id="{{ r.id }}"{% endif %}>
       <div class="fs-ratio-card-head">
-        <h6 class="fs-ratio-name">{{ r.name }}</h6>
+        <h6 class="fs-ratio-name"
+            data-text-en="{{ r.name }}"
+            data-text-ar="{{ name_ar }}">{{ r.name }}</h6>
         <span class="fs-ratio-bench {{ color }}" title="Benchmark indicator"></span>
       </div>
       <div class="fs-ratio-value {{ color }}">{{ r.value_str }}</div>
@@ -1550,7 +1557,8 @@
       <div class="fs-ratio-tooltip">
         <div class="fs-tt-row">
           <div class="fs-tt-label" data-i18n="fs_formula">Formula</div>
-          <div>{{ r.formula }}</div>
+          <div data-text-en="{{ r.formula }}"
+               data-text-ar="{{ formula_ar }}">{{ r.formula }}</div>
         </div>
         <div class="fs-tt-row">
           <div class="fs-tt-label" data-i18n="fs_values">Values</div>
@@ -1561,13 +1569,15 @@
           {% for b in r.benchmarks %}
           <div class="fs-tt-bench-row">
             <span class="fs-ratio-bench {{ b.color }}"></span>
-            <span>{{ b.label }}{% if b.min is defined and b.max is defined %} ({{ b.min }} – {{ b.max }}){% endif %}</span>
+            <span data-text-en="{{ b.label }}"
+                  data-text-ar="{{ b.label_ar or b.label }}">{{ b.label }}</span>
           </div>
           {% endfor %}
         </div>
         <div class="fs-tt-row">
           <div class="fs-tt-label" data-i18n="fs_interpretation">Interpretation</div>
-          <div>{{ r.interpretation }}</div>
+          <div data-text-en="{{ r.interpretation }}"
+               data-text-ar="{{ interp_ar }}">{{ r.interpretation }}</div>
         </div>
       </div>
     </div>
@@ -1753,6 +1763,31 @@
     }
     document.addEventListener('DOMContentLoaded', tint);
     window.addEventListener('load', tint);
+
+    // ---- Ratio tooltip + name localization ----
+    // Built-in ratio names, formulas, interpretations, and benchmark
+    // labels are rendered as data-text-en + data-text-ar pairs. We swap
+    // textContent here on every language change AND on first paint —
+    // covers the case where the user landed with AR pre-saved in
+    // localStorage.
+    function applyRatioLang(lang) {
+      var attr = (lang === 'ar') ? 'data-text-ar' : 'data-text-en';
+      document.querySelectorAll('[data-text-en][data-text-ar]').forEach(function (el) {
+        var v = el.getAttribute(attr);
+        if (v != null) el.textContent = v;
+      });
+    }
+    function currentLang() {
+      var l = document.documentElement.getAttribute('data-lang')
+            || document.documentElement.lang || '';
+      return l === 'ar' ? 'ar' : 'en';
+    }
+    document.addEventListener('DOMContentLoaded', function () {
+      applyRatioLang(currentLang());
+    });
+    document.addEventListener('olens:language-change', function (e) {
+      applyRatioLang((e.detail && e.detail.lang) || currentLang());
+    });
   })();
   </script>
 
@@ -2089,8 +2124,9 @@
       <div class="fs-builder-pane" data-fs-pane="5" hidden>
         <h6 data-i18n="fs_step5_title">Step 5 — Interpretation</h6>
         <div class="fs-field">
-          <label for="fsCrInterpretation" data-i18n="fs_interpretation_label">
-            Interpretation text
+          <label for="fsCrInterpretation">
+            <span data-i18n="fs_interpretation_label">Interpretation text</span>
+            <small>(EN)</small>
           </label>
           <textarea id="fsCrInterpretation" maxlength="400"
                     placeholder='e.g. "Company covers short-term debt {value} without selling inventory."'></textarea>
@@ -2099,6 +2135,14 @@
             <code>{value}</code>
             <span data-i18n="fs_interpretation_hint2">to insert the calculated result dynamically.</span>
           </small>
+        </div>
+        <div class="fs-field">
+          <label for="fsCrInterpretationAr">
+            <span data-i18n="fs_interpretation_label">Interpretation text</span>
+            <small>(AR) — <span data-i18n="optional">optional</span></small>
+          </label>
+          <textarea id="fsCrInterpretationAr" maxlength="400" dir="auto"
+                    placeholder='مثال: "تغطي الشركة ديونها قصيرة الأجل {value} دون بيع المخزون."'></textarea>
         </div>
       </div>
 
@@ -2160,7 +2204,8 @@
     document.getElementById('fsCrSection').value        = (prefill && prefill.section) || 'custom';
     document.getElementById('fsCrChartType').value      = (prefill && prefill.chart_type) || 'gauge';
     document.getElementById('fsCrFormat').value         = (prefill && prefill.result_format) || 'number';
-    document.getElementById('fsCrInterpretation').value = (prefill && prefill.interpretation) || '';
+    document.getElementById('fsCrInterpretation').value   = (prefill && prefill.interpretation)    || '';
+    document.getElementById('fsCrInterpretationAr').value = (prefill && prefill.interpretation_ar) || '';
 
     // Benchmarks
     var benches = (prefill && prefill.benchmarks) || [
@@ -2404,7 +2449,8 @@
       chart_type: document.getElementById('fsCrChartType').value,
       result_format: document.getElementById('fsCrFormat').value,
       benchmarks: benchmarks,
-      interpretation: document.getElementById('fsCrInterpretation').value.trim(),
+      interpretation:    document.getElementById('fsCrInterpretation').value.trim(),
+      interpretation_ar: document.getElementById('fsCrInterpretationAr').value.trim(),
     };
     document.getElementById('fsCustomPayload').value = JSON.stringify(payload);
     errEl.hidden = true;
