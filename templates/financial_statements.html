@@ -428,23 +428,37 @@
   .fs-banner-warning p { margin: 0; flex: 1; font-size: .88rem; }
 
   /* ===== Custom ratio card affordances ===== */
-  .fs-ratio-card-custom { padding-top: 1.4rem; }
+  .fs-ratio-card-custom { padding-top: 1.5rem; }
   .fs-ratio-custom-badge {
     position: absolute;
-    top: .55rem; inset-inline-start: .65rem;
-    background: color-mix(in srgb, var(--primary) 12%, transparent);
-    color: var(--primary);
-    border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent);
+    top: .5rem; inset-inline-end: .55rem;
+    background: color-mix(in srgb, #f97316 14%, transparent);
+    color: #c2410c;
+    border: 1px solid color-mix(in srgb, #f97316 38%, transparent);
     border-radius: 999px;
-    padding: .08rem .55rem;
+    padding: .14rem .55rem;
     font-size: .62rem;
     font-weight: 700;
-    letter-spacing: .04em;
+    letter-spacing: .06em;
     text-transform: uppercase;
+    line-height: 1;
+    box-shadow: 0 1px 2px rgba(249, 115, 22, .15);
+    transition: opacity .15s ease;
+    pointer-events: none;
+  }
+  [data-theme="dark"] .fs-ratio-custom-badge,
+  [data-theme="midnight"] .fs-ratio-custom-badge {
+    background: color-mix(in srgb, #f97316 22%, transparent);
+    color: #fdba74;
+    border-color: color-mix(in srgb, #f97316 55%, transparent);
+  }
+  .fs-ratio-card-custom:hover .fs-ratio-custom-badge,
+  .fs-ratio-card-custom:focus-within .fs-ratio-custom-badge {
+    opacity: 0;
   }
   .fs-ratio-actions {
     position: absolute;
-    top: .5rem; inset-inline-end: .5rem;
+    top: .4rem; inset-inline-end: .45rem;
     display: flex; gap: .25rem;
     opacity: 0;
     transition: opacity .15s ease;
@@ -755,7 +769,8 @@
 </div>
 {% else %}
 
-<!-- Amount toolbar (units / K / M) shared across all tabs -->
+<!-- Amount toolbar (units / K / M) — hidden on Ratios tab (values are unitless) -->
+{% if tab != 'ratios' %}
 <div class="amount-format-toolbar" data-amount-toolbar>
   <span class="amount-format-label" data-i18n="show_amounts_in">Show amounts in</span>
   <div class="amount-format-group" role="group" aria-label="Amount format">
@@ -764,6 +779,7 @@
     <button type="button" class="amount-format-btn" data-format="m">M</button>
   </div>
 </div>
+{% endif %}
 
 <!-- Toolbar: period + compare (shared by P&L, BS, TB) -->
 <form method="GET" action="{{ url_for('financial_statements') }}" class="fs-toolbar" id="fsToolbar">
