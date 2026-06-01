@@ -1929,6 +1929,90 @@
 })();
 </script>
 
+{# ----- Units / K / M toggle -----
+   The amount-format toolbar at the top of every non-Ratios tab uses
+   the same Units/K/M controls as the rest of the dashboard, but
+   financial.html owns the only copy of the handler — so on this
+   page the toggle was a no-op. This IIFE installs the same logic
+   locally: shared localStorage key, same formatter, same active-
+   button styling, same `odoo:amount-mode-change` event that the
+   waterfall and balance-sheet chart builds already listen for. #}
+<script>
+(function () {
+  var STORAGE_KEY = 'odooDash.amountFormat';
+  var validModes = ['units', 'k', 'm'];
+
+  function getMode() {
+    var m;
+    try { m = localStorage.getItem(STORAGE_KEY); } catch (e) {}
+    return validModes.indexOf(m) >= 0 ? m : 'units';
+  }
+  function setMode(m) {
+    try { localStorage.setItem(STORAGE_KEY, m); } catch (e) {}
+  }
+
+  function formatNumber(raw, mode) {
+    var n = Number(raw);
+    if (!isFinite(n)) n = 0;
+    var sign = n < 0 ? '-' : '';
+    var abs = Math.abs(n);
+    if (mode === 'm') {
+      return sign + (abs / 1e6).toLocaleString(undefined, {
+        minimumFractionDigits: 2, maximumFractionDigits: 2
+      }) + ' M';
+    }
+    if (mode === 'k') {
+      return sign + Math.round(abs / 1e3).toLocaleString() + ' K';
+    }
+    return sign + Math.round(abs).toLocaleString();
+  }
+
+  function applyShrink(el) {
+    el.classList.remove('amt-shrink-1', 'amt-shrink-2', 'amt-shrink-3');
+    var len = (el.textContent || '').trim().length;
+    if (len > 17) el.classList.add('amt-shrink-3');
+    else if (len > 14) el.classList.add('amt-shrink-2');
+    else if (len > 11) el.classList.add('amt-shrink-1');
+  }
+
+  function renderAll(mode) {
+    document.querySelectorAll('.amount-display').forEach(function (el) {
+      var raw = el.getAttribute('data-amount');
+      var ccy = el.getAttribute('data-currency') || '';
+      var formatted = formatNumber(raw, mode);
+      el.textContent = ccy ? (ccy + ' ' + formatted) : formatted;
+      applyShrink(el);
+    });
+    document.querySelectorAll('.amount-format-btn').forEach(function (b) {
+      b.classList.toggle('active', b.getAttribute('data-format') === mode);
+    });
+    try {
+      document.dispatchEvent(new CustomEvent('odoo:amount-mode-change',
+        { detail: { mode: mode } }));
+    } catch (e) {}
+  }
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('.amount-format-btn');
+    if (!btn) return;
+    var mode = btn.getAttribute('data-format');
+    if (validModes.indexOf(mode) < 0) return;
+    setMode(mode);
+    renderAll(mode);
+  });
+
+  document.addEventListener('DOMContentLoaded', function () {
+    renderAll(getMode());
+  });
+
+  // Expose so other scripts on this page (chart builds) can read the
+  // current mode and re-format their tick labels / tooltip strings.
+  window.odooDashRefreshAmounts = function () { renderAll(getMode()); };
+  window.odooDashAmountMode = getMode;
+  window.odooDashFormatAmount = formatNumber;
+})();
+</script>
+
 {% endif %}{# end snapshot check — drawer below stays available even when
               the page can't render data so users can still configure mapping. #}
 
