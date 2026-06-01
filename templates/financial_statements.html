@@ -138,11 +138,18 @@
     background: var(--surface-2);
     padding-top: .85rem;
   }
-  .fs-row-line td {
+  .fs-row-line td { color: var(--text); }
+  /* The 2.25rem hierarchy indent is for the LABEL cell only — the
+     account-name column. Applying it to the numeric cells too made
+     line-row amounts sit ~20px further from the cell's inline-end
+     than subtotal/grand amounts (which only have 1rem padding),
+     producing a visible drift between the right edge of, say,
+     `SAR 2,800,000` (line) and `SAR 12,950,000` (subtotal). Limiting
+     the indent to :not(.num) cells keeps the hierarchy on labels
+     while letting every amount column share a single right edge. */
+  .fs-row-line td:not(.num) {
     padding-inline-start: 2.25rem;
-    color: var(--text);
   }
-  [dir="rtl"] .fs-row-line td { padding-inline-start: 2.25rem; }
   /* P&L exception: header and line rows must share the same
      inline padding so the `Account / الحساب` header sits exactly
      above the account-name cells below it. Without this, line
