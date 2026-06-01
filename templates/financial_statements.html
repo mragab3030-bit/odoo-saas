@@ -100,14 +100,21 @@
     white-space: nowrap;
   }
   .fs-table th { text-align: start; }
-  .fs-table th.num { text-align: end; }
+  /* Numeric headers + numeric cells use physical right-align so that
+     amounts in RTL sit at the right edge of their cell — right next
+     to the label column boundary — instead of drifting to the inline-
+     end (left in RTL) and leaving a huge visual gap between, say,
+     `إجمالي الإيرادات` and the amount beside it. In LTR this is the
+     same as text-align: end (the previous value) so finance-style
+     right-alignment is preserved unchanged. */
+  .fs-table th.num { text-align: right; }
   .fs-table td {
     padding: .55rem 1rem;
     border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
     vertical-align: middle;
     text-align: start;
   }
-  .fs-table td.num { text-align: end; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .fs-table td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   /* When the page is RTL the cell still aligns to its inline-end
      (visually the left side of the row), but the digit sequence
      inside reads LTR. unicode-bidi:plaintext on the cell makes the
