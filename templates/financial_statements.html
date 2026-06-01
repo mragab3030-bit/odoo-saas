@@ -70,25 +70,23 @@
   }
   .fs-section-title i { color: var(--primary); }
 
-  /* Statement tables (P&L, BS, TB) */
+  /* Statement tables (P&L, BS, TB). All three use table-layout:fixed
+     and box-sizing:border-box so that the first row's th widths are
+     authoritative and propagate to every row beneath. Without this,
+     auto-layout falls back to content sizing; Arabic content lengths
+     differ from English, so thead and tbody can compute slightly
+     different column widths, producing a visible drift between
+     header cells and the data columns underneath them. Universal
+     fix here means each statement table needs its first <tr> to
+     declare per-column widths — see each tab's thead below. */
   .fs-table {
-    width: 100%; border-collapse: collapse;
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
     font-size: .85rem;
   }
-  /* P&L-only: fixed layout so the per-th widths in the first row
-     are authoritative. With table-layout:auto the browser falls back
-     to content-based sizing and headers/data columns can drift apart;
-     "fixed" makes thead and tbody share the exact same column grid
-     so each th sits above its corresponding td in LTR and RTL alike.
-     box-sizing:border-box ensures the explicit widths include the
-     1rem inline padding, so the cell's outer width is exactly the
-     percentage we ask for and never grows by content overflow. */
-  .fs-table-pnl {
-    table-layout: fixed;
-    width: 100%;
-  }
-  .fs-table-pnl th,
-  .fs-table-pnl td {
+  .fs-table th,
+  .fs-table td {
     box-sizing: border-box;
   }
   .fs-table th {
@@ -1181,14 +1179,19 @@
       </h5>
       <table class="fs-table">
         <thead>
+          {% if compare_yoy %}
           <tr>
-            <th data-i18n="fs_account">Account</th>
-            <th class="num" data-i18n="fs_current_period">Current Period</th>
-            {% if compare_yoy %}
-            <th class="num" data-i18n="fs_last_year">Last Year</th>
-            <th class="num" data-i18n="fs_change_pct">Change %</th>
-            {% endif %}
+            <th style="width:40%" data-i18n="fs_account">Account</th>
+            <th class="num" style="width:25%" data-i18n="fs_current_period">Current Period</th>
+            <th class="num" style="width:20%" data-i18n="fs_last_year">Last Year</th>
+            <th class="num" style="width:15%" data-i18n="fs_change_pct">Change %</th>
           </tr>
+          {% else %}
+          <tr>
+            <th style="width:60%" data-i18n="fs_account">Account</th>
+            <th class="num" style="width:40%" data-i18n="fs_current_period">Current Period</th>
+          </tr>
+          {% endif %}
         </thead>
         <tbody>
           <tr class="fs-row-section-header">
@@ -1255,14 +1258,19 @@
       </h5>
       <table class="fs-table">
         <thead>
+          {% if compare_yoy %}
           <tr>
-            <th data-i18n="fs_account">Account</th>
-            <th class="num" data-i18n="fs_current_period">Current Period</th>
-            {% if compare_yoy %}
-            <th class="num" data-i18n="fs_last_year">Last Year</th>
-            <th class="num" data-i18n="fs_change_pct">Change %</th>
-            {% endif %}
+            <th style="width:40%" data-i18n="fs_account">Account</th>
+            <th class="num" style="width:25%" data-i18n="fs_current_period">Current Period</th>
+            <th class="num" style="width:20%" data-i18n="fs_last_year">Last Year</th>
+            <th class="num" style="width:15%" data-i18n="fs_change_pct">Change %</th>
           </tr>
+          {% else %}
+          <tr>
+            <th style="width:60%" data-i18n="fs_account">Account</th>
+            <th class="num" style="width:40%" data-i18n="fs_current_period">Current Period</th>
+          </tr>
+          {% endif %}
         </thead>
         <tbody>
           <tr class="fs-row-section-header">
@@ -1480,15 +1488,15 @@
       <table class="fs-table">
         <thead>
           <tr>
-            <th data-i18n="fs_account_code">Account Code</th>
-            <th data-i18n="fs_account_name">Account Name</th>
-            <th data-i18n="fs_account_type">Type</th>
-            <th class="num" data-i18n="fs_opening_debit">Opening Debit</th>
-            <th class="num" data-i18n="fs_opening_credit">Opening Credit</th>
-            <th class="num" data-i18n="fs_movement_debit">Movement Debit</th>
-            <th class="num" data-i18n="fs_movement_credit">Movement Credit</th>
-            <th class="num" data-i18n="fs_closing_debit">Closing Debit</th>
-            <th class="num" data-i18n="fs_closing_credit">Closing Credit</th>
+            <th style="width:8%"  data-i18n="fs_account_code">Account Code</th>
+            <th style="width:20%" data-i18n="fs_account_name">Account Name</th>
+            <th style="width:8%"  data-i18n="fs_account_type">Type</th>
+            <th class="num" style="width:11%" data-i18n="fs_opening_debit">Opening Debit</th>
+            <th class="num" style="width:11%" data-i18n="fs_opening_credit">Opening Credit</th>
+            <th class="num" style="width:11%" data-i18n="fs_movement_debit">Movement Debit</th>
+            <th class="num" style="width:11%" data-i18n="fs_movement_credit">Movement Credit</th>
+            <th class="num" style="width:10%" data-i18n="fs_closing_debit">Closing Debit</th>
+            <th class="num" style="width:10%" data-i18n="fs_closing_credit">Closing Credit</th>
           </tr>
         </thead>
         <tbody>
