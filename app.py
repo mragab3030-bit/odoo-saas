@@ -4825,6 +4825,118 @@ def financial_tax_summary():
 
 
 # ---------------------------------------------------------------------------
+# Financial Statements (P&L, Balance Sheet, Trial Balance, Ratios)
+# ---------------------------------------------------------------------------
+
+FS_TABS = ('pnl', 'balance_sheet', 'trial_balance', 'ratios')
+
+
+def _fs_period_label(period_key, date_from, date_to):
+    """Friendly label for the period selector value."""
+    labels = {
+        'ytd':         'Year to Date',
+        'this_month':  'This Month',
+        'last_month':  'Last Month',
+        'q1':          'Q1',
+        'q2':          'Q2',
+        'q3':          'Q3',
+        'q4':          'Q4',
+        'last_year':   'Last Year',
+        'custom':      'Custom',
+    }
+    base = labels.get(period_key, 'Year to Date')
+    if date_from and date_to:
+        return f'{base} ({date_from} → {date_to})'
+    return base
+
+
+def _fs_resolve_period(period_key, raw_from, raw_to):
+    today_d = date.today()
+    today_iso = today_d.isoformat()
+    if period_key == 'this_month':
+        return today_d.replace(day=1).isoformat(), today_iso
+    if period_key == 'last_month':
+        first_this = today_d.replace(day=1)
+        last_prev = first_this - timedelta(days=1)
+        first_prev = last_prev.replace(day=1)
+        return first_prev.isoformat(), last_prev.isoformat()
+    if period_key in ('q1', 'q2', 'q3', 'q4'):
+        q = int(period_key[1])
+        m = (q - 1) * 3 + 1
+        first = date(today_d.year, m, 1)
+        if q < 4:
+            last = date(today_d.year, m + 3, 1) - timedelta(days=1)
+        else:
+            last = date(today_d.year, 12, 31)
+        return first.isoformat(), last.isoformat()
+    if period_key == 'last_year':
+        ly = today_d.year - 1
+        return date(ly, 1, 1).isoformat(), date(ly, 12, 31).isoformat()
+    if period_key == 'custom':
+        return raw_from or today_d.replace(month=1, day=1).isoformat(), raw_to or today_iso
+    # YTD default
+    return today_d.replace(month=1, day=1).isoformat(), today_iso
+
+
+def _fs_snapshot(client):
+    """Return a dict with P&L / BS / TB / Ratios. Demo mode hands back the
+    pre-tuned mock from `mock_data.financial_statements_snapshot()`. Live
+    mode returns the same shape with an `unavailable=True` flag so the
+    template renders a friendly placeholder — wiring a full live computation
+    against `account.move.line` aggregates is out of scope for this page."""
+    if DEMO_MODE:
+        from mock_data import financial_statements_snapshot
+        return financial_statements_snapshot()
+    # Live mode placeholder — keeps the page usable. The detailed computation
+    # would walk account.move.line by account_type for each section; until
+    # that is implemented we surface a clear empty state.
+    return {'unavailable': True, 'currency': ''}
+
+
+@app.route('/financial-statements')
+@login_required
+def financial_statements():
+    tab = request.args.get('tab', 'pnl')
+    if tab not in FS_TABS:
+        tab = 'pnl'
+    period_key = (request.args.get('period') or 'ytd').strip()
+    raw_from = request.args.get('date_from', '')
+    raw_to = request.args.get('date_to', '')
+    date_from, date_to = _fs_resolve_period(period_key, raw_from, raw_to)
+    compare_yoy = request.args.get('compare_yoy', '1') == '1'
+
+    type_filter = (request.args.get('type_filter') or 'all').strip().lower()
+    if type_filter not in ('all', 'asset', 'liability', 'equity', 'revenue', 'expense'):
+        type_filter = 'all'
+    search = (request.args.get('search') or '').strip()
+
+    c = get_client()
+    snapshot = _fs_snapshot(c)
+
+    ccy = snapshot.get('currency', '') or (
+        (g.get('odoo_client') and getattr(g.odoo_client, 'company_currency_name', '')) or 'SAR'
+    )
+
+    period_label = _fs_period_label(period_key, date_from, date_to)
+    compare_label = 'vs Last Year'
+
+    ctx = dict(
+        tab=tab,
+        period_key=period_key,
+        date_from=date_from, date_to=date_to,
+        period_label=period_label,
+        compare_yoy=compare_yoy,
+        compare_label=compare_label,
+        type_filter=type_filter,
+        search=search,
+        ccy=ccy,
+        snapshot=snapshot,
+        fs_tabs=FS_TABS,
+    )
+    return render_template('financial_statements.html', **ctx)
+
+
+# ---------------------------------------------------------------------------
 # Inventory
 # ---------------------------------------------------------------------------
 
@@ -5257,7 +5369,172 @@ EXPORT_CONFIG = {
                     'Net', 'Margin %', '# Transactions'],
         'col_widths': [2.4, 1.6, 1.3, 1.3, 1.3, 1.0, 1.0],
     },
+    # Financial Statements — handled entirely by _export_financial_statements()
+    # below. The dict is mostly metadata; rows/headers are built per tab.
+    'financial_statements_pnl': {
+        'title': 'Income Statement (P&L)',
+        'model': None, 'fields': [],
+        'headers': ['Account', 'Current Period', 'Last Year', 'Change %', '% of Revenue'],
+        'col_widths': [3.0, 1.5, 1.5, 1.0, 1.2],
+    },
+    'financial_statements_balance_sheet': {
+        'title': 'Balance Sheet',
+        'model': None, 'fields': [],
+        'headers': ['Account', 'Current Period', 'Last Year', 'Change %'],
+        'col_widths': [3.0, 1.5, 1.5, 1.0],
+    },
+    'financial_statements_trial_balance': {
+        'title': 'Trial Balance',
+        'model': None, 'fields': [],
+        'headers': ['Code', 'Account', 'Type',
+                    'Opening Debit', 'Opening Credit',
+                    'Movement Debit', 'Movement Credit',
+                    'Closing Debit', 'Closing Credit'],
+        'col_widths': [0.8, 2.5, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+    },
+    'financial_statements_ratios': {
+        'title': 'Financial Ratios',
+        'model': None, 'fields': [],
+        'headers': ['Section', 'Ratio', 'Value', 'Formula', 'Interpretation'],
+        'col_widths': [1.2, 1.8, 0.8, 2.2, 3.0],
+    },
 }
+
+
+def _export_financial_statements(key: str, fmt: str):
+    """Build PDF/Excel rows for the four Financial Statements tabs.
+
+    Reuses `_fs_snapshot()` so the export and the on-screen view show the
+    same numbers."""
+    cfg = EXPORT_CONFIG[key]
+    client = get_client()
+    snapshot = _fs_snapshot(client)
+    if snapshot.get('unavailable'):
+        flash('Financial statements data is not available in this mode.', 'warning')
+        return redirect(url_for('financial_statements'))
+
+    period_key = (request.args.get('period') or 'ytd').strip()
+    raw_from = request.args.get('date_from', '')
+    raw_to = request.args.get('date_to', '')
+    date_from, date_to = _fs_resolve_period(period_key, raw_from, raw_to)
+    period_label = _fs_period_label(period_key, date_from, date_to)
+    title = f'{cfg["title"]} — {period_label}'
+    headers = cfg['headers']
+    rows = []
+
+    def _money(v):
+        return fmt_currency_int(v)
+
+    def _pct(cur, prev):
+        if not prev:
+            return '—'
+        try:
+            return f'{((cur - prev) / prev * 100):.1f}%'
+        except (ZeroDivisionError, TypeError):
+            return '—'
+
+    if key == 'financial_statements_pnl':
+        pnl = snapshot['pnl']
+        rev = pnl['kpis']['total_revenue'] or 1
+        for sec in pnl['sections']:
+            if sec.get('label'):
+                rows.append([sec['label'], '', '', '', ''])
+            for line in sec['lines']:
+                rows.append([
+                    '    ' + line['label'],
+                    _money(line['current']),
+                    _money(line['previous']),
+                    _pct(line['current'], line['previous']),
+                    f"{100 * (line['current'] or 0) / rev:.1f}%",
+                ])
+            rows.append([
+                sec['subtotal_label'],
+                _money(sec['subtotal_current']),
+                _money(sec['subtotal_previous']),
+                _pct(sec['subtotal_current'], sec['subtotal_previous']),
+                f"{100 * (sec['subtotal_current'] or 0) / rev:.1f}%",
+            ])
+    elif key == 'financial_statements_balance_sheet':
+        bs = snapshot['balance_sheet']
+
+        def _bs_section(label, lines, total_cur, total_prev):
+            rows.append([label, '', '', ''])
+            for line in lines:
+                rows.append(['    ' + line['label'],
+                             _money(line['current']),
+                             _money(line['previous']),
+                             _pct(line['current'], line['previous'])])
+            rows.append([f'Total {label}',
+                         _money(total_cur), _money(total_prev),
+                         _pct(total_cur, total_prev)])
+
+        _bs_section('Current Assets', bs['assets']['current'],
+                    bs['assets']['total_current'], bs['assets']['total_current_prev'])
+        _bs_section('Non-Current Assets', bs['assets']['non_current'],
+                    bs['assets']['total_non_current'], bs['assets']['total_non_current_prev'])
+        rows.append(['TOTAL ASSETS',
+                     _money(bs['assets']['total']),
+                     _money(bs['assets']['total_prev']),
+                     _pct(bs['assets']['total'], bs['assets']['total_prev'])])
+        _bs_section('Current Liabilities', bs['liabilities']['current'],
+                    bs['liabilities']['total_current'], bs['liabilities']['total_current_prev'])
+        _bs_section('Non-Current Liabilities', bs['liabilities']['non_current'],
+                    bs['liabilities']['total_non_current'], bs['liabilities']['total_non_current_prev'])
+        _bs_section('Equity', bs['equity']['lines'],
+                    bs['equity']['total'], bs['equity']['total_prev'])
+        rows.append(['TOTAL LIABILITIES & EQUITY',
+                     _money(bs['total_liab_equity']),
+                     _money(bs['total_liab_equity_prev']),
+                     _pct(bs['total_liab_equity'], bs['total_liab_equity_prev'])])
+    elif key == 'financial_statements_trial_balance':
+        type_filter = (request.args.get('type_filter') or 'all').strip().lower()
+        type_match = {
+            'asset': 'Asset', 'liability': 'Liability', 'equity': 'Equity',
+            'revenue': 'Revenue', 'expense': 'Expense',
+        }
+        search = (request.args.get('search') or '').strip().lower()
+        for line in snapshot['trial_balance']['lines']:
+            if type_filter != 'all' and line['type'] != type_match.get(type_filter):
+                continue
+            if search and search not in line['code'].lower() and search not in line['name'].lower():
+                continue
+            rows.append([
+                line['code'], line['name'], line['type'],
+                _money(line['opening_debit']),  _money(line['opening_credit']),
+                _money(line['movement_debit']), _money(line['movement_credit']),
+                _money(line['closing_debit']),  _money(line['closing_credit']),
+            ])
+        tot = snapshot['trial_balance']['totals']
+        rows.append([
+            '', 'GRAND TOTAL', '',
+            _money(tot['od']), _money(tot['oc']),
+            _money(tot['md']), _money(tot['mc']),
+            _money(tot['cd']), _money(tot['cc']),
+        ])
+    elif key == 'financial_statements_ratios':
+        labels = {
+            'liquidity': 'Liquidity',
+            'profitability': 'Profitability',
+            'leverage': 'Leverage',
+            'efficiency': 'Efficiency',
+        }
+        for section_key in ('liquidity', 'profitability', 'leverage', 'efficiency'):
+            for r in snapshot['ratios'][section_key]:
+                rows.append([
+                    labels[section_key], r['name'], r['value_str'],
+                    r['formula'], r['interpretation'],
+                ])
+
+    if fmt == 'pdf':
+        buf = export_pdf(title, headers, rows, col_widths=cfg.get('col_widths'))
+        return send_file(buf, mimetype='application/pdf',
+                         download_name=f'{key}.pdf', as_attachment=True)
+    buf = export_excel(title, headers, rows)
+    return send_file(
+        buf,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        download_name=f'{key}.xlsx', as_attachment=True,
+    )
 
 
 @app.route('/export/<key>/<fmt>')
@@ -5266,6 +5543,9 @@ def export(key: str, fmt: str):
     if key not in EXPORT_CONFIG or fmt not in ('pdf', 'excel'):
         flash('Invalid export request.', 'danger')
         return redirect(url_for('dashboard'))
+
+    if key.startswith('financial_statements_'):
+        return _export_financial_statements(key, fmt)
 
     cfg = EXPORT_CONFIG[key]
     c = get_client()

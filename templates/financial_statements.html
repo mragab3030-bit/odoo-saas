@@ -1,0 +1,1241 @@
+{% extends 'base.html' %}
+{% block title %}Financial Statements · Olens{% endblock %}
+{% block page_title %}Financial Statements{% endblock %}
+
+{% block topbar_actions %}
+<div class="export-group">
+  <a href="{{ url_for('export', key='financial_statements_' + tab, fmt='pdf',
+                      period=period_key, date_from=date_from, date_to=date_to,
+                      compare_yoy=('1' if compare_yoy else '0'),
+                      type_filter=type_filter, search=(search or none)) }}"
+     class="btn btn-outline btn-sm" data-export>
+    <i class="fa-solid fa-file-pdf"></i> PDF
+  </a>
+  <a href="{{ url_for('export', key='financial_statements_' + tab, fmt='excel',
+                      period=period_key, date_from=date_from, date_to=date_to,
+                      compare_yoy=('1' if compare_yoy else '0'),
+                      type_filter=type_filter, search=(search or none)) }}"
+     class="btn btn-outline btn-sm" data-export>
+    <i class="fa-solid fa-file-excel"></i> Excel
+  </a>
+</div>
+{% endblock %}
+
+{% block head %}
+<style>
+  /* ===== Financial Statements page-local styles ===== */
+  .fs-toolbar {
+    display: flex; align-items: center; gap: .75rem;
+    flex-wrap: wrap; margin-bottom: 1rem;
+  }
+  .fs-toolbar .filter-group {
+    display: flex; flex-direction: column; gap: .25rem;
+  }
+  .fs-toolbar label {
+    font-size: .68rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .05em;
+    color: var(--text-muted);
+  }
+  .fs-toolbar select, .fs-toolbar input[type=date], .fs-toolbar input[type=search] {
+    height: 32px; padding: 0 .65rem;
+    border: 1px solid var(--border); border-radius: 6px;
+    background: var(--surface); color: var(--text);
+    font-size: .82rem;
+  }
+  .fs-toolbar .compare-yoy { margin-left: 0; }
+
+  .fs-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+  }
+  .fs-section-title {
+    font-size: .85rem; font-weight: 700;
+    margin: 0 0 .9rem;
+    display: flex; align-items: center; gap: .5rem;
+  }
+  .fs-section-title i { color: var(--primary); }
+
+  /* Statement tables (P&L, BS, TB) */
+  .fs-table {
+    width: 100%; border-collapse: collapse;
+    font-size: .85rem;
+  }
+  .fs-table th {
+    background: var(--surface-2);
+    color: var(--text-muted);
+    font-size: .7rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .05em;
+    padding: .65rem 1rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .fs-table th.num { text-align: right; }
+  .fs-table td {
+    padding: .55rem 1rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+    vertical-align: middle;
+  }
+  .fs-table td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .fs-table tbody tr:hover { background: var(--surface-2); }
+
+  .fs-row-section-header td {
+    font-size: .72rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .06em;
+    color: var(--text-muted);
+    background: var(--surface-2);
+    padding-top: .85rem;
+  }
+  .fs-row-line td {
+    padding-inline-start: 2.25rem;
+    color: var(--text);
+  }
+  [dir="rtl"] .fs-row-line td { padding-inline-start: 2.25rem; }
+  .fs-row-subtotal td {
+    font-weight: 700;
+    border-top: 1px solid var(--border);
+    border-bottom: 2px solid var(--border);
+    background: color-mix(in srgb, var(--primary) 7%, transparent);
+  }
+  .fs-row-grand td {
+    font-weight: 800;
+    background: color-mix(in srgb, var(--primary) 12%, transparent);
+    border-top: 2px solid var(--primary);
+    border-bottom: 2px solid var(--primary);
+  }
+  .fs-subtotal-pct {
+    font-size: .72rem; font-weight: 600;
+    color: var(--text-muted);
+    margin-inline-start: .35rem;
+  }
+  .pos { color: #16a34a; }
+  .neg { color: #dc2626; }
+
+  .fs-compare-cell {
+    display: inline-flex; align-items: center; gap: .35rem;
+  }
+  .fs-change-pill {
+    font-size: .72rem; padding: .1rem .4rem; border-radius: 999px;
+    font-weight: 700; white-space: nowrap;
+  }
+  .fs-change-pill.up   { background: #dcfce7; color: #166534; }
+  .fs-change-pill.down { background: #fee2e2; color: #991b1b; }
+  .fs-change-pill.flat { background: #f1f5f9; color: var(--text-muted); }
+
+  .fs-balance-check {
+    display: inline-flex; align-items: center; gap: .4rem;
+    padding: .35rem .75rem;
+    border-radius: 999px;
+    font-size: .78rem; font-weight: 700;
+  }
+  .fs-balance-check.ok  { background: #dcfce7; color: #166534; }
+  .fs-balance-check.bad { background: #fee2e2; color: #991b1b; }
+
+  /* P&L charts row */
+  .fs-chart-card { padding: 1.25rem; }
+  .fs-chart-wrap { position: relative; height: 320px; }
+
+  /* Balance Sheet two-column layout */
+  .fs-bs-grid {
+    display: grid; gap: 1rem;
+    grid-template-columns: 1fr 1fr;
+  }
+  @media (max-width: 960px) {
+    .fs-bs-grid { grid-template-columns: 1fr; }
+  }
+
+  /* Ratios section */
+  .fs-ratio-section { margin-bottom: 1.25rem; }
+  .fs-ratio-section-title {
+    font-size: .78rem; letter-spacing: .07em; text-transform: uppercase;
+    font-weight: 700; color: var(--text-muted);
+    margin: 0 0 .75rem;
+    display: flex; align-items: center; gap: .5rem;
+  }
+  .fs-ratio-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: .85rem;
+  }
+  .fs-ratio-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem 1.15rem;
+    position: relative;
+    transition: transform .25s ease, box-shadow .25s ease;
+    overflow: visible;
+  }
+  .fs-ratio-card:hover {
+    transform: translateY(-3px) scale(1.01);
+    box-shadow: var(--card-glow-color, 0 0 30px rgba(107,114,128,.35));
+    z-index: 5;
+  }
+  .fs-ratio-card-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: .5rem;
+    margin-bottom: .5rem;
+  }
+  .fs-ratio-name {
+    font-size: .78rem; font-weight: 700; color: var(--text);
+    margin: 0;
+  }
+  .fs-ratio-value {
+    font-size: 1.4rem; font-weight: 800;
+    color: var(--text);
+    line-height: 1.15;
+    font-variant-numeric: tabular-nums;
+  }
+  .fs-ratio-value.green { color: #16a34a; }
+  .fs-ratio-value.yellow { color: #d97706; }
+  .fs-ratio-value.red { color: #dc2626; }
+  .fs-ratio-bench {
+    width: 10px; height: 10px; border-radius: 50%;
+    display: inline-block;
+  }
+  .fs-ratio-bench.green  { background: #22c55e; }
+  .fs-ratio-bench.yellow { background: #f59e0b; }
+  .fs-ratio-bench.red    { background: #ef4444; }
+  .fs-ratio-viz {
+    height: 80px; margin-top: .25rem;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+  }
+
+  /* Tooltip on ratio card hover */
+  .fs-ratio-tooltip {
+    position: absolute;
+    z-index: 20;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: .75rem .9rem;
+    box-shadow: 0 8px 24px rgba(0,0,0,.15);
+    width: 280px;
+    top: calc(100% + 8px);
+    left: 50%; transform: translateX(-50%);
+    visibility: hidden; opacity: 0;
+    transition: opacity .15s ease;
+    pointer-events: none;
+    font-size: .78rem;
+    color: var(--text);
+  }
+  .fs-ratio-card:hover .fs-ratio-tooltip,
+  .fs-ratio-card:focus-within .fs-ratio-tooltip {
+    visibility: visible; opacity: 1;
+  }
+  .fs-tt-row { margin: .25rem 0; }
+  .fs-tt-label {
+    font-size: .68rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    font-weight: 700;
+  }
+  .fs-tt-bench-row {
+    display: flex; align-items: center; gap: .4rem;
+    margin: .2rem 0;
+    font-size: .72rem;
+  }
+
+  /* Gauge & sparkline svg */
+  .fs-gauge { width: 100%; max-width: 160px; height: 100%; }
+  .fs-bar-track {
+    width: 100%; height: 10px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    overflow: hidden;
+  }
+  .fs-bar-fill { height: 100%; border-radius: 999px; transition: width .4s ease; }
+
+  .fs-donut { width: 80px; height: 80px; }
+  .fs-spark { width: 100%; height: 50px; }
+
+  /* Trial Balance group rows */
+  .fs-tb-group-row td {
+    font-weight: 700;
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: .75rem;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+  }
+  .fs-tb-subtotal td {
+    font-weight: 700;
+    background: color-mix(in srgb, var(--primary) 5%, transparent);
+    border-top: 1px solid var(--border);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Tabs -->
+<div class="tab-bar">
+  <a href="{{ url_for('financial_statements', tab='pnl') }}"
+     class="tab-item {% if tab == 'pnl' %}active{% endif %}">
+    <i class="fa-solid fa-chart-line"></i> <span data-i18n="fs_pnl">P&L</span>
+  </a>
+  <a href="{{ url_for('financial_statements', tab='balance_sheet') }}"
+     class="tab-item {% if tab == 'balance_sheet' %}active{% endif %}">
+    <i class="fa-solid fa-scale-balanced"></i> <span data-i18n="fs_balance_sheet">Balance Sheet</span>
+  </a>
+  <a href="{{ url_for('financial_statements', tab='trial_balance') }}"
+     class="tab-item {% if tab == 'trial_balance' %}active{% endif %}">
+    <i class="fa-solid fa-list-check"></i> <span data-i18n="fs_trial_balance">Trial Balance</span>
+  </a>
+  <a href="{{ url_for('financial_statements', tab='ratios') }}"
+     class="tab-item {% if tab == 'ratios' %}active{% endif %}">
+    <i class="fa-solid fa-gauge-high"></i> <span data-i18n="fs_financial_ratios">Financial Ratios</span>
+  </a>
+</div>
+
+{% if snapshot.get('unavailable') %}
+<div class="fs-section" style="text-align:center;padding:3rem 1rem">
+  <div style="font-size:2rem;color:var(--text-muted);margin-bottom:.5rem">
+    <i class="fa-solid fa-circle-info"></i>
+  </div>
+  <h3 style="margin:0 0 .35rem">Live financial statements aggregation is not yet available.</h3>
+  <p style="color:var(--text-muted);margin:0">Switch to Demo Mode from the login page to explore realistic Saudi company figures.</p>
+</div>
+{% else %}
+
+<!-- Amount toolbar (units / K / M) shared across all tabs -->
+<div class="amount-format-toolbar" data-amount-toolbar>
+  <span class="amount-format-label" data-i18n="show_amounts_in">Show amounts in</span>
+  <div class="amount-format-group" role="group" aria-label="Amount format">
+    <button type="button" class="amount-format-btn" data-format="units">Units</button>
+    <button type="button" class="amount-format-btn" data-format="k">K</button>
+    <button type="button" class="amount-format-btn" data-format="m">M</button>
+  </div>
+</div>
+
+<!-- Toolbar: period + compare (shared by P&L, BS, TB) -->
+<form method="GET" action="{{ url_for('financial_statements') }}" class="fs-toolbar" id="fsToolbar">
+  <input type="hidden" name="tab" value="{{ tab }}">
+  <div class="filter-group">
+    <label for="fsPeriod" data-i18n="period">Period</label>
+    <select id="fsPeriod" name="period" onchange="document.getElementById('fsToolbar').submit()">
+      <option value="ytd"        {% if period_key == 'ytd' %}selected{% endif %} data-i18n="ytd">Year to Date</option>
+      <option value="this_month" {% if period_key == 'this_month' %}selected{% endif %} data-i18n="this_month">This Month</option>
+      <option value="last_month" {% if period_key == 'last_month' %}selected{% endif %} data-i18n="last_month">Last Month</option>
+      <option value="q1"         {% if period_key == 'q1' %}selected{% endif %} data-i18n="fs_q1">Q1</option>
+      <option value="q2"         {% if period_key == 'q2' %}selected{% endif %} data-i18n="fs_q2">Q2</option>
+      <option value="q3"         {% if period_key == 'q3' %}selected{% endif %} data-i18n="fs_q3">Q3</option>
+      <option value="q4"         {% if period_key == 'q4' %}selected{% endif %} data-i18n="fs_q4">Q4</option>
+      <option value="last_year"  {% if period_key == 'last_year' %}selected{% endif %} data-i18n="last_year">Last Year</option>
+      <option value="custom"     {% if period_key == 'custom' %}selected{% endif %} data-i18n="custom">Custom</option>
+    </select>
+  </div>
+  {% if period_key == 'custom' %}
+  <div class="filter-group">
+    <label for="fsDateFrom" data-i18n="from">From</label>
+    <input type="date" id="fsDateFrom" name="date_from" value="{{ date_from }}">
+  </div>
+  <div class="filter-group">
+    <label for="fsDateTo" data-i18n="to">To</label>
+    <input type="date" id="fsDateTo" name="date_to" value="{{ date_to }}">
+  </div>
+  <button type="submit" class="btn btn-primary btn-sm" data-i18n="apply">Apply</button>
+  {% endif %}
+
+  {% if tab in ('pnl', 'balance_sheet') %}
+  <label class="compare-yoy">
+    <input type="checkbox" name="compare_yoy" value="1"
+           onchange="document.getElementById('fsToolbar').submit()"
+           {% if compare_yoy %}checked{% endif %}>
+    <span data-i18n="compare_last_year">Compare with same period last year</span>
+  </label>
+  {% endif %}
+
+  {% if tab == 'trial_balance' %}
+  <div class="filter-group">
+    <label for="fsTypeFilter" data-i18n="fs_account_type">Type</label>
+    <select id="fsTypeFilter" name="type_filter"
+            onchange="document.getElementById('fsToolbar').submit()">
+      <option value="all"       {% if type_filter == 'all' %}selected{% endif %}>All</option>
+      <option value="asset"     {% if type_filter == 'asset' %}selected{% endif %}>Asset</option>
+      <option value="liability" {% if type_filter == 'liability' %}selected{% endif %}>Liability</option>
+      <option value="equity"    {% if type_filter == 'equity' %}selected{% endif %}>Equity</option>
+      <option value="revenue"   {% if type_filter == 'revenue' %}selected{% endif %}>Revenue</option>
+      <option value="expense"   {% if type_filter == 'expense' %}selected{% endif %}>Expense</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <label for="fsSearch" data-i18n="search">Search</label>
+    <input type="search" id="fsSearch" name="search" value="{{ search or '' }}"
+           placeholder="Code or name…" style="min-width:160px">
+  </div>
+  <button type="submit" class="btn btn-outline btn-sm" data-i18n="apply">Apply</button>
+  {% endif %}
+
+  <span style="margin-left:auto;color:var(--text-muted);font-size:.8rem;font-style:italic">
+    {{ period_label }}
+  </span>
+</form>
+
+{# -------------------- Helpers -------------------- #}
+{% set ccy = ccy %}
+{% macro amt(v) %}
+  <span class="amount-display" data-amount="{{ v or 0 }}" data-currency="{{ ccy }}">{{ ccy }} {{ v | fmt_currency_int }}</span>
+{% endmacro %}
+{% macro signed_amt(v) %}
+  {% set vv = v or 0 %}
+  <span class="amount-display {{ 'pos' if vv > 0 else ('neg' if vv < 0 else '') }}"
+        data-amount="{{ vv }}" data-currency="{{ ccy }}">{{ ccy }} {{ vv | fmt_currency_int }}</span>
+{% endmacro %}
+{% macro change_pct(cur, prev) %}
+  {% if prev is none or prev == 0 %}
+    <span class="fs-change-pill flat">—</span>
+  {% else %}
+    {% set pct = ((cur - prev) / prev * 100) %}
+    {% if pct > 0.05 %}
+      <span class="fs-change-pill up"><i class="fa-solid fa-arrow-up"></i> {{ '%.1f' % pct }}%</span>
+    {% elif pct < -0.05 %}
+      <span class="fs-change-pill down"><i class="fa-solid fa-arrow-down"></i> {{ '%.1f' % (pct | abs) }}%</span>
+    {% else %}
+      <span class="fs-change-pill flat">0.0%</span>
+    {% endif %}
+  {% endif %}
+{% endmacro %}
+
+{# =========================================================== #}
+{# ===================== TAB 1 — P&L ========================= #}
+{# =========================================================== #}
+{% if tab == 'pnl' %}
+  {% set pnl = snapshot.pnl %}
+  {% set k = pnl.kpis %}
+
+  <!-- KPI cards -->
+  <div class="stat-grid">
+    <div class="stat-card">
+      <div class="stat-value stat-value-num" style="color:#16a34a">
+        {{ amt(k.total_revenue) }}
+      </div>
+      <div class="stat-label" data-i18n="fs_total_revenue">Total Revenue</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value stat-value-num" style="color:{{ '#16a34a' if k.gross_profit >= 0 else '#dc2626' }}">
+        {{ amt(k.gross_profit) }}
+      </div>
+      <div class="stat-label" data-i18n="fs_gross_profit">Gross Profit</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value stat-value-num" style="color:{{ '#16a34a' if k.operating_profit >= 0 else '#dc2626' }}">
+        {{ amt(k.operating_profit) }}
+      </div>
+      <div class="stat-label" data-i18n="fs_operating_profit">Operating Profit</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value stat-value-num" style="color:{{ '#16a34a' if k.net_profit >= 0 else '#dc2626' }}">
+        {{ amt(k.net_profit) }}
+      </div>
+      <div class="stat-label" data-i18n="fs_net_profit">Net Profit</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value stat-value-num" style="color:#2563eb">
+        {{ '%.1f' % k.gross_margin_pct }}%
+      </div>
+      <div class="stat-label" data-i18n="fs_gross_margin">Gross Margin %</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value stat-value-num" style="color:#2563eb">
+        {{ '%.1f' % k.net_margin_pct }}%
+      </div>
+      <div class="stat-label" data-i18n="fs_net_margin">Net Margin %</div>
+    </div>
+  </div>
+
+  <!-- Detailed P&L table -->
+  <div class="fs-section">
+    <h5 class="fs-section-title">
+      <i class="fa-solid fa-table"></i>
+      <span data-i18n="fs_pnl_full">Income Statement</span>
+    </h5>
+    <div style="overflow-x:auto">
+      <table class="fs-table">
+        <thead>
+          <tr>
+            <th data-i18n="fs_account">Account</th>
+            <th class="num" data-i18n="fs_current_period">Current Period</th>
+            {% if compare_yoy %}
+            <th class="num" data-i18n="fs_last_year">Last Year</th>
+            <th class="num" data-i18n="fs_change_pct">Change %</th>
+            {% endif %}
+            <th class="num" data-i18n="fs_pct_of_revenue">% of Revenue</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% set revenue_cur = k.total_revenue or 1 %}
+          {% for sec in pnl.sections %}
+            {% if sec.label %}
+            <tr class="fs-row-section-header">
+              <td colspan="{{ 5 if compare_yoy else 3 }}">{{ sec.label }}</td>
+            </tr>
+            {% endif %}
+            {% for line in sec.lines %}
+            <tr class="fs-row-line">
+              <td>{{ line.label }}</td>
+              <td class="num">{{ amt(line.current) }}</td>
+              {% if compare_yoy %}
+              <td class="num">{{ amt(line.previous) }}</td>
+              <td class="num">{{ change_pct(line.current, line.previous) }}</td>
+              {% endif %}
+              <td class="num">{{ '%.1f' % (100 * (line.current or 0) / revenue_cur) }}%</td>
+            </tr>
+            {% endfor %}
+            <tr class="{% if loop.last %}fs-row-grand{% else %}fs-row-subtotal{% endif %}">
+              <td>
+                {{ sec.subtotal_label }}
+                {% if sec.subtotal_pct_label %}
+                <span class="fs-subtotal-pct">{{ sec.subtotal_pct_label }}: {{ '%.1f' % sec.subtotal_pct_current }}%</span>
+                {% endif %}
+              </td>
+              <td class="num {{ 'pos' if sec.subtotal_current >= 0 else 'neg' }}">
+                {{ amt(sec.subtotal_current) }}
+              </td>
+              {% if compare_yoy %}
+              <td class="num">{{ amt(sec.subtotal_previous) }}</td>
+              <td class="num">{{ change_pct(sec.subtotal_current, sec.subtotal_previous) }}</td>
+              {% endif %}
+              <td class="num">{{ '%.1f' % (100 * (sec.subtotal_current or 0) / revenue_cur) }}%</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Waterfall chart -->
+  <div class="fs-section fs-chart-card">
+    <h5 class="fs-section-title">
+      <i class="fa-solid fa-chart-column"></i>
+      Profit Waterfall
+    </h5>
+    <div class="fs-chart-wrap"><canvas id="fsWaterfallChart"></canvas></div>
+  </div>
+
+  <script>
+  (function () {
+    var data = {{ pnl.waterfall | tojson }};
+    var ccy  = {{ ccy | tojson }};
+    function fmt(v) {
+      try { return window.odooDashFormatAmount(v, window.odooDashAmountMode()); }
+      catch (e) { return Math.round(v).toLocaleString(); }
+    }
+    function build() {
+      var canvas = document.getElementById('fsWaterfallChart');
+      if (!canvas || !window.Chart) return;
+      if (window._fsWaterfall) { window._fsWaterfall.destroy(); }
+      var colors = data.values.map(function (v) {
+        return v >= 0 ? '#22c55e' : '#ef4444';
+      });
+      window._fsWaterfall = new Chart(canvas.getContext('2d'), {
+        type: 'bar',
+        data: {
+          labels: data.labels,
+          datasets: [{
+            data: data.values,
+            backgroundColor: colors,
+            borderRadius: 6,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: { callbacks: { label: function (ctx) {
+              return ' ' + ccy + ' ' + fmt(ctx.parsed.y);
+            } } },
+          },
+          scales: {
+            x: { grid: { display: false } },
+            y: { ticks: { callback: function (v) { return fmt(v); } } },
+          },
+        },
+      });
+    }
+    document.addEventListener('DOMContentLoaded', build);
+    document.addEventListener('odoo:amount-mode-change', build);
+    document.addEventListener('olens:language-change', build);
+  })();
+  </script>
+
+{# =========================================================== #}
+{# ================== TAB 2 — Balance Sheet ================== #}
+{# =========================================================== #}
+{% elif tab == 'balance_sheet' %}
+  {% set bs = snapshot.balance_sheet %}
+  {% set k = bs.kpis %}
+
+  <!-- KPI cards -->
+  <div class="stat-grid">
+    <div class="stat-card">
+      <div class="stat-value stat-value-num" style="color:#2563eb">{{ amt(k.total_assets) }}</div>
+      <div class="stat-label" data-i18n="fs_total_assets">Total Assets</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value stat-value-num" style="color:#dc2626">{{ amt(k.total_liabilities) }}</div>
+      <div class="stat-label" data-i18n="fs_total_liabilities">Total Liabilities</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value stat-value-num" style="color:#16a34a">{{ amt(k.total_equity) }}</div>
+      <div class="stat-label" data-i18n="fs_total_equity">Total Equity</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value stat-value-num" style="color:#2563eb">{{ '%.2f' % k.current_ratio }}</div>
+      <div class="stat-label" data-i18n="fs_current_ratio">Current Ratio</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value stat-value-num" style="color:{{ '#16a34a' if k.debt_to_equity <= 1 else '#dc2626' }}">
+        {{ '%.2f' % k.debt_to_equity }}
+      </div>
+      <div class="stat-label" data-i18n="fs_debt_equity">Debt to Equity</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value stat-value-num" style="color:{{ '#16a34a' if k.working_capital >= 0 else '#dc2626' }}">
+        {{ amt(k.working_capital) }}
+      </div>
+      <div class="stat-label" data-i18n="fs_working_capital">Working Capital</div>
+    </div>
+  </div>
+
+  <!-- Balance check indicator -->
+  <div class="fs-section" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.75rem">
+    <div>
+      <strong data-i18n="fs_balance_check">Balance Check</strong>
+      <small style="color:var(--text-muted);margin-inline-start:.5rem">
+        Assets = Liabilities + Equity
+      </small>
+    </div>
+    {% if bs.balanced %}
+      <span class="fs-balance-check ok">
+        <i class="fa-solid fa-check-circle"></i>
+        <span data-i18n="fs_balanced">Balanced</span>
+        ({{ amt(k.total_assets) }})
+      </span>
+    {% else %}
+      <span class="fs-balance-check bad">
+        <i class="fa-solid fa-circle-exclamation"></i>
+        <span data-i18n="fs_unbalanced">Unbalanced</span>
+        (diff: {{ amt(bs.difference) }})
+      </span>
+    {% endif %}
+  </div>
+
+  <!-- Two-column BS layout -->
+  <div class="fs-bs-grid">
+    <!-- Left: Assets -->
+    <div class="fs-section">
+      <h5 class="fs-section-title">
+        <i class="fa-solid fa-coins"></i>
+        <span data-i18n="fs_assets">Assets</span>
+      </h5>
+      <table class="fs-table">
+        <thead>
+          <tr>
+            <th data-i18n="fs_account">Account</th>
+            <th class="num" data-i18n="fs_current_period">Current Period</th>
+            {% if compare_yoy %}
+            <th class="num" data-i18n="fs_last_year">Last Year</th>
+            <th class="num" data-i18n="fs_change_pct">Change %</th>
+            {% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="fs-row-section-header">
+            <td colspan="{{ 4 if compare_yoy else 2 }}" data-i18n="fs_current_assets">Current Assets</td>
+          </tr>
+          {% for line in bs.assets.current %}
+          <tr class="fs-row-line">
+            <td>{{ line.label }}</td>
+            <td class="num">{{ signed_amt(line.current) }}</td>
+            {% if compare_yoy %}
+            <td class="num">{{ signed_amt(line.previous) }}</td>
+            <td class="num">{{ change_pct(line.current, line.previous) }}</td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+          <tr class="fs-row-subtotal">
+            <td>Total Current Assets</td>
+            <td class="num">{{ amt(bs.assets.total_current) }}</td>
+            {% if compare_yoy %}
+            <td class="num">{{ amt(bs.assets.total_current_prev) }}</td>
+            <td class="num">{{ change_pct(bs.assets.total_current, bs.assets.total_current_prev) }}</td>
+            {% endif %}
+          </tr>
+
+          <tr class="fs-row-section-header">
+            <td colspan="{{ 4 if compare_yoy else 2 }}" data-i18n="fs_non_current_assets">Non-Current Assets</td>
+          </tr>
+          {% for line in bs.assets.non_current %}
+          <tr class="fs-row-line">
+            <td>{{ line.label }}</td>
+            <td class="num">{{ signed_amt(line.current) }}</td>
+            {% if compare_yoy %}
+            <td class="num">{{ signed_amt(line.previous) }}</td>
+            <td class="num">{{ change_pct(line.current, line.previous) }}</td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+          <tr class="fs-row-subtotal">
+            <td>Total Non-Current Assets</td>
+            <td class="num">{{ amt(bs.assets.total_non_current) }}</td>
+            {% if compare_yoy %}
+            <td class="num">{{ amt(bs.assets.total_non_current_prev) }}</td>
+            <td class="num">{{ change_pct(bs.assets.total_non_current, bs.assets.total_non_current_prev) }}</td>
+            {% endif %}
+          </tr>
+
+          <tr class="fs-row-grand">
+            <td data-i18n="fs_total_assets">TOTAL ASSETS</td>
+            <td class="num">{{ amt(bs.assets.total) }}</td>
+            {% if compare_yoy %}
+            <td class="num">{{ amt(bs.assets.total_prev) }}</td>
+            <td class="num">{{ change_pct(bs.assets.total, bs.assets.total_prev) }}</td>
+            {% endif %}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Right: Liabilities + Equity -->
+    <div class="fs-section">
+      <h5 class="fs-section-title">
+        <i class="fa-solid fa-building-columns"></i>
+        <span data-i18n="fs_liabilities_equity">Liabilities &amp; Equity</span>
+      </h5>
+      <table class="fs-table">
+        <thead>
+          <tr>
+            <th data-i18n="fs_account">Account</th>
+            <th class="num" data-i18n="fs_current_period">Current Period</th>
+            {% if compare_yoy %}
+            <th class="num" data-i18n="fs_last_year">Last Year</th>
+            <th class="num" data-i18n="fs_change_pct">Change %</th>
+            {% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="fs-row-section-header">
+            <td colspan="{{ 4 if compare_yoy else 2 }}" data-i18n="fs_current_liabilities">Current Liabilities</td>
+          </tr>
+          {% for line in bs.liabilities.current %}
+          <tr class="fs-row-line">
+            <td>{{ line.label }}</td>
+            <td class="num">{{ signed_amt(line.current) }}</td>
+            {% if compare_yoy %}
+            <td class="num">{{ signed_amt(line.previous) }}</td>
+            <td class="num">{{ change_pct(line.current, line.previous) }}</td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+          <tr class="fs-row-subtotal">
+            <td>Total Current Liabilities</td>
+            <td class="num">{{ amt(bs.liabilities.total_current) }}</td>
+            {% if compare_yoy %}
+            <td class="num">{{ amt(bs.liabilities.total_current_prev) }}</td>
+            <td class="num">{{ change_pct(bs.liabilities.total_current, bs.liabilities.total_current_prev) }}</td>
+            {% endif %}
+          </tr>
+
+          <tr class="fs-row-section-header">
+            <td colspan="{{ 4 if compare_yoy else 2 }}" data-i18n="fs_non_current_liabilities">Non-Current Liabilities</td>
+          </tr>
+          {% for line in bs.liabilities.non_current %}
+          <tr class="fs-row-line">
+            <td>{{ line.label }}</td>
+            <td class="num">{{ signed_amt(line.current) }}</td>
+            {% if compare_yoy %}
+            <td class="num">{{ signed_amt(line.previous) }}</td>
+            <td class="num">{{ change_pct(line.current, line.previous) }}</td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+          <tr class="fs-row-subtotal">
+            <td>Total Non-Current Liabilities</td>
+            <td class="num">{{ amt(bs.liabilities.total_non_current) }}</td>
+            {% if compare_yoy %}
+            <td class="num">{{ amt(bs.liabilities.total_non_current_prev) }}</td>
+            <td class="num">{{ change_pct(bs.liabilities.total_non_current, bs.liabilities.total_non_current_prev) }}</td>
+            {% endif %}
+          </tr>
+
+          <tr class="fs-row-section-header">
+            <td colspan="{{ 4 if compare_yoy else 2 }}" data-i18n="fs_equity">Equity</td>
+          </tr>
+          {% for line in bs.equity.lines %}
+          <tr class="fs-row-line">
+            <td>{{ line.label }}</td>
+            <td class="num">{{ signed_amt(line.current) }}</td>
+            {% if compare_yoy %}
+            <td class="num">{{ signed_amt(line.previous) }}</td>
+            <td class="num">{{ change_pct(line.current, line.previous) }}</td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+          <tr class="fs-row-subtotal">
+            <td>Total Equity</td>
+            <td class="num">{{ amt(bs.equity.total) }}</td>
+            {% if compare_yoy %}
+            <td class="num">{{ amt(bs.equity.total_prev) }}</td>
+            <td class="num">{{ change_pct(bs.equity.total, bs.equity.total_prev) }}</td>
+            {% endif %}
+          </tr>
+
+          <tr class="fs-row-grand">
+            <td>TOTAL LIABILITIES &amp; EQUITY</td>
+            <td class="num">{{ amt(bs.total_liab_equity) }}</td>
+            {% if compare_yoy %}
+            <td class="num">{{ amt(bs.total_liab_equity_prev) }}</td>
+            <td class="num">{{ change_pct(bs.total_liab_equity, bs.total_liab_equity_prev) }}</td>
+            {% endif %}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Stacked bar chart -->
+  <div class="fs-section fs-chart-card">
+    <h5 class="fs-section-title">
+      <i class="fa-solid fa-chart-simple"></i>
+      Capital Structure
+    </h5>
+    <div class="fs-chart-wrap"><canvas id="fsBalanceChart"></canvas></div>
+  </div>
+
+  <script>
+  (function () {
+    var bsAssets   = {{ bs.assets.total | tojson }};
+    var bsLiab     = {{ bs.liabilities.total | tojson }};
+    var bsEquity   = {{ bs.equity.total | tojson }};
+    var bsCurA     = {{ bs.assets.total_current | tojson }};
+    var bsNonA     = {{ bs.assets.total_non_current | tojson }};
+    var bsCurL     = {{ bs.liabilities.total_current | tojson }};
+    var bsNonL     = {{ bs.liabilities.total_non_current | tojson }};
+    var ccy        = {{ ccy | tojson }};
+
+    function fmt(v) {
+      try { return window.odooDashFormatAmount(v, window.odooDashAmountMode()); }
+      catch (e) { return Math.round(v).toLocaleString(); }
+    }
+    function build() {
+      var canvas = document.getElementById('fsBalanceChart');
+      if (!canvas || !window.Chart) return;
+      if (window._fsBalance) { window._fsBalance.destroy(); }
+      window._fsBalance = new Chart(canvas.getContext('2d'), {
+        type: 'bar',
+        data: {
+          labels: ['Assets', 'Liabilities + Equity'],
+          datasets: [
+            { label: 'Current Assets',     data: [bsCurA, 0],    backgroundColor: '#3b82f6', stack: 's1' },
+            { label: 'Non-Current Assets', data: [bsNonA, 0],    backgroundColor: '#8b5cf6', stack: 's1' },
+            { label: 'Current Liabilities', data: [0, bsCurL],   backgroundColor: '#f59e0b', stack: 's2' },
+            { label: 'Non-Current Liabilities', data: [0, bsNonL], backgroundColor: '#ef4444', stack: 's2' },
+            { label: 'Equity',             data: [0, bsEquity],  backgroundColor: '#22c55e', stack: 's2' },
+          ],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'bottom' },
+            tooltip: { callbacks: { label: function (ctx) {
+              return ' ' + ctx.dataset.label + ': ' + ccy + ' ' + fmt(ctx.parsed.y);
+            } } },
+          },
+          scales: {
+            x: { stacked: true, grid: { display: false } },
+            y: { stacked: true, ticks: { callback: function (v) { return fmt(v); } } },
+          },
+        },
+      });
+    }
+    document.addEventListener('DOMContentLoaded', build);
+    document.addEventListener('odoo:amount-mode-change', build);
+    document.addEventListener('olens:language-change', build);
+  })();
+  </script>
+
+{# =========================================================== #}
+{# ================== TAB 3 — Trial Balance ================== #}
+{# =========================================================== #}
+{% elif tab == 'trial_balance' %}
+  {% set tb = snapshot.trial_balance %}
+  {% set k = tb.kpis %}
+
+  <!-- KPI cards -->
+  <div class="stat-grid">
+    <div class="stat-card">
+      <div class="stat-value stat-value-num" style="color:#2563eb">{{ amt(k.total_debits) }}</div>
+      <div class="stat-label" data-i18n="fs_total_debits">Total Debits</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value stat-value-num" style="color:#2563eb">{{ amt(k.total_credits) }}</div>
+      <div class="stat-label" data-i18n="fs_total_credits">Total Credits</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value stat-value-num" style="color:{{ '#16a34a' if k.difference == 0 else '#dc2626' }}">
+        {{ amt(k.difference) }}
+      </div>
+      <div class="stat-label" data-i18n="fs_difference">Difference</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value stat-value-num">{{ k.total_accounts }}</div>
+      <div class="stat-label" data-i18n="fs_total_accounts">Total Accounts</div>
+    </div>
+  </div>
+
+  <!-- Balance check banner -->
+  <div class="fs-section" style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">
+    {% if tb.balanced %}
+      <span class="fs-balance-check ok">
+        <i class="fa-solid fa-check-circle"></i>
+        <span data-i18n="fs_balanced">Balanced</span>
+      </span>
+      <small style="color:var(--text-muted)">Total Debits = Total Credits</small>
+    {% else %}
+      <span class="fs-balance-check bad">
+        <i class="fa-solid fa-circle-exclamation"></i>
+        <span data-i18n="fs_unbalanced">Unbalanced</span>
+      </span>
+      <small style="color:var(--text-muted)">
+        Out of balance by {{ amt(k.difference) }}
+      </small>
+    {% endif %}
+  </div>
+
+  <!-- TB table grouped by account type -->
+  {% set type_order = ['Asset', 'Liability', 'Equity', 'Revenue', 'Expense'] %}
+  {% set search_lc = search | lower %}
+  {% set type_filter_label = {
+    'all': 'All', 'asset': 'Asset', 'liability': 'Liability',
+    'equity': 'Equity', 'revenue': 'Revenue', 'expense': 'Expense'
+  } %}
+  {% set type_filter_match = type_filter_label[type_filter] %}
+
+  <div class="fs-section">
+    <h5 class="fs-section-title">
+      <i class="fa-solid fa-list-check"></i>
+      <span data-i18n="fs_trial_balance">Trial Balance</span>
+    </h5>
+    <div style="overflow-x:auto">
+      <table class="fs-table">
+        <thead>
+          <tr>
+            <th data-i18n="fs_account_code">Account Code</th>
+            <th data-i18n="fs_account_name">Account Name</th>
+            <th data-i18n="fs_account_type">Type</th>
+            <th class="num" data-i18n="fs_opening_debit">Opening Debit</th>
+            <th class="num" data-i18n="fs_opening_credit">Opening Credit</th>
+            <th class="num" data-i18n="fs_movement_debit">Movement Debit</th>
+            <th class="num" data-i18n="fs_movement_credit">Movement Credit</th>
+            <th class="num" data-i18n="fs_closing_debit">Closing Debit</th>
+            <th class="num" data-i18n="fs_closing_credit">Closing Credit</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% set ns = namespace(group_od=0, group_oc=0, group_md=0, group_mc=0, group_cd=0, group_cc=0, current_type=None, group_count=0, any_shown=false) %}
+          {% for t in type_order %}
+            {% set rows_in_group = [] %}
+            {% for line in tb.lines %}
+              {% if line.type == t %}
+                {% if type_filter == 'all' or type_filter_match == t %}
+                  {% if not search or search_lc in line.code|lower or search_lc in line.name|lower %}
+                    {{ rows_in_group.append(line) or '' }}
+                  {% endif %}
+                {% endif %}
+              {% endif %}
+            {% endfor %}
+            {% if rows_in_group %}
+              {% set ns.any_shown = true %}
+              <tr class="fs-tb-group-row">
+                <td colspan="9">{{ t }}</td>
+              </tr>
+              {% set gns = namespace(od=0, oc=0, md=0, mc=0, cd=0, cc=0) %}
+              {% for line in rows_in_group %}
+                <tr>
+                  <td>{{ line.code }}</td>
+                  <td>{{ line.name }}</td>
+                  <td><span class="badge badge-secondary">{{ line.type }}</span></td>
+                  <td class="num">{{ amt(line.opening_debit) }}</td>
+                  <td class="num">{{ amt(line.opening_credit) }}</td>
+                  <td class="num">{{ amt(line.movement_debit) }}</td>
+                  <td class="num">{{ amt(line.movement_credit) }}</td>
+                  <td class="num">{{ amt(line.closing_debit) }}</td>
+                  <td class="num">{{ amt(line.closing_credit) }}</td>
+                </tr>
+                {% set gns.od = gns.od + line.opening_debit %}
+                {% set gns.oc = gns.oc + line.opening_credit %}
+                {% set gns.md = gns.md + line.movement_debit %}
+                {% set gns.mc = gns.mc + line.movement_credit %}
+                {% set gns.cd = gns.cd + line.closing_debit %}
+                {% set gns.cc = gns.cc + line.closing_credit %}
+              {% endfor %}
+              <tr class="fs-tb-subtotal">
+                <td colspan="3">Subtotal — {{ t }}</td>
+                <td class="num">{{ amt(gns.od) }}</td>
+                <td class="num">{{ amt(gns.oc) }}</td>
+                <td class="num">{{ amt(gns.md) }}</td>
+                <td class="num">{{ amt(gns.mc) }}</td>
+                <td class="num">{{ amt(gns.cd) }}</td>
+                <td class="num">{{ amt(gns.cc) }}</td>
+              </tr>
+            {% endif %}
+          {% endfor %}
+          {% if not ns.any_shown %}
+            <tr><td colspan="9">
+              <div class="empty-state">
+                <i class="fa-solid fa-circle-info"></i>
+                <p>No accounts match the current filter.</p>
+              </div>
+            </td></tr>
+          {% else %}
+            <tr class="fs-row-grand">
+              <td colspan="3" data-i18n="fs_grand_total">GRAND TOTAL</td>
+              <td class="num">{{ amt(tb.totals.od) }}</td>
+              <td class="num">{{ amt(tb.totals.oc) }}</td>
+              <td class="num">{{ amt(tb.totals.md) }}</td>
+              <td class="num">{{ amt(tb.totals.mc) }}</td>
+              <td class="num">{{ amt(tb.totals.cd) }}</td>
+              <td class="num">{{ amt(tb.totals.cc) }}</td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+{# =========================================================== #}
+{# ===================== TAB 4 — Ratios ====================== #}
+{# =========================================================== #}
+{% elif tab == 'ratios' %}
+  {% set ratios = snapshot.ratios %}
+
+  {# Macro to bucket a value into a benchmark color. First matching rule
+     wins; subsequent ones are skipped via the `found` sentinel since
+     Jinja's loopcontrols extension (which provides {% break %}) is not
+     enabled in this app. #}
+  {% macro bench_color(value, benchmarks) -%}
+    {%- set ns = namespace(color='red', found=false) -%}
+    {%- for b in benchmarks -%}
+      {%- if not ns.found -%}
+        {%- if b.op == '>=' and value >= b.value -%}
+          {%- set ns.color = b.color -%}{%- set ns.found = true -%}
+        {%- elif b.op == '<=' and value <= b.value -%}
+          {%- set ns.color = b.color -%}{%- set ns.found = true -%}
+        {%- elif b.op == '<'  and value <  b.value -%}
+          {%- set ns.color = b.color -%}{%- set ns.found = true -%}
+        {%- elif b.op == '>'  and value >  b.value -%}
+          {%- set ns.color = b.color -%}{%- set ns.found = true -%}
+        {%- endif -%}
+      {%- endif -%}
+    {%- endfor -%}
+    {{- ns.color -}}
+  {%- endmacro %}
+
+  {% macro ratio_card(r) %}
+    {% set color = bench_color(r.value, r.benchmarks) %}
+    <div class="fs-ratio-card"
+         data-ratio="{{ r.key }}"
+         data-ratio-color="{{ color }}">
+      <div class="fs-ratio-card-head">
+        <h6 class="fs-ratio-name">{{ r.name }}</h6>
+        <span class="fs-ratio-bench {{ color }}" title="Benchmark indicator"></span>
+      </div>
+      <div class="fs-ratio-value {{ color }}">{{ r.value_str }}</div>
+      <div class="fs-ratio-viz">
+        {% if r.viz == 'gauge' %}
+          {{ ratio_gauge(r, color) }}
+        {% elif r.viz == 'bar' %}
+          {{ ratio_bar(r, color) }}
+        {% elif r.viz == 'donut' %}
+          {{ ratio_donut(r) }}
+        {% elif r.viz == 'sparkline' %}
+          {{ ratio_sparkline(r, color) }}
+        {% endif %}
+      </div>
+
+      <div class="fs-ratio-tooltip">
+        <div class="fs-tt-row">
+          <div class="fs-tt-label" data-i18n="fs_formula">Formula</div>
+          <div>{{ r.formula }}</div>
+        </div>
+        <div class="fs-tt-row">
+          <div class="fs-tt-label" data-i18n="fs_values">Values</div>
+          <div>{{ amt(r.numerator) }} ÷ {{ amt(r.denominator) }} = <strong>{{ r.value_str }}</strong></div>
+        </div>
+        <div class="fs-tt-row">
+          <div class="fs-tt-label" data-i18n="fs_benchmark">Benchmark</div>
+          {% for b in r.benchmarks %}
+          <div class="fs-tt-bench-row">
+            <span class="fs-ratio-bench {{ b.color }}"></span>
+            <span>{{ b.label }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="fs-tt-row">
+          <div class="fs-tt-label" data-i18n="fs_interpretation">Interpretation</div>
+          <div>{{ r.interpretation }}</div>
+        </div>
+      </div>
+    </div>
+  {% endmacro %}
+
+  {% macro ratio_gauge(r, color) %}
+    {# Semi-circle gauge using SVG arcs #}
+    {% set min_v = r.min if r.min is not none else 0 %}
+    {% set max_v = r.max if r.max is not none else 1 %}
+    {% set v = r.value %}
+    {% if v < min_v %}{% set v = min_v %}{% endif %}
+    {% if v > max_v %}{% set v = max_v %}{% endif %}
+    {% set pct = (v - min_v) / (max_v - min_v) if max_v != min_v else 0 %}
+    {% set angle = pct * 180 %}
+    {% set rad = (180 - angle) * 3.14159 / 180 %}
+    {% set fill = {'green':'#22c55e','yellow':'#f59e0b','red':'#ef4444'}[color] %}
+    <svg class="fs-gauge" viewBox="0 0 100 60" preserveAspectRatio="xMidYMid meet" dir="ltr">
+      <path d="M 10 55 A 40 40 0 0 1 90 55" fill="none" stroke="#e5e7eb" stroke-width="9" stroke-linecap="round"/>
+      <path d="M 10 55 A 40 40 0 0 1 90 55" fill="none" stroke="{{ fill }}" stroke-width="9" stroke-linecap="round"
+            stroke-dasharray="{{ '%.2f' % (pct * 125.66) }} 1000"/>
+      <text x="50" y="50" text-anchor="middle" font-size="12" font-weight="700" fill="var(--text)">
+        {{ r.value_str }}
+      </text>
+    </svg>
+  {% endmacro %}
+
+  {% macro ratio_bar(r, color) %}
+    {% set min_v = r.min if r.min is not none else 0 %}
+    {% set max_v = r.max if r.max is not none else 100 %}
+    {% set v = r.value %}
+    {% if v < min_v %}{% set v = min_v %}{% endif %}
+    {% if v > max_v %}{% set v = max_v %}{% endif %}
+    {% set pct = (v - min_v) / (max_v - min_v) * 100 if max_v != min_v else 0 %}
+    {% set fill = {'green':'#22c55e','yellow':'#f59e0b','red':'#ef4444'}[color] %}
+    <div style="width:100%">
+      <div class="fs-bar-track">
+        <div class="fs-bar-fill" style="width:{{ '%.1f' % pct }}%; background:{{ fill }};"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:.65rem;color:var(--text-muted);margin-top:.25rem">
+        <span>{{ min_v }}</span>
+        <span>{{ max_v }}</span>
+      </div>
+    </div>
+  {% endmacro %}
+
+  {% macro ratio_donut(r) %}
+    {% set parts = r.parts %}
+    {% set total = parts | sum(attribute='value') %}
+    {% if total == 0 %}{% set total = 1 %}{% endif %}
+    {% set ns = namespace(offset=0) %}
+    <svg class="fs-donut" viewBox="0 0 36 36" dir="ltr">
+      <circle cx="18" cy="18" r="14" fill="none" stroke="#e5e7eb" stroke-width="6"/>
+      {% for p in parts %}
+        {% set seg_pct = (p.value / total) * 100 %}
+        {% set dasharray = '%.2f %.2f' % (seg_pct, 100 - seg_pct) %}
+        <circle cx="18" cy="18" r="14" fill="none"
+                stroke="{{ p.color }}" stroke-width="6"
+                stroke-dasharray="{{ dasharray }}"
+                stroke-dashoffset="{{ '%.2f' % (-ns.offset) }}"
+                pathLength="100"
+                transform="rotate(-90 18 18)"/>
+        {% set ns.offset = ns.offset + seg_pct %}
+      {% endfor %}
+      <text x="18" y="20" text-anchor="middle" font-size="6" font-weight="700" fill="var(--text)">
+        {{ r.value_str }}
+      </text>
+    </svg>
+  {% endmacro %}
+
+  {% macro ratio_sparkline(r, color) %}
+    {% set history = r.history %}
+    {% set max_v = history | max %}
+    {% set min_v = history | min %}
+    {% set range = max_v - min_v if max_v != min_v else 1 %}
+    {% set fill = {'green':'#22c55e','yellow':'#f59e0b','red':'#ef4444'}[color] %}
+    {% set n = history | length %}
+    <svg class="fs-spark" viewBox="0 0 100 40" preserveAspectRatio="none" dir="ltr">
+      {% set ns = namespace(path='') %}
+      {% for h in history %}
+        {% set x = (loop.index0 / (n - 1) * 100) if n > 1 else 50 %}
+        {% set y = 35 - ((h - min_v) / range * 30) %}
+        {% if loop.first %}
+          {% set ns.path = 'M %.2f %.2f' % (x, y) %}
+        {% else %}
+          {% set ns.path = ns.path + ' L %.2f %.2f' % (x, y) %}
+        {% endif %}
+      {% endfor %}
+      <path d="{{ ns.path }}" fill="none" stroke="{{ fill }}" stroke-width="2.5"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      {% for h in history %}
+        {% set x = (loop.index0 / (n - 1) * 100) if n > 1 else 50 %}
+        {% set y = 35 - ((h - min_v) / range * 30) %}
+        <circle cx="{{ '%.2f' % x }}" cy="{{ '%.2f' % y }}" r="{{ 2 if loop.last else 1.5 }}"
+                fill="{{ fill }}"/>
+      {% endfor %}
+    </svg>
+  {% endmacro %}
+
+  <div class="fs-ratio-section">
+    <h6 class="fs-ratio-section-title">
+      <i class="fa-solid fa-droplet"></i> <span data-i18n="fs_liquidity_ratios">Liquidity Ratios</span>
+    </h6>
+    <div class="fs-ratio-grid">
+      {% for r in ratios.liquidity %}{{ ratio_card(r) }}{% endfor %}
+    </div>
+  </div>
+
+  <div class="fs-ratio-section">
+    <h6 class="fs-ratio-section-title">
+      <i class="fa-solid fa-chart-pie"></i> <span data-i18n="fs_profitability_ratios">Profitability Ratios</span>
+    </h6>
+    <div class="fs-ratio-grid">
+      {% for r in ratios.profitability %}{{ ratio_card(r) }}{% endfor %}
+    </div>
+  </div>
+
+  <div class="fs-ratio-section">
+    <h6 class="fs-ratio-section-title">
+      <i class="fa-solid fa-scale-unbalanced"></i> <span data-i18n="fs_leverage_ratios">Leverage Ratios</span>
+    </h6>
+    <div class="fs-ratio-grid">
+      {% for r in ratios.leverage %}{{ ratio_card(r) }}{% endfor %}
+    </div>
+  </div>
+
+  <div class="fs-ratio-section">
+    <h6 class="fs-ratio-section-title">
+      <i class="fa-solid fa-bolt"></i> <span data-i18n="fs_efficiency_ratios">Efficiency Ratios</span>
+    </h6>
+    <div class="fs-ratio-grid">
+      {% for r in ratios.efficiency %}{{ ratio_card(r) }}{% endfor %}
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    // Re-tint ratio card glow with the bench color so hover halo matches the
+    // benchmark indicator (overrides the value-text-color default from
+    // window.olensRefreshCardGlow). Runs after main.js applies its defaults.
+    function tint() {
+      var palette = { green: [34,197,94], yellow: [245,158,11], red: [239,68,68] };
+      document.querySelectorAll('.fs-ratio-card[data-ratio-color]').forEach(function (card) {
+        var c = card.getAttribute('data-ratio-color');
+        var rgb = palette[c] || [107, 114, 128];
+        card.style.setProperty('--card-glow-color',
+          '0 0 30px rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ', 0.35)');
+      });
+    }
+    document.addEventListener('DOMContentLoaded', tint);
+    window.addEventListener('load', tint);
+  })();
+  </script>
+
+{% endif %}{# end tab dispatch #}
+
+{% endif %}{# end snapshot check #}
+
+{% endblock %}

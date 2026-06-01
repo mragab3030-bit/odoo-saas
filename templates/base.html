@@ -143,6 +143,10 @@
         <i class="fa-solid fa-diagram-project"></i> <span data-i18n="analytic">Analytic</span>
         {% if not f_analytic %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
       </a>
+      <a href="{{ url_for('financial_statements') }}"
+         class="nav-item {% if request.endpoint == 'financial_statements' %}active{% endif %}">
+        <i class="fa-solid fa-book-open"></i> <span data-i18n="financial_statements">Financial Statements</span>
+      </a>
 
       {% set f_inv = features.get('inventory', True) %}
       <div class="sidebar-section-label" style="margin-top:.75rem" data-i18n="inventory">Inventory</div>

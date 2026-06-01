@@ -1071,3 +1071,553 @@ def version_info(version_major, edition):
         'server_serie': serie,
         'protocol_version': 1,
     }
+
+
+# ---------------------------------------------------------------------------
+# Financial statements — hand-tuned figures for a mid-size Saudi trading
+# company so that:
+#   * Balance Sheet balances (Assets == Liabilities + Equity)
+#   * Trial Balance balances (Total Debits == Total Credits)
+#   * Current-year P&L net profit feeds Retained Earnings → Equity
+#   * Ratios are derivable from the underlying numbers
+# Amounts are in SAR (full units, no scaling).
+# ---------------------------------------------------------------------------
+
+# Current period P&L line items (one row per account).
+FS_PNL_LINES = {
+    # Revenue (positive)
+    'product_sales':         ('Product Sales',              'revenue', 12_400_000, 10_800_000),
+    'service_revenue':       ('Service Revenue',            'revenue',  5_200_000,  4_500_000),
+    'other_income':          ('Other Income',               'revenue',    900_000,    900_000),
+    # Cost of Revenue (positive figures, treated as subtractions)
+    'cogs':                  ('Cost of Goods Sold',         'cogs',     8_600_000,  7_600_000),
+    'direct_labor':          ('Direct Labor',               'cogs',     1_200_000,  1_050_000),
+    # Operating expenses (positive figures, treated as subtractions)
+    'salaries':              ('Salaries & Wages',           'opex',     2_800_000,  2_550_000),
+    'rent_utilities':        ('Rent & Utilities',           'opex',       720_000,    680_000),
+    'marketing':             ('Marketing & Advertising',    'opex',       580_000,    500_000),
+    'depreciation':          ('Depreciation',               'opex',       450_000,    430_000),
+    'other_opex':            ('Other Operating Expenses',   'opex',       600_000,    540_000),
+    # Other income / expenses (signed — positive = income, negative = cost)
+    'finance_income':        ('Finance Income',             'other_inc',   180_000,    120_000),
+    'finance_costs':         ('Finance Costs',              'other_exp',   420_000,    380_000),
+    # Tax (subtraction)
+    'tax_expense':           ('Tax Expense',                'tax',         800_000,    580_000),
+}
+
+
+# Balance sheet items keyed by section. Tuples: (label, current, previous_year).
+FS_BALANCE_SHEET = {
+    'current_assets': [
+        ('Cash & Bank',                   2_800_000, 2_100_000),
+        ('Accounts Receivable',           4_200_000, 3_700_000),
+        ('Inventory',                     5_600_000, 5_100_000),
+        ('Other Current Assets',            350_000,   320_000),
+    ],
+    'non_current_assets': [
+        ('Property & Equipment',          8_500_000, 8_500_000),
+        ('Accumulated Depreciation',     -1_800_000, -1_350_000),
+        ('Other Non-Current Assets',        950_000,   910_000),
+    ],
+    'current_liabilities': [
+        ('Accounts Payable',              3_100_000, 2_950_000),
+        ('Short-term Loans',              1_800_000, 2_000_000),
+        ('Other Current Liabilities',       720_000,   680_000),
+    ],
+    'non_current_liabilities': [
+        ('Long-term Loans',               4_200_000, 4_800_000),
+        ('Other Non-Current Liabilities',   380_000,   350_000),
+    ],
+    'equity': [
+        ('Share Capital',                 5_000_000, 5_000_000),
+        ('Retained Earnings',             2_890_000, 1_490_000),
+        # Current year profit is computed from FS_PNL_LINES and injected at runtime.
+    ],
+    # Hand-tuned current-year profit (matches prior-year P&L net profit so
+    # BS comparison columns balance: 19.28M assets == 10.78M liab + 8.5M eq).
+    'current_year_profit_previous': 2_010_000,
+}
+
+
+# Trial Balance — one row per GL account. Tuples:
+#   (code, name, type, opening_debit, opening_credit, movement_debit, movement_credit)
+# Closing = opening + movement (per side); we derive both closing columns.
+# The figures are chosen so that:
+#   * Total opening debits == total opening credits
+#   * Total period debits == total period credits
+#   * Total closing debits == total closing credits
+#   * P&L closing balances match FS_PNL_LINES amounts
+#   * BS closing balances match FS_BALANCE_SHEET (current period)
+FS_TRIAL_BALANCE = [
+    # ASSETS — normally debit balance
+    ('1100', 'Cash & Bank',                 'Asset',      2_100_000,        0, 18_400_000, 17_700_000),
+    ('1200', 'Accounts Receivable',         'Asset',      3_700_000,        0,  9_100_000,  8_600_000),
+    ('1300', 'Inventory',                   'Asset',      5_100_000,        0,  3_200_000,  2_700_000),
+    ('1400', 'Other Current Assets',        'Asset',        320_000,        0,    180_000,    150_000),
+    ('1500', 'Property & Equipment',        'Asset',      8_500_000,        0,          0,          0),
+    ('1510', 'Accumulated Depreciation',    'Asset',              0, 1_350_000,          0,    450_000),
+    ('1600', 'Other Non-Current Assets',    'Asset',        910_000,        0,     90_000,     50_000),
+    # LIABILITIES — normally credit balance
+    ('2100', 'Accounts Payable',            'Liability',          0, 2_950_000,  6_400_000,  6_550_000),
+    ('2200', 'Short-term Loans',            'Liability',          0, 2_000_000,    400_000,    200_000),
+    ('2300', 'Other Current Liabilities',   'Liability',          0,   680_000,    480_000,    520_000),
+    ('2500', 'Long-term Loans',             'Liability',          0, 4_800_000,    700_000,    100_000),
+    ('2600', 'Other Non-Current Liabilities','Liability',         0,   350_000,     20_000,     50_000),
+    # EQUITY — normally credit balance
+    # RE opening = prior RE 1,490K + prior CY profit 2,010K rolled in at close = 3,500K.
+    # Period movement = 610K distribution (debit) bringing closing RE to 2,890K.
+    ('3000', 'Share Capital',               'Equity',             0, 5_000_000,          0,          0),
+    ('3100', 'Retained Earnings',           'Equity',             0, 3_500_000,    610_000,         0),
+    # REVENUE — credit balance during the year
+    ('4000', 'Product Sales',               'Revenue',            0,         0,          0, 12_400_000),
+    ('4100', 'Service Revenue',             'Revenue',            0,         0,          0,  5_200_000),
+    ('4900', 'Other Income',                'Revenue',            0,         0,          0,    900_000),
+    ('4950', 'Finance Income',              'Revenue',            0,         0,          0,    180_000),
+    # EXPENSES — debit balance during the year
+    ('5000', 'Cost of Goods Sold',          'Expense',            0,         0,  8_600_000,          0),
+    ('5050', 'Direct Labor',                'Expense',            0,         0,  1_200_000,          0),
+    ('5100', 'Salaries & Wages',            'Expense',            0,         0,  2_800_000,          0),
+    ('5200', 'Rent & Utilities',            'Expense',            0,         0,    720_000,          0),
+    ('5300', 'Marketing & Advertising',     'Expense',            0,         0,    580_000,          0),
+    ('5400', 'Depreciation',                'Expense',            0,         0,    450_000,          0),
+    ('5500', 'Other Operating Expenses',    'Expense',            0,         0,    600_000,          0),
+    ('5600', 'Finance Costs',               'Expense',            0,         0,    420_000,          0),
+    ('5900', 'Tax Expense',                 'Expense',            0,         0,    800_000,          0),
+]
+
+
+def _pnl_compute(period='current'):
+    """Compute aggregated P&L figures from FS_PNL_LINES."""
+    idx = 2 if period == 'current' else 3
+    by_cat = {}
+    for label, cat, cur, prev in FS_PNL_LINES.values():
+        v = cur if period == 'current' else prev
+        by_cat.setdefault(cat, 0)
+        by_cat[cat] += v
+
+    revenue = by_cat.get('revenue', 0)
+    cogs = by_cat.get('cogs', 0)
+    opex = by_cat.get('opex', 0)
+    other_inc = by_cat.get('other_inc', 0)
+    other_exp = by_cat.get('other_exp', 0)
+    tax = by_cat.get('tax', 0)
+
+    gross_profit = revenue - cogs
+    operating_profit = gross_profit - opex
+    net_profit_before_tax = operating_profit + other_inc - other_exp
+    net_profit = net_profit_before_tax - tax
+    return {
+        'revenue': revenue, 'cogs': cogs, 'opex': opex,
+        'other_inc': other_inc, 'other_exp': other_exp, 'tax': tax,
+        'gross_profit': gross_profit,
+        'operating_profit': operating_profit,
+        'net_profit_before_tax': net_profit_before_tax,
+        'net_profit': net_profit,
+        'gross_margin_pct':       (gross_profit / revenue * 100) if revenue else 0,
+        'operating_margin_pct':   (operating_profit / revenue * 100) if revenue else 0,
+        'net_margin_pct':         (net_profit / revenue * 100) if revenue else 0,
+    }
+
+
+def financial_statements_snapshot():
+    """Return a fully-populated, internally-consistent snapshot of all four
+    statements (P&L, Balance Sheet, Trial Balance, Ratios)."""
+    pnl_cur = _pnl_compute('current')
+    pnl_prev = _pnl_compute('previous')
+
+    def _row(key):
+        label, _cat, cur, prev = FS_PNL_LINES[key]
+        return {'label': label, 'current': cur, 'previous': prev}
+
+    pnl_sections = [
+        {
+            'key': 'revenue',
+            'label': 'Revenue',
+            'lines': [_row('product_sales'), _row('service_revenue'), _row('other_income')],
+            'subtotal_label': 'TOTAL REVENUE',
+            'subtotal_current': pnl_cur['revenue'],
+            'subtotal_previous': pnl_prev['revenue'],
+            'sign': 1,
+        },
+        {
+            'key': 'cogs',
+            'label': 'Cost of Revenue',
+            'lines': [_row('cogs'), _row('direct_labor')],
+            'subtotal_label': 'GROSS PROFIT',
+            'subtotal_current': pnl_cur['gross_profit'],
+            'subtotal_previous': pnl_prev['gross_profit'],
+            'subtotal_pct_current': pnl_cur['gross_margin_pct'],
+            'subtotal_pct_previous': pnl_prev['gross_margin_pct'],
+            'subtotal_pct_label': 'Gross Margin %',
+            'sign': -1,
+        },
+        {
+            'key': 'opex',
+            'label': 'Operating Expenses',
+            'lines': [_row('salaries'), _row('rent_utilities'), _row('marketing'),
+                      _row('depreciation'), _row('other_opex')],
+            'subtotal_label': 'OPERATING PROFIT',
+            'subtotal_current': pnl_cur['operating_profit'],
+            'subtotal_previous': pnl_prev['operating_profit'],
+            'subtotal_pct_current': pnl_cur['operating_margin_pct'],
+            'subtotal_pct_previous': pnl_prev['operating_margin_pct'],
+            'subtotal_pct_label': 'Operating Margin %',
+            'sign': -1,
+        },
+        {
+            'key': 'other',
+            'label': 'Other Income / Expenses',
+            'lines': [_row('finance_income'), _row('finance_costs')],
+            'subtotal_label': 'NET PROFIT BEFORE TAX',
+            'subtotal_current': pnl_cur['net_profit_before_tax'],
+            'subtotal_previous': pnl_prev['net_profit_before_tax'],
+            'sign': 0,  # mixed
+        },
+        {
+            'key': 'tax',
+            'label': '',
+            'lines': [_row('tax_expense')],
+            'subtotal_label': 'NET PROFIT',
+            'subtotal_current': pnl_cur['net_profit'],
+            'subtotal_previous': pnl_prev['net_profit'],
+            'subtotal_pct_current': pnl_cur['net_margin_pct'],
+            'subtotal_pct_previous': pnl_prev['net_margin_pct'],
+            'subtotal_pct_label': 'Net Margin %',
+            'sign': -1,
+        },
+    ]
+
+    # ---- Balance Sheet ----
+    def _bs_block(rows):
+        out = []
+        total_cur = 0
+        total_prev = 0
+        for label, cur, prev in rows:
+            out.append({'label': label, 'current': cur, 'previous': prev})
+            total_cur += cur
+            total_prev += prev
+        return out, total_cur, total_prev
+
+    ca_lines, ca_cur, ca_prev = _bs_block(FS_BALANCE_SHEET['current_assets'])
+    nca_lines, nca_cur, nca_prev = _bs_block(FS_BALANCE_SHEET['non_current_assets'])
+    cl_lines, cl_cur, cl_prev = _bs_block(FS_BALANCE_SHEET['current_liabilities'])
+    ncl_lines, ncl_cur, ncl_prev = _bs_block(FS_BALANCE_SHEET['non_current_liabilities'])
+
+    equity_lines, eq_cur, eq_prev = _bs_block(FS_BALANCE_SHEET['equity'])
+    # Append current-year profit row sourced from the P&L
+    equity_lines.append({
+        'label': 'Current Year Profit',
+        'current': pnl_cur['net_profit'],
+        'previous': FS_BALANCE_SHEET['current_year_profit_previous'],
+    })
+    eq_cur += pnl_cur['net_profit']
+    eq_prev += FS_BALANCE_SHEET['current_year_profit_previous']
+
+    total_assets_cur = ca_cur + nca_cur
+    total_assets_prev = ca_prev + nca_prev
+    total_liab_cur = cl_cur + ncl_cur
+    total_liab_prev = cl_prev + ncl_prev
+    total_le_cur = total_liab_cur + eq_cur
+    total_le_prev = total_liab_prev + eq_prev
+
+    working_capital_cur = ca_cur - cl_cur
+    current_ratio_cur = (ca_cur / cl_cur) if cl_cur else 0
+    debt_to_equity_cur = (total_liab_cur / eq_cur) if eq_cur else 0
+    debt_ratio_cur = (total_liab_cur / total_assets_cur) if total_assets_cur else 0
+
+    # Cash and ST/LT debt extracted from BS for ratio formulas.
+    cash_cur = next((r['current'] for r in ca_lines if r['label'] == 'Cash & Bank'), 0)
+    inventory_cur = next((r['current'] for r in ca_lines if r['label'] == 'Inventory'), 0)
+    ar_cur = next((r['current'] for r in ca_lines if r['label'] == 'Accounts Receivable'), 0)
+    ap_cur = next((r['current'] for r in cl_lines if r['label'] == 'Accounts Payable'), 0)
+    st_debt_cur = next((r['current'] for r in cl_lines if r['label'] == 'Short-term Loans'), 0)
+    lt_debt_cur = next((r['current'] for r in ncl_lines if r['label'] == 'Long-term Loans'), 0)
+
+    bs = {
+        'assets': {
+            'current': ca_lines, 'total_current': ca_cur, 'total_current_prev': ca_prev,
+            'non_current': nca_lines, 'total_non_current': nca_cur, 'total_non_current_prev': nca_prev,
+            'total': total_assets_cur, 'total_prev': total_assets_prev,
+        },
+        'liabilities': {
+            'current': cl_lines, 'total_current': cl_cur, 'total_current_prev': cl_prev,
+            'non_current': ncl_lines, 'total_non_current': ncl_cur, 'total_non_current_prev': ncl_prev,
+            'total': total_liab_cur, 'total_prev': total_liab_prev,
+        },
+        'equity': {
+            'lines': equity_lines, 'total': eq_cur, 'total_prev': eq_prev,
+        },
+        'total_liab_equity': total_le_cur,
+        'total_liab_equity_prev': total_le_prev,
+        'balanced': total_assets_cur == total_le_cur,
+        'difference': total_assets_cur - total_le_cur,
+        'kpis': {
+            'total_assets': total_assets_cur,
+            'total_liabilities': total_liab_cur,
+            'total_equity': eq_cur,
+            'current_ratio': current_ratio_cur,
+            'debt_to_equity': debt_to_equity_cur,
+            'working_capital': working_capital_cur,
+        },
+    }
+
+    # ---- Trial Balance ----
+    tb_lines = []
+    grand = {'od': 0, 'oc': 0, 'md': 0, 'mc': 0, 'cd': 0, 'cc': 0}
+    for code, name, atype, od, oc, md, mc in FS_TRIAL_BALANCE:
+        net_open = od - oc
+        net_move = md - mc
+        net_close = net_open + net_move
+        cd = net_close if net_close > 0 else 0
+        cc = -net_close if net_close < 0 else 0
+        tb_lines.append({
+            'code': code, 'name': name, 'type': atype,
+            'opening_debit': od, 'opening_credit': oc,
+            'movement_debit': md, 'movement_credit': mc,
+            'closing_debit': cd, 'closing_credit': cc,
+        })
+        grand['od'] += od; grand['oc'] += oc
+        grand['md'] += md; grand['mc'] += mc
+        grand['cd'] += cd; grand['cc'] += cc
+
+    tb = {
+        'lines': tb_lines,
+        'totals': grand,
+        'kpis': {
+            'total_debits': grand['cd'],
+            'total_credits': grand['cc'],
+            'difference': grand['cd'] - grand['cc'],
+            'total_accounts': len(tb_lines),
+        },
+        'balanced': grand['cd'] == grand['cc'],
+    }
+
+    # ---- Ratios ----
+    revenue = pnl_cur['revenue']
+    net_profit = pnl_cur['net_profit']
+    gross_profit = pnl_cur['gross_profit']
+    quick_ratio = (ca_cur - inventory_cur) / cl_cur if cl_cur else 0
+    cash_ratio = cash_cur / cl_cur if cl_cur else 0
+    roa = (net_profit / total_assets_cur * 100) if total_assets_cur else 0
+    roe = (net_profit / eq_cur * 100) if eq_cur else 0
+    equity_multiplier = total_assets_cur / eq_cur if eq_cur else 0
+    asset_turnover = revenue / total_assets_cur if total_assets_cur else 0
+    receivables_turnover = revenue / ar_cur if ar_cur else 0
+    payables_turnover = (pnl_cur['cogs']) / ap_cur if ap_cur else 0
+    st_lt_ratio = st_debt_cur / lt_debt_cur if lt_debt_cur else 0
+
+    ratios = {
+        'liquidity': [
+            {'key': 'current_ratio', 'name': 'Current Ratio',
+             'value': current_ratio_cur, 'value_str': f'{current_ratio_cur:.2f}',
+             'formula': 'Current Assets ÷ Current Liabilities',
+             'numerator': ca_cur, 'denominator': cl_cur,
+             'unit': 'x', 'viz': 'gauge',
+             'min': 0, 'max': 3,
+             'benchmarks': [
+                {'op': '>=', 'value': 1.5, 'color': 'green', 'label': 'Healthy (≥ 1.5)'},
+                {'op': '>=', 'value': 1.0, 'color': 'yellow', 'label': 'Adequate (1.0 – 1.5)'},
+                {'op': '<',  'value': 1.0, 'color': 'red', 'label': 'Tight (< 1.0)'},
+             ],
+             'interpretation': f'The company can cover short-term debts {current_ratio_cur:.2f}× over.'},
+            {'key': 'quick_ratio', 'name': 'Quick Ratio',
+             'value': quick_ratio, 'value_str': f'{quick_ratio:.2f}',
+             'formula': '(Current Assets − Inventory) ÷ Current Liabilities',
+             'numerator': ca_cur - inventory_cur, 'denominator': cl_cur,
+             'unit': 'x', 'viz': 'gauge',
+             'min': 0, 'max': 2,
+             'benchmarks': [
+                {'op': '>=', 'value': 1.0, 'color': 'green', 'label': 'Healthy (≥ 1.0)'},
+                {'op': '>=', 'value': 0.5, 'color': 'yellow', 'label': 'Adequate (0.5 – 1.0)'},
+                {'op': '<',  'value': 0.5, 'color': 'red', 'label': 'Tight (< 0.5)'},
+             ],
+             'interpretation': f'Without selling inventory, the company covers {quick_ratio:.2f}× of short-term debt.'},
+            {'key': 'cash_ratio', 'name': 'Cash Ratio',
+             'value': cash_ratio, 'value_str': f'{cash_ratio:.2f}',
+             'formula': 'Cash ÷ Current Liabilities',
+             'numerator': cash_cur, 'denominator': cl_cur,
+             'unit': 'x', 'viz': 'gauge',
+             'min': 0, 'max': 1.2,
+             'benchmarks': [
+                {'op': '>=', 'value': 0.5, 'color': 'green', 'label': 'Healthy (≥ 0.5)'},
+                {'op': '>=', 'value': 0.2, 'color': 'yellow', 'label': 'Adequate (0.2 – 0.5)'},
+                {'op': '<',  'value': 0.2, 'color': 'red', 'label': 'Tight (< 0.2)'},
+             ],
+             'interpretation': f'Cash alone covers {cash_ratio:.2f}× of short-term obligations.'},
+        ],
+        'profitability': [
+            {'key': 'gross_margin', 'name': 'Gross Margin %',
+             'value': pnl_cur['gross_margin_pct'], 'value_str': f"{pnl_cur['gross_margin_pct']:.1f}%",
+             'formula': 'Gross Profit ÷ Revenue × 100',
+             'numerator': gross_profit, 'denominator': revenue,
+             'unit': '%', 'viz': 'bar',
+             'min': 0, 'max': 100,
+             'benchmarks': [
+                {'op': '>=', 'value': 40, 'color': 'green', 'label': 'Strong (≥ 40%)'},
+                {'op': '>=', 'value': 20, 'color': 'yellow', 'label': 'Average (20 – 40%)'},
+                {'op': '<',  'value': 20, 'color': 'red', 'label': 'Weak (< 20%)'},
+             ],
+             'interpretation': f'Each SAR of revenue keeps {pnl_cur["gross_margin_pct"]:.1f}% as gross profit.'},
+            {'key': 'net_margin', 'name': 'Net Margin %',
+             'value': pnl_cur['net_margin_pct'], 'value_str': f"{pnl_cur['net_margin_pct']:.1f}%",
+             'formula': 'Net Profit ÷ Revenue × 100',
+             'numerator': net_profit, 'denominator': revenue,
+             'unit': '%', 'viz': 'bar',
+             'min': 0, 'max': 50,
+             'benchmarks': [
+                {'op': '>=', 'value': 15, 'color': 'green', 'label': 'Strong (≥ 15%)'},
+                {'op': '>=', 'value': 5,  'color': 'yellow', 'label': 'Average (5 – 15%)'},
+                {'op': '<',  'value': 5,  'color': 'red', 'label': 'Weak (< 5%)'},
+             ],
+             'interpretation': f'Bottom-line margin: {pnl_cur["net_margin_pct"]:.1f}% of revenue.'},
+            {'key': 'roa', 'name': 'Return on Assets (ROA)',
+             'value': roa, 'value_str': f'{roa:.1f}%',
+             'formula': 'Net Profit ÷ Total Assets × 100',
+             'numerator': net_profit, 'denominator': total_assets_cur,
+             'unit': '%', 'viz': 'gauge',
+             'min': 0, 'max': 25,
+             'benchmarks': [
+                {'op': '>=', 'value': 10, 'color': 'green', 'label': 'Strong (≥ 10%)'},
+                {'op': '>=', 'value': 5,  'color': 'yellow', 'label': 'Average (5 – 10%)'},
+                {'op': '<',  'value': 5,  'color': 'red', 'label': 'Weak (< 5%)'},
+             ],
+             'interpretation': f'Every SAR of assets yields {roa:.1f}% in net profit.'},
+            {'key': 'roe', 'name': 'Return on Equity (ROE)',
+             'value': roe, 'value_str': f'{roe:.1f}%',
+             'formula': 'Net Profit ÷ Total Equity × 100',
+             'numerator': net_profit, 'denominator': eq_cur,
+             'unit': '%', 'viz': 'gauge',
+             'min': 0, 'max': 40,
+             'benchmarks': [
+                {'op': '>=', 'value': 15, 'color': 'green', 'label': 'Strong (≥ 15%)'},
+                {'op': '>=', 'value': 8,  'color': 'yellow', 'label': 'Average (8 – 15%)'},
+                {'op': '<',  'value': 8,  'color': 'red', 'label': 'Weak (< 8%)'},
+             ],
+             'interpretation': f'Shareholders earn {roe:.1f}% on equity invested.'},
+        ],
+        'leverage': [
+            {'key': 'debt_equity', 'name': 'Debt to Equity',
+             'value': debt_to_equity_cur, 'value_str': f'{debt_to_equity_cur:.2f}',
+             'formula': 'Total Liabilities ÷ Total Equity',
+             'numerator': total_liab_cur, 'denominator': eq_cur,
+             'unit': 'x', 'viz': 'donut',
+             'parts': [
+                {'label': 'Liabilities', 'value': total_liab_cur, 'color': '#ef4444'},
+                {'label': 'Equity',      'value': eq_cur,         'color': '#22c55e'},
+             ],
+             'benchmarks': [
+                {'op': '<=', 'value': 1.0, 'color': 'green', 'label': 'Healthy (≤ 1.0)'},
+                {'op': '<=', 'value': 2.0, 'color': 'yellow', 'label': 'Moderate (1.0 – 2.0)'},
+                {'op': '>',  'value': 2.0, 'color': 'red', 'label': 'High (> 2.0)'},
+             ],
+             'interpretation': f'For every SAR of equity, the company carries {debt_to_equity_cur:.2f} SAR of debt.'},
+            {'key': 'debt_ratio', 'name': 'Debt Ratio',
+             'value': debt_ratio_cur * 100, 'value_str': f'{debt_ratio_cur*100:.1f}%',
+             'formula': 'Total Liabilities ÷ Total Assets',
+             'numerator': total_liab_cur, 'denominator': total_assets_cur,
+             'unit': '%', 'viz': 'bar',
+             'min': 0, 'max': 100,
+             'benchmarks': [
+                {'op': '<=', 'value': 40, 'color': 'green', 'label': 'Low (≤ 40%)'},
+                {'op': '<=', 'value': 60, 'color': 'yellow', 'label': 'Moderate (40 – 60%)'},
+                {'op': '>',  'value': 60, 'color': 'red', 'label': 'High (> 60%)'},
+             ],
+             'interpretation': f'{debt_ratio_cur*100:.1f}% of assets are financed by debt.'},
+            {'key': 'st_lt_debt', 'name': 'ST / LT Debt',
+             'value': st_lt_ratio, 'value_str': f'{st_lt_ratio:.2f}',
+             'formula': 'Short-term Debt ÷ Long-term Debt',
+             'numerator': st_debt_cur, 'denominator': lt_debt_cur,
+             'unit': 'x', 'viz': 'donut',
+             'parts': [
+                {'label': 'Short-term', 'value': st_debt_cur, 'color': '#f59e0b'},
+                {'label': 'Long-term',  'value': lt_debt_cur, 'color': '#3b82f6'},
+             ],
+             'benchmarks': [
+                {'op': '<=', 'value': 0.5, 'color': 'green', 'label': 'Mostly long-term (≤ 0.5)'},
+                {'op': '<=', 'value': 1.0, 'color': 'yellow', 'label': 'Balanced (0.5 – 1.0)'},
+                {'op': '>',  'value': 1.0, 'color': 'red', 'label': 'ST-heavy (> 1.0)'},
+             ],
+             'interpretation': f'Short-term debt is {st_lt_ratio:.2f}× long-term debt.'},
+            {'key': 'equity_multiplier', 'name': 'Equity Multiplier',
+             'value': equity_multiplier, 'value_str': f'{equity_multiplier:.2f}',
+             'formula': 'Total Assets ÷ Total Equity',
+             'numerator': total_assets_cur, 'denominator': eq_cur,
+             'unit': 'x', 'viz': 'gauge',
+             'min': 1, 'max': 4,
+             'benchmarks': [
+                {'op': '<=', 'value': 2.0, 'color': 'green', 'label': 'Low leverage (≤ 2.0)'},
+                {'op': '<=', 'value': 3.0, 'color': 'yellow', 'label': 'Moderate (2.0 – 3.0)'},
+                {'op': '>',  'value': 3.0, 'color': 'red', 'label': 'High (> 3.0)'},
+             ],
+             'interpretation': f'Assets are {equity_multiplier:.2f}× the equity base.'},
+        ],
+        'efficiency': [
+            {'key': 'asset_turnover', 'name': 'Asset Turnover',
+             'value': asset_turnover, 'value_str': f'{asset_turnover:.2f}',
+             'formula': 'Revenue ÷ Total Assets',
+             'numerator': revenue, 'denominator': total_assets_cur,
+             'unit': 'x', 'viz': 'sparkline',
+             'history': [0.78, 0.82, 0.85, 0.88, asset_turnover],
+             'benchmarks': [
+                {'op': '>=', 'value': 1.0, 'color': 'green', 'label': 'Efficient (≥ 1.0)'},
+                {'op': '>=', 'value': 0.5, 'color': 'yellow', 'label': 'Average (0.5 – 1.0)'},
+                {'op': '<',  'value': 0.5, 'color': 'red', 'label': 'Low (< 0.5)'},
+             ],
+             'interpretation': f'Each SAR of assets generates {asset_turnover:.2f} SAR of revenue.'},
+            {'key': 'receivables_turnover', 'name': 'Receivables Turnover',
+             'value': receivables_turnover, 'value_str': f'{receivables_turnover:.2f}',
+             'formula': 'Revenue ÷ Accounts Receivable',
+             'numerator': revenue, 'denominator': ar_cur,
+             'unit': 'x', 'viz': 'sparkline',
+             'history': [3.6, 3.9, 4.1, 4.3, receivables_turnover],
+             'benchmarks': [
+                {'op': '>=', 'value': 6.0, 'color': 'green', 'label': 'Fast (≥ 6×)'},
+                {'op': '>=', 'value': 3.0, 'color': 'yellow', 'label': 'Average (3 – 6×)'},
+                {'op': '<',  'value': 3.0, 'color': 'red', 'label': 'Slow (< 3×)'},
+             ],
+             'interpretation': f'Receivables collected {receivables_turnover:.2f}× per year (~{int(365/receivables_turnover) if receivables_turnover else 0} days DSO).'},
+            {'key': 'payables_turnover', 'name': 'Payables Turnover',
+             'value': payables_turnover, 'value_str': f'{payables_turnover:.2f}',
+             'formula': 'COGS ÷ Accounts Payable',
+             'numerator': pnl_cur['cogs'], 'denominator': ap_cur,
+             'unit': 'x', 'viz': 'sparkline',
+             'history': [2.4, 2.6, 2.8, 3.0, payables_turnover],
+             'benchmarks': [
+                {'op': '<=', 'value': 4.0, 'color': 'green', 'label': 'Slow payer — good cash mgmt (≤ 4×)'},
+                {'op': '<=', 'value': 8.0, 'color': 'yellow', 'label': 'Moderate (4 – 8×)'},
+                {'op': '>',  'value': 8.0, 'color': 'red', 'label': 'Fast payer — burns cash (> 8×)'},
+             ],
+             'interpretation': f'Payables cleared {payables_turnover:.2f}× per year (~{int(365/payables_turnover) if payables_turnover else 0} days DPO).'},
+        ],
+    }
+
+    return {
+        'currency': DEMO_CURRENCY_NAME,
+        'pnl': {
+            'sections': pnl_sections,
+            'kpis': {
+                'total_revenue': pnl_cur['revenue'],
+                'gross_profit': pnl_cur['gross_profit'],
+                'operating_profit': pnl_cur['operating_profit'],
+                'net_profit': pnl_cur['net_profit'],
+                'gross_margin_pct': pnl_cur['gross_margin_pct'],
+                'net_margin_pct': pnl_cur['net_margin_pct'],
+            },
+            'compare_kpis': {
+                'total_revenue': pnl_prev['revenue'],
+                'gross_profit': pnl_prev['gross_profit'],
+                'operating_profit': pnl_prev['operating_profit'],
+                'net_profit': pnl_prev['net_profit'],
+                'gross_margin_pct': pnl_prev['gross_margin_pct'],
+                'net_margin_pct': pnl_prev['net_margin_pct'],
+            },
+            'waterfall': {
+                'labels': ['Revenue', 'Gross Profit', 'Operating Profit', 'Net Profit'],
+                'values': [pnl_cur['revenue'], pnl_cur['gross_profit'],
+                           pnl_cur['operating_profit'], pnl_cur['net_profit']],
+            },
+        },
+        'balance_sheet': bs,
+        'trial_balance': tb,
+        'ratios': ratios,
+    }
