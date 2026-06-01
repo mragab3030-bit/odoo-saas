@@ -4878,7 +4878,7 @@ def _fs_resolve_period(period_key, raw_from, raw_to):
     return today_d.replace(month=1, day=1).isoformat(), today_iso
 
 
-def _fs_snapshot(client):
+def _fs_snapshot(client, mapping=None):
     """Return a dict with P&L / BS / TB / Ratios. Demo mode hands back the
     pre-tuned mock from `mock_data.financial_statements_snapshot()`. Live
     mode returns the same shape with an `unavailable=True` flag so the
@@ -4886,11 +4886,127 @@ def _fs_snapshot(client):
     against `account.move.line` aggregates is out of scope for this page."""
     if DEMO_MODE:
         from mock_data import financial_statements_snapshot
-        return financial_statements_snapshot()
+        return financial_statements_snapshot(mapping=mapping)
     # Live mode placeholder — keeps the page usable. The detailed computation
     # would walk account.move.line by account_type for each section; until
     # that is implemented we surface a clear empty state.
     return {'unavailable': True, 'currency': ''}
+
+
+# ---- Account mapping (session-backed, per company) ----
+
+# Which `account.account.account_type` values we surface in the picker /
+# auto-detected sections. Liability classification always follows Odoo —
+# the user can only customize Inventory and Cash bucketing.
+FS_INVENTORY_PICKER_TYPES = ('asset_current',)
+FS_CASH_PICKER_TYPES = ('asset_cash',)
+FS_SHORT_TERM_LIAB_TYPES = ('liability_payable', 'liability_current')
+FS_LONG_TERM_LIAB_TYPES = ('liability_non_current',)
+
+
+def _fs_company_key():
+    """Storage key for the per-company mapping. Demo company has id=1."""
+    return str(session.get('company_id') or 1)
+
+
+def _fs_get_mapping():
+    """Returns `(mapping, is_default)` for the active company.
+
+    `mapping` always has 'inventory_ids' and 'cash_ids' lists. `is_default`
+    flips False once the user submits the settings form at least once."""
+    saved_all = session.get('fs_account_mapping') or {}
+    saved = saved_all.get(_fs_company_key())
+    if saved:
+        return {
+            'inventory_ids': list(saved.get('inventory_ids') or []),
+            'cash_ids': list(saved.get('cash_ids') or []),
+        }, False
+    if DEMO_MODE:
+        from mock_data import FS_DEMO_INVENTORY_DEFAULTS, FS_DEMO_CASH_DEFAULTS
+        return {
+            'inventory_ids': list(FS_DEMO_INVENTORY_DEFAULTS),
+            'cash_ids':      list(FS_DEMO_CASH_DEFAULTS),
+        }, True
+    return {'inventory_ids': [], 'cash_ids': []}, True
+
+
+def _fs_save_mapping(inventory_ids, cash_ids):
+    cleaned = {
+        'inventory_ids': sorted({int(i) for i in inventory_ids if str(i).strip()}),
+        'cash_ids':      sorted({int(i) for i in cash_ids      if str(i).strip()}),
+    }
+    saved_all = dict(session.get('fs_account_mapping') or {})
+    saved_all[_fs_company_key()] = cleaned
+    session['fs_account_mapping'] = saved_all
+    session.modified = True
+
+
+def _fs_accounts_by_type(client):
+    """`{account_type: [{id, code, name, account_type, balance}, ...]}`.
+
+    Demo mode reads the hand-tuned chart from mock_data. Live mode pulls
+    from `account.account` filtered to the picker / auto-detected types.
+    Balances aren't required for the picker UI (we'd need a separate
+    aggregate query) so live rows expose 0 for now."""
+    types_we_care = tuple(
+        FS_INVENTORY_PICKER_TYPES + FS_CASH_PICKER_TYPES
+        + FS_SHORT_TERM_LIAB_TYPES + FS_LONG_TERM_LIAB_TYPES
+    )
+    if DEMO_MODE:
+        from mock_data import FS_CHART_OF_ACCOUNTS
+        out = {}
+        for aid, code, name, atype, bal in FS_CHART_OF_ACCOUNTS:
+            out.setdefault(atype, []).append({
+                'id': aid, 'code': code, 'name': name,
+                'account_type': atype, 'balance': bal,
+            })
+        return out
+    out = {}
+    try:
+        rows = client.safe_search_read(
+            'account.account',
+            [['account_type', 'in', list(types_we_care)]],
+            ['id', 'code', 'name', 'account_type'],
+            order='code asc',
+        )
+    except Exception:
+        rows = []
+    for r in rows:
+        atype = r.get('account_type') or 'other'
+        out.setdefault(atype, []).append({
+            'id': r['id'], 'code': r.get('code') or '',
+            'name': r.get('name') or '',
+            'account_type': atype, 'balance': 0,
+        })
+    return out
+
+
+def _fs_pickers_and_counts(accounts_by_type):
+    """Build the lists the template iterates over."""
+    inventory = []
+    for t in FS_INVENTORY_PICKER_TYPES:
+        inventory.extend(accounts_by_type.get(t, []))
+    cash = []
+    for t in FS_CASH_PICKER_TYPES:
+        cash.extend(accounts_by_type.get(t, []))
+    short_term_count = sum(len(accounts_by_type.get(t, []))
+                           for t in FS_SHORT_TERM_LIAB_TYPES)
+    long_term_count = sum(len(accounts_by_type.get(t, []))
+                          for t in FS_LONG_TERM_LIAB_TYPES)
+    return inventory, cash, short_term_count, long_term_count
+
+
+@app.route('/financial-statements/mapping', methods=['POST'])
+@login_required
+def financial_statements_mapping():
+    inventory_ids = request.form.getlist('inventory_ids')
+    cash_ids = request.form.getlist('cash_ids')
+    _fs_save_mapping(inventory_ids, cash_ids)
+    flash('Account mapping saved.', 'success')
+    return_tab = (request.form.get('return_tab') or 'ratios').strip()
+    if return_tab not in FS_TABS:
+        return_tab = 'ratios'
+    return redirect(url_for('financial_statements', tab=return_tab))
 
 
 @app.route('/financial-statements')
@@ -4911,7 +5027,11 @@ def financial_statements():
     search = (request.args.get('search') or '').strip()
 
     c = get_client()
-    snapshot = _fs_snapshot(c)
+    mapping, mapping_is_default = _fs_get_mapping()
+    snapshot = _fs_snapshot(c, mapping=mapping)
+    accounts_by_type = _fs_accounts_by_type(c)
+    inv_accounts, cash_accounts, short_term_count, long_term_count = \
+        _fs_pickers_and_counts(accounts_by_type)
 
     ccy = snapshot.get('currency', '') or (
         (g.get('odoo_client') and getattr(g.odoo_client, 'company_currency_name', '')) or 'SAR'
@@ -4932,6 +5052,13 @@ def financial_statements():
         ccy=ccy,
         snapshot=snapshot,
         fs_tabs=FS_TABS,
+        fs_demo_mode=DEMO_MODE,
+        fs_mapping=mapping,
+        fs_mapping_is_default=mapping_is_default,
+        fs_inv_accounts=inv_accounts,
+        fs_cash_accounts=cash_accounts,
+        fs_short_term_count=short_term_count,
+        fs_long_term_count=long_term_count,
     )
     return render_template('financial_statements.html', **ctx)
 

@@ -1148,6 +1148,66 @@ FS_BALANCE_SHEET = {
 #   * Total closing debits == total closing credits
 #   * P&L closing balances match FS_PNL_LINES amounts
 #   * BS closing balances match FS_BALANCE_SHEET (current period)
+# Granular chart of accounts (id, code, name, account_type, balance in SAR).
+# Drives the Account Mapping Settings picker. The per-type subtotals here
+# reconcile with the FS_BALANCE_SHEET aggregated lines so the picker shows
+# the same underlying numbers seen on the Balance Sheet tab.
+FS_CHART_OF_ACCOUNTS = [
+    # asset_cash — split between physical cash and bank accounts. The
+    # default mapping classifies the first three as "Cash Only" and the
+    # bank accounts as Bank (excluded from the strict cash ratio).
+    (1010, '1010', 'Petty Cash',                    'asset_cash',           200_000),
+    (1015, '1015', 'Cash on Hand - Riyadh Office',  'asset_cash',           350_000),
+    (1016, '1016', 'Cash on Hand - Jeddah Office',  'asset_cash',           250_000),
+    (1020, '1020', 'Cash - Main Vault',             'asset_cash',           700_000),
+    (1030, '1030', 'Bank - NCB Operating SAR',      'asset_cash',           800_000),
+    (1031, '1031', 'Bank - Riyadh Bank USD',        'asset_cash',           300_000),
+    (1032, '1032', 'Bank - SABB Reserve',           'asset_cash',           200_000),
+
+    # asset_current — inventory + prepayments + other.
+    (1101, '1101', 'Raw Materials Inventory',       'asset_current',      1_900_000),
+    (1102, '1102', 'Work in Progress',              'asset_current',        820_000),
+    (1103, '1103', 'Finished Goods Inventory',      'asset_current',      2_650_000),
+    (1104, '1104', 'Goods in Transit',              'asset_current',        230_000),
+    (1110, '1110', 'Prepaid Insurance',             'asset_current',        120_000),
+    (1115, '1115', 'Prepaid Rent',                  'asset_current',         80_000),
+    (1120, '1120', 'Other Current Assets',          'asset_current',        150_000),
+
+    # asset_receivable
+    (1200, '1200', 'Accounts Receivable - Trade',   'asset_receivable',   4_200_000),
+
+    # asset_fixed / asset_non_current
+    (1500, '1500', 'Property & Equipment',          'asset_fixed',        8_500_000),
+    (1510, '1510', 'Accumulated Depreciation',     'asset_fixed',       -1_800_000),
+    (1600, '1600', 'Other Non-Current Assets',      'asset_non_current',    950_000),
+
+    # liability_payable
+    (2100, '2100', 'Accounts Payable - Trade',      'liability_payable',  2_700_000),
+    (2110, '2110', 'Accounts Payable - VAT',        'liability_payable',    400_000),
+
+    # liability_current
+    (2200, '2200', 'Short-term Loans',              'liability_current',  1_800_000),
+    (2210, '2210', 'Accrued Salaries',              'liability_current',    320_000),
+    (2220, '2220', 'Accrued Expenses',              'liability_current',    180_000),
+    (2230, '2230', 'Tax Payable',                   'liability_current',    220_000),
+
+    # liability_non_current
+    (2500, '2500', 'Long-term Loans',               'liability_non_current', 4_200_000),
+    (2510, '2510', 'Deferred Tax Liability',        'liability_non_current',   280_000),
+    (2520, '2520', 'Other Non-Current Liabilities', 'liability_non_current',   100_000),
+
+    # equity
+    (3000, '3000', 'Share Capital',                 'equity',             5_000_000),
+    (3100, '3100', 'Retained Earnings',             'equity',             2_890_000),
+    (3200, '3200', 'Current Year Profit',           'equity',             2_510_000),
+]
+
+
+# Default selections shown in demo mode before any user customization.
+FS_DEMO_INVENTORY_DEFAULTS = [1101, 1102, 1103, 1104]
+FS_DEMO_CASH_DEFAULTS = [1010, 1015, 1016, 1020]
+
+
 FS_TRIAL_BALANCE = [
     # ASSETS — normally debit balance
     ('1100', 'Cash & Bank',                 'Asset',      2_100_000,        0, 18_400_000, 17_700_000),
@@ -1219,9 +1279,15 @@ def _pnl_compute(period='current'):
     }
 
 
-def financial_statements_snapshot():
+def financial_statements_snapshot(mapping=None):
     """Return a fully-populated, internally-consistent snapshot of all four
-    statements (P&L, Balance Sheet, Trial Balance, Ratios)."""
+    statements (P&L, Balance Sheet, Trial Balance, Ratios).
+
+    `mapping` is an optional `{'inventory_ids': [...], 'cash_ids': [...]}` dict.
+    When provided, the Quick Ratio's inventory deduction and the Cash Ratio's
+    numerator are computed from the *selected* chart-of-accounts rows rather
+    than from the BS aggregated lines. Liability classification always
+    follows Odoo's `account_type` (auto-detected — never user-mapped)."""
     pnl_cur = _pnl_compute('current')
     pnl_prev = _pnl_compute('previous')
 
@@ -1328,6 +1394,22 @@ def financial_statements_snapshot():
     # Cash and ST/LT debt extracted from BS for ratio formulas.
     cash_cur = next((r['current'] for r in ca_lines if r['label'] == 'Cash & Bank'), 0)
     inventory_cur = next((r['current'] for r in ca_lines if r['label'] == 'Inventory'), 0)
+
+    # User-supplied account mapping overrides the BS-line defaults so the
+    # ratio panel reflects what the user considers "true cash" and
+    # "true inventory" — bank balances and prepayments are typically
+    # excluded from a strict Cash Ratio / Quick Ratio.
+    mapping_used = False
+    if mapping:
+        coa_by_id = {row[0]: row for row in FS_CHART_OF_ACCOUNTS}
+        inv_ids = [int(i) for i in (mapping.get('inventory_ids') or [])]
+        cash_ids = [int(i) for i in (mapping.get('cash_ids') or [])]
+        if inv_ids:
+            inventory_cur = sum(coa_by_id[i][4] for i in inv_ids if i in coa_by_id)
+            mapping_used = True
+        if cash_ids:
+            cash_cur = sum(coa_by_id[i][4] for i in cash_ids if i in coa_by_id)
+            mapping_used = True
     ar_cur = next((r['current'] for r in ca_lines if r['label'] == 'Accounts Receivable'), 0)
     ap_cur = next((r['current'] for r in cl_lines if r['label'] == 'Accounts Payable'), 0)
     st_debt_cur = next((r['current'] for r in cl_lines if r['label'] == 'Short-term Loans'), 0)
@@ -1620,4 +1702,9 @@ def financial_statements_snapshot():
         'balance_sheet': bs,
         'trial_balance': tb,
         'ratios': ratios,
+        'mapping_used': mapping_used,
+        'mapping_inputs': {
+            'cash_total': cash_cur,
+            'inventory_total': inventory_cur,
+        },
     }
