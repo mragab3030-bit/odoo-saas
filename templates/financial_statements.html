@@ -127,6 +127,19 @@
     color: var(--text);
   }
   [dir="rtl"] .fs-row-line td { padding-inline-start: 2.25rem; }
+  /* P&L exception: header and line rows must share the same
+     inline padding so the `Account / الحساب` header sits exactly
+     above the account-name cells below it. Without this, line
+     rows were indented 2.25rem while the header stayed at 1rem,
+     producing a visible offset that was especially noticeable in
+     RTL because the eye reads start-edge first. BS and TB keep
+     their indent — only the P&L table opts out. */
+  .fs-table-pnl thead th,
+  .fs-table-pnl tbody td,
+  .fs-table-pnl .fs-row-line td {
+    padding-inline-start: 1rem;
+    padding-inline-end: 1rem;
+  }
   .fs-row-subtotal td {
     font-weight: 700;
     border-top: 1px solid var(--border);
