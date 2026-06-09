@@ -2056,7 +2056,23 @@ def _build_stock_entries(rng):
             'product_type': rng.choices(
                 ['storable', 'consumable', 'service'],
                 weights=[0.85, 0.08, 0.07])[0],
+            # product.template.tracking. The boolean mirrors Odoo's
+            # 'lot' / 'serial' vs 'none' distinction — V17+ uses it to
+            # split the merged "Goods" type into Tracked / Untracked.
+            # Storable maps to tracked and consumable to untracked so
+            # the V15/V16 vs V17+ semantics stay consistent.
+            'tracked': None,  # filled in below per product_type
         }
+
+    def assign_tracked(entry):
+        pt = entry['product_type']
+        if pt == 'storable':
+            entry['tracked'] = True
+        elif pt == 'consumable':
+            entry['tracked'] = False
+        else:
+            entry['tracked'] = None
+        return entry
 
     idx = 1
     # Multi-variant templates
@@ -2087,6 +2103,8 @@ def _build_stock_entries(rng):
                              cat_id, price))
         idx += 1
         target -= 1
+    for e in entries:
+        assign_tracked(e)
     return entries
 
 
@@ -2134,8 +2152,9 @@ def _type_distribution(entries, version_major):
 def stock_snapshot(version_major=18, category_ids=None, warehouse_id=None):
     """Snapshot for /inventory/stock dashboard.
 
-    Filters are applied before computing KPIs/charts so the displayed
-    metrics always reflect the visible slice."""
+    KPI cards reflect the globally-filtered subset. Per-chart filters
+    are evaluated client-side against the full entry list, so the
+    snapshot ships `all_entries` alongside the filtered `entries`."""
     rng = random.Random(0xCAFEF00D ^ int(version_major))
     all_entries = _build_stock_entries(rng)
 
@@ -2151,121 +2170,25 @@ def stock_snapshot(version_major=18, category_ids=None, warehouse_id=None):
     has_reorder_rules = any(e['reorder_min'] is not None for e in all_entries)
     has_consumption = any(e['daily_consumption'] > 0 for e in entries)
 
-    storable = [e for e in entries if e['product_type'] == 'storable']
-    on_hand_count = sum(1 for e in storable if e['qty'] > 0)
-    total_value = round(sum(max(e['value'], 0.0) for e in entries), 2)
-    low_count = sum(1 for e in entries if e['status'] == 'low')
-    out_count = sum(1 for e in storable if e['qty'] <= 0)
-    over_count = sum(1 for e in entries if e['status'] == 'over')
+    # Stock calculations only count entries that contribute real inventory:
+    # V15/V16 storable (mapped to tracked=True) and V17+ tracked goods.
+    # Consumable and untracked goods are excluded per the Odoo stock model.
+    tracked = [e for e in entries if e['tracked'] is True]
+    on_hand_count = sum(1 for e in tracked if e['qty'] > 0)
+    total_value = round(sum(max(e['value'], 0.0) for e in tracked), 2)
+    low_count = sum(1 for e in tracked if e['status'] == 'low')
+    out_count = sum(1 for e in tracked if e['qty'] <= 0)
+    over_count = sum(1 for e in tracked if e['status'] == 'over')
 
     days_values = []
-    for e in entries:
+    for e in tracked:
         if e['daily_consumption'] > 0 and e['qty'] > 0:
             days_values.append(e['qty'] / e['daily_consumption'])
     avg_days = round(sum(days_values) / len(days_values), 1) if days_values else None
 
-    # Status distribution: count "In Stock" only across storable items whose
-    # status is 'in' (excluding overstock which we surface separately).
-    in_count = sum(1 for e in storable if e['status'] == 'in')
-    status_dist = {
-        'labels':    ['In Stock', 'Low Stock', 'Out of Stock', 'Overstock'],
-        'labels_ar': ['متوفر', 'مخزون منخفض', 'نفد', 'مخزون زائد'],
-        'values':    [in_count, low_count, out_count, over_count],
-    }
-
-    # Top 10 entries by value (variants and templates both eligible).
-    top = sorted(entries, key=lambda e: e['value'], reverse=True)[:10]
-    top_chart = {
-        'labels':    [e['name_en'] for e in top],
-        'labels_ar': [e['name_ar'] for e in top],
-        'values':    [e['value'] for e in top],
-        'qtys':      [e['qty'] for e in top],
-    }
-
-    # Stock aging — bucket counts + value.
-    aging_buckets = ['0-30', '31-60', '61-90', '90+']
-    aging_counts = dict.fromkeys(aging_buckets, 0)
-    aging_values = dict.fromkeys(aging_buckets, 0.0)
-    for e in entries:
-        b = _stock_aging_bucket(e['age_days'])
-        aging_counts[b] += 1
-        aging_values[b] += max(e['value'], 0.0)
-    aging_chart = {
-        'labels':    aging_buckets,
-        'labels_ar': ['0-30 يوم', '31-60 يوم', '61-90 يوم', '90+ يوم'],
-        'counts':    [aging_counts[b] for b in aging_buckets],
-        'values':    [round(aging_values[b], 2) for b in aging_buckets],
-    }
-
-    # Reorder comparison — top 10 below or closest to reorder_min.
-    candidates = [e for e in entries
-                  if e['reorder_min'] is not None and e['qty'] >= 0]
-
-    def gap(e):
-        return e['qty'] - (e['reorder_min'] or 0)
-    candidates.sort(key=gap)
-    reorder_top = candidates[:10]
-    reorder_chart = {
-        'labels':    [e['name_en'] for e in reorder_top],
-        'labels_ar': [e['name_ar'] for e in reorder_top],
-        'current':   [e['qty'] for e in reorder_top],
-        'min':       [e['reorder_min'] for e in reorder_top],
-    }
-
-    # Stock value + count by costing method.
-    costing_labels = ['Standard Price', 'AVCO', 'FIFO']
-    costing_keys = ['standard', 'average', 'fifo']
-    costing_values = [
-        round(sum(max(e['value'], 0.0) for e in entries
-                  if e['costing'] == k), 2)
-        for k in costing_keys
-    ]
-    costing_counts = [
-        sum(1 for e in entries if e['costing'] == k)
-        for k in costing_keys
-    ]
-    costing_chart = {
-        'labels':    costing_labels,
-        'labels_ar': ['التكلفة القياسية', 'المتوسط', 'الوارد أولا'],
-        'values':    costing_values,
-        'counts':    costing_counts,
-    }
-
-    # Warehouse distribution. If only one warehouse is present in the filtered
-    # set, switch to per-location storage breakdown (still warehouse-derived
-    # in demo, just spread across 3 storage zones to give the donut content).
-    wh_value = {}
-    for e in entries:
-        wh_value[e['warehouse_en']] = wh_value.get(e['warehouse_en'], 0.0) + \
-            max(e['value'], 0.0)
-    if len(wh_value) > 1:
-        wh_chart = {
-            'labels': list(wh_value.keys()),
-            'labels_ar': [next((w[2] for w in STOCK_WAREHOUSES if w[1] == k),
-                               k) for k in wh_value.keys()],
-            'values': [round(v, 2) for v in wh_value.values()],
-            'mode': 'warehouse',
-        }
-    else:
-        # Single-warehouse fallback — top storage locations within it.
-        locations = ['Shelf A', 'Shelf B', 'Cold Storage', 'Bulk Area',
-                     'Pick Zone']
-        locations_ar = ['رف A', 'رف B', 'تخزين مبرد', 'منطقة مجمعة', 'منطقة الاختيار']
-        if entries:
-            total = sum(max(e['value'], 0.0) for e in entries)
-            shares = [0.38, 0.26, 0.17, 0.12, 0.07]
-            wh_chart = {
-                'labels': locations,
-                'labels_ar': locations_ar,
-                'values': [round(total * s, 2) for s in shares],
-                'mode': 'location',
-            }
-        else:
-            wh_chart = {'labels': [], 'labels_ar': [], 'values': [],
-                        'mode': 'location'}
-
     return {
         'currency': DEMO_CURRENCY_NAME,
+        'version_major': int(version_major),
         'kpis': {
             'on_hand_count': on_hand_count,
             'total_value': total_value,
@@ -2276,21 +2199,6 @@ def stock_snapshot(version_major=18, category_ids=None, warehouse_id=None):
         },
         'has_reorder_rules': has_reorder_rules,
         'has_consumption': has_consumption,
-        'type_distribution': _type_distribution(entries, version_major),
-        'value_by_category': _bucket(
-            entries,
-            lambda e: e['category_en'],
-            top=6),
-        'value_by_category_ar': _bucket(
-            entries,
-            lambda e: e['category_ar'],
-            top=6, others_label='أخرى'),
-        'top_products': top_chart,
-        'status_distribution': status_dist,
-        'stock_aging': aging_chart,
-        'reorder_compare': reorder_chart,
-        'value_by_costing': costing_chart,
-        'warehouse_distribution': wh_chart,
         'categories': [
             {'id': c[0], 'name_en': c[1], 'name_ar': c[2]}
             for c in STOCK_CATEGORIES
@@ -2300,5 +2208,13 @@ def stock_snapshot(version_major=18, category_ids=None, warehouse_id=None):
             for w in STOCK_WAREHOUSES
         ],
         'entries': entries,
+        # Full entry list for client-side chart computation. Per-chart
+        # filters work against this and can broaden beyond the global
+        # category/warehouse filter that constrains `entries`.
+        'all_entries': all_entries,
         'total_entry_count': len(entries),
+        'global_filter': {
+            'category_ids': sorted(category_ids) if category_ids else [],
+            'warehouse_id': int(warehouse_id) if warehouse_id else None,
+        },
     }

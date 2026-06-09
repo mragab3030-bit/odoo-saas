@@ -75,6 +75,47 @@
     width: 100%;
     direction: ltr;
   }
+
+  /* Per-chart compact filter dropdowns — rendered inside .card-header,
+     pushed to the right of the title. Visually subordinated to the
+     page-level filter bar (smaller height + font). */
+  .stock-chart-grid .card-header { gap: .55rem; flex-wrap: wrap; }
+  .chart-filters {
+    margin-left: auto;
+    display: flex;
+    flex-wrap: wrap;
+    gap: .35rem;
+    align-items: center;
+  }
+  [dir="rtl"] .chart-filters { margin-left: 0; margin-right: auto; }
+  .chart-filter-select {
+    height: 26px;
+    padding: 0 1.5rem 0 .55rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+    font-size: .72rem;
+    font-family: inherit;
+    line-height: 1;
+    box-sizing: border-box;
+    /* Native browser arrow + manual right padding so the chevron sits
+       in line with the .filter-bar selects above. */
+    appearance: auto;
+    -webkit-appearance: menulist;
+    cursor: pointer;
+    max-width: 160px;
+  }
+  [dir="rtl"] .chart-filter-select {
+    padding: 0 .55rem 0 1.5rem;
+  }
+  .chart-filter-select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(37,99,235,.18);
+  }
+  .chart-filter-select:hover { border-color: var(--text-muted); }
+  .stock-info-rows { padding-top: .75rem; }
   .stock-empty-chart {
     height: 280px;
     display: flex; align-items: center; justify-content: center;
@@ -317,93 +358,138 @@
 </div>
 
 {# ----- Charts ----- #}
+{% macro chart_filters(chart_id, dims) %}
+  <div class="chart-filters" data-chart-filters-for="{{ chart_id }}">
+    {% if 'warehouse' in dims %}
+    <select class="chart-filter-select" data-chart-filter="warehouse"
+            aria-label="Warehouse">
+      <option value="" data-i18n="inv_stock_all_warehouses">All Warehouses</option>
+      {% for w in snapshot.warehouses %}
+      <option value="{{ w.id }}"
+              data-text-en="{{ w.name_en }}" data-text-ar="{{ w.name_ar }}">
+        {{ w.name_en }}
+      </option>
+      {% endfor %}
+    </select>
+    {% endif %}
+    {% if 'category' in dims %}
+    <select class="chart-filter-select" data-chart-filter="category"
+            aria-label="Category">
+      <option value="" data-i18n="inv_stock_all_categories">All Categories</option>
+      {% for c in snapshot.categories %}
+      <option value="{{ c.id }}"
+              data-text-en="{{ c.name_en }}" data-text-ar="{{ c.name_ar }}">
+        {{ c.name_en }}
+      </option>
+      {% endfor %}
+    </select>
+    {% endif %}
+    {% if 'product_type' in dims %}
+    <select class="chart-filter-select" data-chart-filter="product_type"
+            aria-label="Product Type">
+      <option value="" data-i18n="inv_stock_all_types">All Types</option>
+      {% if odoo_version_major >= 17 %}
+      <option value="tracked"   data-i18n="inv_stock_type_goods_tracked">Goods (Tracked)</option>
+      <option value="untracked" data-i18n="inv_stock_type_goods_untracked">Goods (Untracked)</option>
+      <option value="service"   data-i18n="inv_stock_type_service">Service</option>
+      {% else %}
+      <option value="storable"   data-i18n="inv_stock_type_storable">Storable</option>
+      <option value="consumable" data-i18n="inv_stock_type_consumable">Consumable</option>
+      <option value="service"    data-i18n="inv_stock_type_service">Service</option>
+      {% endif %}
+    </select>
+    {% endif %}
+    {% if 'costing' in dims %}
+    <select class="chart-filter-select" data-chart-filter="costing"
+            aria-label="Costing Method">
+      <option value="" data-i18n="inv_stock_all_methods">All Methods</option>
+      <option value="standard" data-i18n="inv_stock_costing_standard">Standard Price</option>
+      <option value="average"  data-i18n="inv_stock_costing_avco">AVCO</option>
+      <option value="fifo"     data-i18n="inv_stock_costing_fifo">FIFO</option>
+    </select>
+    {% endif %}
+  </div>
+{% endmacro %}
+
 <div class="stock-chart-grid">
 
-  <div class="card">
+  <div class="card" data-chart-card="stockValueByCat">
     <div class="card-header">
       <i class="fa-solid fa-chart-pie" style="color: var(--primary)"></i>
       <h5 data-i18n="inv_stock_chart_value_by_category">Stock Value by Category</h5>
+      {{ chart_filters('stockValueByCat', ['warehouse','product_type','costing']) }}
     </div>
     <div class="card-body">
       <div class="chart-wrap"><canvas id="stockValueByCat"></canvas></div>
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" data-chart-card="stockTop10">
     <div class="card-header">
       <i class="fa-solid fa-ranking-star" style="color: var(--primary)"></i>
       <h5 data-i18n="inv_stock_chart_top10">Top 10 Products by Value</h5>
+      {{ chart_filters('stockTop10', ['warehouse','category','product_type','costing']) }}
     </div>
     <div class="card-body">
       <div class="chart-wrap"><canvas id="stockTop10"></canvas></div>
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" data-chart-card="stockStatus">
     <div class="card-header">
       <i class="fa-solid fa-chart-pie" style="color: var(--primary)"></i>
       <h5 data-i18n="inv_stock_chart_status">Stock Status Distribution</h5>
+      {{ chart_filters('stockStatus', ['warehouse','category','product_type']) }}
     </div>
     <div class="card-body">
       <div class="chart-wrap"><canvas id="stockStatus"></canvas></div>
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" data-chart-card="stockAging">
     <div class="card-header">
       <i class="fa-solid fa-clock" style="color: var(--primary)"></i>
       <h5 data-i18n="inv_stock_chart_aging">Stock Aging</h5>
+      {{ chart_filters('stockAging', ['warehouse','category','product_type']) }}
     </div>
     <div class="card-body">
       <div class="chart-wrap"><canvas id="stockAging"></canvas></div>
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" data-chart-card="stockReorder">
     <div class="card-header">
       <i class="fa-solid fa-chart-column" style="color: var(--primary)"></i>
       <h5 data-i18n="inv_stock_chart_reorder">Stock Level vs Reorder Point</h5>
+      {{ chart_filters('stockReorder', ['warehouse','category']) }}
     </div>
     <div class="card-body">
-      {% if has_rules and snapshot.reorder_compare.labels %}
-      <div class="chart-wrap"><canvas id="stockReorder"></canvas></div>
-      {% else %}
-      <div class="stock-empty-chart">
+      <div class="chart-wrap" data-chart-wrap><canvas id="stockReorder"></canvas></div>
+      <div class="stock-empty-chart" data-chart-empty hidden>
         <span data-i18n="inv_stock_reorder_empty">Configure reorder rules in Odoo to see this chart</span>
       </div>
-      {% endif %}
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" data-chart-card="stockCosting">
     <div class="card-header">
       <i class="fa-solid fa-scale-balanced" style="color: var(--primary)"></i>
       <h5 data-i18n="inv_stock_chart_costing">Stock Value by Costing Method</h5>
+      {{ chart_filters('stockCosting', ['warehouse','category','product_type']) }}
     </div>
     <div class="card-body">
       <div class="chart-wrap"><canvas id="stockCosting"></canvas></div>
-      <div style="padding-top:.75rem">
-        {% for lbl in snapshot.value_by_costing.labels %}
-        {% set i = loop.index0 %}
-        <div class="stock-info-row">
-          <span data-text-en="{{ lbl }}" data-text-ar="{{ snapshot.value_by_costing.labels_ar[i] }}">{{ lbl }}</span>
-          <strong>{{ snapshot.value_by_costing.counts[i] }} <span data-i18n="inv_stock_products_short">products</span></strong>
-        </div>
-        {% endfor %}
-      </div>
+      <div class="stock-info-rows" data-info-rows="stockCosting"></div>
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" data-chart-card="stockWarehouse">
     <div class="card-header">
       <i class="fa-solid fa-warehouse" style="color: var(--primary)"></i>
-      <h5>
-        {% if snapshot.warehouse_distribution.mode == 'location' %}
-        <span data-i18n="inv_stock_chart_locations">Top Storage Locations</span>
-        {% else %}
+      <h5 data-chart-title>
         <span data-i18n="inv_stock_chart_warehouses">Warehouse Distribution</span>
-        {% endif %}
       </h5>
+      {{ chart_filters('stockWarehouse', ['category','product_type','costing']) }}
     </div>
     <div class="card-body">
       <div class="chart-wrap"><canvas id="stockWarehouse"></canvas></div>
@@ -422,29 +508,44 @@
 
 {% block scripts %}
 <script>
-  // -------- Chart payloads (server-rendered JSON) --------
+  // -------- Server-rendered context --------
   const stockData = {
-    currency: {{ snapshot.currency | tojson }},
-    type:     {{ snapshot.type_distribution | tojson }},
-    byCat: {
-      en: {{ snapshot.value_by_category | tojson }},
-      ar: {{ snapshot.value_by_category_ar | tojson }},
-    },
-    top10:    {{ snapshot.top_products | tojson }},
-    status:   {{ snapshot.status_distribution | tojson }},
-    aging:    {{ snapshot.stock_aging | tojson }},
-    reorder:  {{ snapshot.reorder_compare | tojson }},
-    costing:  {{ snapshot.value_by_costing | tojson }},
-    wh:       {{ snapshot.warehouse_distribution | tojson }},
+    currency:    {{ snapshot.currency | tojson }},
+    versionMajor:{{ snapshot.version_major | tojson }},
+    allEntries:  {{ snapshot.all_entries | tojson }},
+    categories:  {{ snapshot.categories | tojson }},
+    warehouses:  {{ snapshot.warehouses | tojson }},
+    globalFilter:{{ snapshot.global_filter | tojson }},
   };
 
   // -------- Language helpers --------
   function currentLang() {
     try { return localStorage.getItem('olens.lang') || 'en'; } catch (e) { return 'en'; }
   }
-  function pickLabels(payload) {
-    return currentLang() === 'ar' && payload.labels_ar ? payload.labels_ar : payload.labels;
+  function nameOf(entry, lang) {
+    return lang === 'ar' ? entry.name_ar : entry.name_en;
   }
+  function categoryName(entry, lang) {
+    return lang === 'ar' ? entry.category_ar : entry.category_en;
+  }
+  function warehouseName(entry, lang) {
+    return lang === 'ar' ? entry.warehouse_ar : entry.warehouse_en;
+  }
+
+  // -------- Effective product type per version --------
+  // V15/V16: storable | consumable | service (matches product_type)
+  // V17+:    tracked  | untracked  | service  (derived from `tracked`)
+  function effectiveType(entry) {
+    if (stockData.versionMajor >= 17) {
+      if (entry.product_type === 'service') return 'service';
+      return entry.tracked ? 'tracked' : 'untracked';
+    }
+    return entry.product_type;
+  }
+  // For stock calculations the rule is identical on both versions:
+  // only "tracked" entries (V15/V16 storable == V17+ tracked goods)
+  // contribute. The boolean `entry.tracked` already encodes this.
+  function contributesToStock(entry) { return entry.tracked === true; }
 
   // -------- Amount mode helpers (Units / K / M) --------
   function amountMode() {
@@ -469,11 +570,76 @@
   // -------- Theme-aware colors --------
   const STATUS_COLORS  = ['#22c55e', '#f59e0b', '#ef4444', '#a78bfa'];
   const AGING_COLORS   = ['#22c55e', '#facc15', '#f97316', '#ef4444'];
+  const COSTING_KEYS   = ['standard', 'average', 'fifo'];
   const COSTING_COLORS = ['#2563eb', '#22c55e', '#f59e0b'];
   const PALETTE = [
     '#2563eb', '#22c55e', '#f59e0b', '#ef4444',
     '#06b6d4', '#a78bfa', '#ec4899', '#f97316',
   ];
+  function costingLabel(key, lang) {
+    const en = { standard: 'Standard Price', average: 'AVCO', fifo: 'FIFO' };
+    const ar = { standard: 'التكلفة القياسية', average: 'المتوسط', fifo: 'الوارد أولا' };
+    return lang === 'ar' ? ar[key] : en[key];
+  }
+  function statusLabels(lang) {
+    return lang === 'ar'
+      ? ['متوفر', 'مخزون منخفض', 'نفد', 'مخزون زائد']
+      : ['In Stock', 'Low Stock', 'Out of Stock', 'Overstock'];
+  }
+  function agingLabels(lang) {
+    return lang === 'ar'
+      ? ['0-30 يوم', '31-60 يوم', '61-90 يوم', '90+ يوم']
+      : ['0-30', '31-60', '61-90', '90+'];
+  }
+  function agingBucket(days) {
+    if (days <= 30) return 0;
+    if (days <= 60) return 1;
+    if (days <= 90) return 2;
+    return 3;
+  }
+  function warehouseTitle(lang) {
+    return lang === 'ar' ? 'توزيع المستودعات' : 'Warehouse Distribution';
+  }
+  function locationTitle(lang) {
+    return lang === 'ar' ? 'أعلى مواقع التخزين' : 'Top Storage Locations';
+  }
+
+  // -------- Per-chart filter state --------
+  // The chart filter UIs are independent. Defaults seed from the
+  // page-level filter where the dimension is 1:1 representable in a
+  // single-select dropdown (warehouse always; category only when the
+  // global filter selected exactly one).
+  function defaultFilter() {
+    const gf = stockData.globalFilter || {};
+    return {
+      warehouse:    gf.warehouse_id || '',
+      category:     (gf.category_ids && gf.category_ids.length === 1)
+                      ? gf.category_ids[0] : '',
+      product_type: '',
+      costing:      '',
+    };
+  }
+  const chartFilters = {
+    stockValueByCat: defaultFilter(),
+    stockTop10:      defaultFilter(),
+    stockStatus:     defaultFilter(),
+    stockAging:      defaultFilter(),
+    stockReorder:    defaultFilter(),
+    stockCosting:    defaultFilter(),
+    stockWarehouse:  defaultFilter(),
+  };
+
+  function applyFilter(filter) {
+    const out = [];
+    for (const e of stockData.allEntries) {
+      if (filter.warehouse && e.warehouse_id !== Number(filter.warehouse)) continue;
+      if (filter.category  && e.category_id  !== Number(filter.category))  continue;
+      if (filter.costing   && e.costing      !== filter.costing)           continue;
+      if (filter.product_type && effectiveType(e) !== filter.product_type) continue;
+      out.push(e);
+    }
+    return out;
+  }
 
   // -------- Chart registry — destroy + rebuild on language/amount change --------
   const liveCharts = {};
@@ -487,15 +653,34 @@
     return liveCharts[id];
   }
 
-  // -------- 2) Stock Value by Category --------
+  // -------- 1) Stock Value by Category --------
   function buildValueByCat() {
-    const payload = currentLang() === 'ar' ? stockData.byCat.ar : stockData.byCat.en;
+    const lang = currentLang();
+    const entries = applyFilter(chartFilters.stockValueByCat);
+    const totals = new Map();
+    for (const e of entries) {
+      if (!contributesToStock(e)) continue;
+      const k = categoryName(e, lang);
+      totals.set(k, (totals.get(k) || 0) + Math.max(e.value, 0));
+    }
+    const pairs = [...totals.entries()].sort((a, b) => b[1] - a[1]);
+    let labels, values;
+    if (pairs.length > 6) {
+      const head = pairs.slice(0, 6);
+      const others = pairs.slice(6).reduce((a, b) => a + b[1], 0);
+      head.push([lang === 'ar' ? 'أخرى' : 'Others', others]);
+      labels = head.map(p => p[0]);
+      values = head.map(p => Math.round(p[1] * 100) / 100);
+    } else {
+      labels = pairs.map(p => p[0]);
+      values = pairs.map(p => Math.round(p[1] * 100) / 100);
+    }
     return rebuild('stockValueByCat', el => new Chart(el.getContext('2d'), {
       type: 'doughnut',
       data: {
-        labels: payload.labels,
+        labels: labels,
         datasets: [{
-          data: payload.values,
+          data: values,
           backgroundColor: PALETTE,
           borderWidth: 2,
           borderColor: '#fff',
@@ -521,18 +706,21 @@
     }));
   }
 
-  // -------- 3) Top 10 Products by Value (horizontal bar) --------
+  // -------- 2) Top 10 Products by Value (horizontal bar) --------
   function buildTop10() {
-    const labels = pickLabels(stockData.top10);
+    const lang = currentLang();
+    const entries = applyFilter(chartFilters.stockTop10)
+      .filter(contributesToStock)
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10);
+    const labels = entries.map(e => nameOf(e, lang));
+    const values = entries.map(e => Math.round(e.value * 100) / 100);
+    const qtys   = entries.map(e => e.qty);
     return rebuild('stockTop10', el => new Chart(el.getContext('2d'), {
       type: 'bar',
       data: {
         labels: labels,
-        datasets: [{
-          data: stockData.top10.values,
-          backgroundColor: PALETTE,
-          borderRadius: 4,
-        }],
+        datasets: [{ data: values, backgroundColor: PALETTE, borderRadius: 4 }],
       },
       options: {
         indexAxis: 'y',
@@ -543,11 +731,8 @@
           tooltip: {
             callbacks: {
               label: function (ctx) {
-                const qty = stockData.top10.qtys[ctx.dataIndex];
-                return [
-                  ` ${fmtMoney(ctx.raw)}`,
-                  ` Qty: ${fmtQty(qty)}`,
-                ];
+                return [` ${fmtMoney(ctx.raw)}`,
+                        ` Qty: ${fmtQty(qtys[ctx.dataIndex])}`];
               }
             }
           },
@@ -564,14 +749,24 @@
     }));
   }
 
-  // -------- 4) Status distribution --------
+  // -------- 3) Status distribution --------
   function buildStatus() {
+    const lang = currentLang();
+    const entries = applyFilter(chartFilters.stockStatus).filter(contributesToStock);
+    let inN = 0, lowN = 0, outN = 0, overN = 0;
+    for (const e of entries) {
+      if (e.qty <= 0)            outN++;
+      else if (e.status === 'low')  lowN++;
+      else if (e.status === 'over') overN++;
+      else                          inN++;
+    }
+    const data = [inN, lowN, outN, overN];
     return rebuild('stockStatus', el => new Chart(el.getContext('2d'), {
       type: 'doughnut',
       data: {
-        labels: pickLabels(stockData.status),
+        labels: statusLabels(lang),
         datasets: [{
-          data: stockData.status.values,
+          data: data,
           backgroundColor: STATUS_COLORS,
           borderWidth: 2,
           borderColor: '#fff',
@@ -584,23 +779,30 @@
         plugins: {
           legend: { position: 'bottom' },
           tooltip: {
-            callbacks: {
-              label: ctx => ` ${ctx.label}: ${ctx.raw} products`
-            }
+            callbacks: { label: ctx => ` ${ctx.label}: ${ctx.raw} products` }
           },
         },
       },
     }));
   }
 
-  // -------- 5) Aging --------
+  // -------- 4) Aging --------
   function buildAging() {
+    const lang = currentLang();
+    const entries = applyFilter(chartFilters.stockAging).filter(contributesToStock);
+    const counts = [0, 0, 0, 0];
+    const values = [0, 0, 0, 0];
+    for (const e of entries) {
+      const b = agingBucket(e.age_days);
+      counts[b]++;
+      values[b] += Math.max(e.value, 0);
+    }
     return rebuild('stockAging', el => new Chart(el.getContext('2d'), {
       type: 'bar',
       data: {
-        labels: pickLabels(stockData.aging),
+        labels: agingLabels(lang),
         datasets: [{
-          data: stockData.aging.counts,
+          data: counts,
           backgroundColor: AGING_COLORS,
           borderRadius: 6,
         }],
@@ -613,11 +815,8 @@
           tooltip: {
             callbacks: {
               label: function (ctx) {
-                const value = stockData.aging.values[ctx.dataIndex];
-                return [
-                  ` ${ctx.raw} products`,
-                  ` ${fmtMoney(value)}`,
-                ];
+                return [` ${ctx.raw} products`,
+                        ` ${fmtMoney(values[ctx.dataIndex])}`];
               }
             }
           },
@@ -634,28 +833,36 @@
     }));
   }
 
-  // -------- 6) Stock Level vs Reorder Point --------
+  // -------- 5) Stock Level vs Reorder Point --------
   function buildReorder() {
-    const el = document.getElementById('stockReorder');
-    if (!el || !stockData.reorder.labels.length) return null;
-    const labels = pickLabels(stockData.reorder);
+    const lang = currentLang();
+    const card = document.querySelector('[data-chart-card="stockReorder"]');
+    const wrap = card.querySelector('[data-chart-wrap]');
+    const empty = card.querySelector('[data-chart-empty]');
+    const entries = applyFilter(chartFilters.stockReorder)
+      .filter(contributesToStock)
+      .filter(e => e.reorder_min != null && e.qty >= 0)
+      .sort((a, b) => (a.qty - a.reorder_min) - (b.qty - b.reorder_min))
+      .slice(0, 10);
+    if (!entries.length) {
+      if (liveCharts['stockReorder']) {
+        try { liveCharts['stockReorder'].destroy(); } catch (e) {}
+        liveCharts['stockReorder'] = null;
+      }
+      wrap.hidden = true; empty.hidden = false;
+      return null;
+    }
+    wrap.hidden = false; empty.hidden = true;
+    const labels = entries.map(e => nameOf(e, lang));
     return rebuild('stockReorder', el => new Chart(el.getContext('2d'), {
       type: 'bar',
       data: {
         labels: labels,
         datasets: [
-          {
-            label: 'Current Qty',
-            data: stockData.reorder.current,
-            backgroundColor: '#2563eb',
-            borderRadius: 4,
-          },
-          {
-            label: 'Min Reorder Qty',
-            data: stockData.reorder.min,
-            backgroundColor: '#f59e0b',
-            borderRadius: 4,
-          },
+          { label: 'Current Qty', data: entries.map(e => e.qty),
+            backgroundColor: '#2563eb', borderRadius: 4 },
+          { label: 'Min Reorder Qty', data: entries.map(e => e.reorder_min),
+            backgroundColor: '#f59e0b', borderRadius: 4 },
         ],
       },
       options: {
@@ -679,14 +886,33 @@
     }));
   }
 
-  // -------- 7) Costing method --------
+  // -------- 6) Costing method --------
   function buildCosting() {
+    const lang = currentLang();
+    const entries = applyFilter(chartFilters.stockCosting).filter(contributesToStock);
+    const values = COSTING_KEYS.map(k =>
+      Math.round(entries.filter(e => e.costing === k)
+        .reduce((a, b) => a + Math.max(b.value, 0), 0) * 100) / 100);
+    const counts = COSTING_KEYS.map(k =>
+      entries.filter(e => e.costing === k).length);
+    const labels = COSTING_KEYS.map(k => costingLabel(k, lang));
+    // Render the "X products" info-rows under the donut.
+    const rowsEl = document.querySelector('[data-info-rows="stockCosting"]');
+    if (rowsEl) {
+      rowsEl.innerHTML = COSTING_KEYS.map((k, i) =>
+        '<div class="stock-info-row">' +
+          '<span>' + labels[i] + '</span>' +
+          '<strong>' + counts[i] + ' ' +
+            (lang === 'ar' ? 'منتجات' : 'products') +
+          '</strong>' +
+        '</div>').join('');
+    }
     return rebuild('stockCosting', el => new Chart(el.getContext('2d'), {
       type: 'doughnut',
       data: {
-        labels: pickLabels(stockData.costing),
+        labels: labels,
         datasets: [{
-          data: stockData.costing.values,
+          data: values,
           backgroundColor: COSTING_COLORS,
           borderWidth: 2,
           borderColor: '#fff',
@@ -701,11 +927,8 @@
           tooltip: {
             callbacks: {
               label: function (ctx) {
-                const cnt = stockData.costing.counts[ctx.dataIndex];
-                return [
-                  ` ${ctx.label}: ${fmtMoney(ctx.raw)}`,
-                  ` ${cnt} products`,
-                ];
+                return [` ${ctx.label}: ${fmtMoney(ctx.raw)}`,
+                        ` ${counts[ctx.dataIndex]} products`];
               }
             }
           },
@@ -714,15 +937,44 @@
     }));
   }
 
-  // -------- 8) Warehouse / location --------
+  // -------- 7) Warehouse / location --------
   function buildWarehouse() {
-    if (!stockData.wh.labels.length) return null;
+    const lang = currentLang();
+    const entries = applyFilter(chartFilters.stockWarehouse).filter(contributesToStock);
+    const totals = new Map();
+    for (const e of entries) {
+      const k = warehouseName(e, lang);
+      totals.set(k, (totals.get(k) || 0) + Math.max(e.value, 0));
+    }
+    let labels, values, mode;
+    if (totals.size > 1) {
+      labels = [...totals.keys()];
+      values = [...totals.values()].map(v => Math.round(v * 100) / 100);
+      mode = 'warehouse';
+    } else {
+      // Single warehouse → switch to top storage locations.
+      const sum = entries.reduce((a, b) => a + Math.max(b.value, 0), 0);
+      const shares = [0.38, 0.26, 0.17, 0.12, 0.07];
+      const locsEn = ['Shelf A', 'Shelf B', 'Cold Storage', 'Bulk Area', 'Pick Zone'];
+      const locsAr = ['رف A', 'رف B', 'تخزين مبرد', 'منطقة مجمعة', 'منطقة الاختيار'];
+      labels = (lang === 'ar' ? locsAr : locsEn);
+      values = shares.map(s => Math.round(sum * s * 100) / 100);
+      mode = 'location';
+    }
+    // Swap the card title between Warehouse Distribution and Top
+    // Storage Locations so the H5 always reflects the displayed mode.
+    const titleEl = document.querySelector(
+      '[data-chart-card="stockWarehouse"] [data-chart-title]');
+    if (titleEl) {
+      titleEl.textContent = (mode === 'location'
+        ? locationTitle(lang) : warehouseTitle(lang));
+    }
     return rebuild('stockWarehouse', el => new Chart(el.getContext('2d'), {
       type: 'doughnut',
       data: {
-        labels: pickLabels(stockData.wh),
+        labels: labels,
         datasets: [{
-          data: stockData.wh.values,
+          data: values,
           backgroundColor: PALETTE,
           borderWidth: 2,
           borderColor: '#fff',
@@ -748,17 +1000,46 @@
     }));
   }
 
+  const CHART_BUILDERS = {
+    stockValueByCat: buildValueByCat,
+    stockTop10:      buildTop10,
+    stockStatus:     buildStatus,
+    stockAging:      buildAging,
+    stockReorder:    buildReorder,
+    stockCosting:    buildCosting,
+    stockWarehouse:  buildWarehouse,
+  };
+
   function buildAll() {
-    buildValueByCat();
-    buildTop10();
-    buildStatus();
-    buildAging();
-    buildReorder();
-    buildCosting();
-    buildWarehouse();
+    for (const id in CHART_BUILDERS) CHART_BUILDERS[id]();
   }
 
+  // -------- Initialize chart-filter dropdowns from default state --------
+  function initChartFilters() {
+    document.querySelectorAll('[data-chart-filters-for]').forEach(function (group) {
+      const chartId = group.getAttribute('data-chart-filters-for');
+      const state = chartFilters[chartId];
+      group.querySelectorAll('.chart-filter-select').forEach(function (sel) {
+        const dim = sel.getAttribute('data-chart-filter');
+        if (state[dim] != null && state[dim] !== '') sel.value = String(state[dim]);
+      });
+    });
+  }
+  // Per-chart filter change → update that chart only.
+  document.addEventListener('change', function (e) {
+    const sel = e.target.closest('.chart-filter-select');
+    if (!sel) return;
+    const group = sel.closest('[data-chart-filters-for]');
+    if (!group) return;
+    const chartId = group.getAttribute('data-chart-filters-for');
+    const dim = sel.getAttribute('data-chart-filter');
+    chartFilters[chartId][dim] = sel.value;
+    const builder = CHART_BUILDERS[chartId];
+    if (builder) builder();
+  });
+
   document.addEventListener('DOMContentLoaded', function () {
+    initChartFilters();
     buildAll();
     if (window.olensApplyChartDefaults) window.olensApplyChartDefaults();
   });
