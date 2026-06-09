@@ -102,77 +102,71 @@
   .stock-info-row:last-child { border-bottom: 0; }
   .stock-info-row strong { font-weight: 600; }
 
-  /* Filter bar — compact dropdowns aligned with global .filter-bar look. */
-  .stock-filter-bar {
-    display: flex;
-    flex-wrap: wrap;
-    gap: .75rem 1rem;
-    align-items: flex-end;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: .85rem 1.1rem;
-    margin-bottom: 1rem;
-  }
-  .stock-filter-bar .filter-group {
-    display: flex;
-    flex-direction: column;
-    min-width: 200px;
-  }
-  .stock-filter-bar label {
-    font-size: .72rem;
-    color: var(--text-muted);
-    margin-bottom: .25rem;
-    text-transform: uppercase;
-    letter-spacing: .04em;
-    font-weight: 600;
-  }
-  .stock-filter-bar select,
-  .stock-filter-bar .form-control,
-  .stock-multi {
-    min-height: 36px;
-    padding: .35rem .6rem;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--text);
-    font-size: .82rem;
-  }
-  .stock-filter-bar .filter-actions {
+  /* Stock filter bar — uses the global .filter-bar typography (label
+     casing, .68rem font, 34px control height). Both filter groups get
+     an identical fixed flex basis so Categories and Warehouse line up
+     pixel-for-pixel and the Apply / Reset actions sit on the right. */
+  #stockFilters.filter-bar .filter-group { flex: 0 0 220px; min-width: 0; }
+  #stockFilters .filter-actions {
     display: flex;
     gap: .5rem;
     align-items: center;
     margin-left: auto;
   }
-  [dir="rtl"] .stock-filter-bar .filter-actions {
+  [dir="rtl"] #stockFilters .filter-actions {
     margin-left: 0; margin-right: auto;
   }
 
-  /* Compact multi-select for Categories. */
-  .stock-multi {
-    position: relative;
-  }
+  /* Compact multi-select for Categories — styled to mirror the native
+     .form-control select used by Warehouse so both dropdowns share the
+     same border, radius, padding, font-size, and height. */
+  .stock-multi { position: relative; }
   .stock-multi-toggle {
+    width: 100%;
+    height: 34px;
+    box-sizing: border-box;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: .5rem;
-    width: 100%;
-    background: transparent;
-    border: 0;
-    padding: 0;
+    padding: 0 1.75rem 0 .75rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text);
+    font-size: .825rem;
+    font-family: inherit;
+    line-height: 1;
     cursor: pointer;
-    color: inherit;
-    font: inherit;
     text-align: left;
+    position: relative;
+    transition: border-color .15s, box-shadow .15s;
   }
-  [dir="rtl"] .stock-multi-toggle { text-align: right; }
+  [dir="rtl"] .stock-multi-toggle {
+    text-align: right;
+    padding: 0 .75rem 0 1.75rem;
+  }
+  .stock-multi-toggle:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(37,99,235,.12);
+  }
   .stock-multi-toggle .stock-multi-chevron {
+    position: absolute;
+    right: .65rem;
+    top: 50%;
+    transform: translateY(-50%);
     font-size: .7rem;
     color: var(--text-muted);
     transition: transform .15s ease;
+    pointer-events: none;
   }
-  .stock-multi.is-open .stock-multi-chevron { transform: rotate(180deg); }
+  [dir="rtl"] .stock-multi-toggle .stock-multi-chevron {
+    right: auto; left: .65rem;
+  }
+  .stock-multi.is-open .stock-multi-toggle .stock-multi-chevron {
+    transform: translateY(-50%) rotate(180deg);
+  }
   .stock-multi-panel {
     position: absolute;
     top: calc(100% + 4px);
@@ -195,14 +189,15 @@
     gap: .5rem;
     padding: .35rem .5rem;
     border-radius: 6px;
-    font-size: .82rem;
+    font-size: .825rem;
     cursor: pointer;
     user-select: none;
   }
   .stock-multi-option:hover { background: var(--surface-2); }
   .stock-multi-option input { accent-color: var(--primary); margin: 0; }
   .stock-multi-summary {
-    font-size: .82rem;
+    flex: 1;
+    font-size: .825rem;
     color: var(--text);
     white-space: nowrap;
     overflow: hidden;
@@ -216,7 +211,7 @@
 {# ----- Filters ----- #}
 {% set _categories = snapshot.categories %}
 {% set _warehouses = snapshot.warehouses %}
-<form method="GET" action="{{ url_for('inventory_v2', page='stock') }}" class="stock-filter-bar" id="stockFilters">
+<form method="GET" action="{{ url_for('inventory_v2', page='stock') }}" class="filter-bar" id="stockFilters">
 
   <div class="filter-group">
     <label data-i18n="inv_stock_filter_category">Categories</label>
