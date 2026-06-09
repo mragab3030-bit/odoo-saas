@@ -59,59 +59,6 @@
   .stock-stat-grid .stat-value-num {
     font-size: clamp(1rem, 2vw, 1.55rem);
   }
-  /* Card 1: mini donut centered below the label/subtitle. */
-  .stock-stat-mini-chart {
-    margin-top: auto;
-    padding-top: .55rem;
-    width: 56px;
-    height: 56px;
-    align-self: center;
-    position: relative;
-    overflow: visible;
-  }
-  /* Allow the mini-chart tooltip to escape the card boundary — the
-     global .stat-card rule sets overflow:hidden which would otherwise
-     clip the tooltip. Lift the card on top of its siblings only while
-     hovered so the tooltip layers above neighboring cards. */
-  .stat-card--with-mini {
-    overflow: visible;
-    position: relative;
-  }
-  .stat-card--with-mini:hover { z-index: 50; }
-
-  /* HTML tooltip rendered next to the mini donut. Chart.js' built-in
-     canvas tooltip is replaced via the external callback because the
-     56x56 canvas is too small to contain a multi-line tooltip — an
-     HTML node positioned absolutely escapes the card cleanly. */
-  .stock-mini-tooltip {
-    position: absolute;
-    pointer-events: none;
-    opacity: 0;
-    transform: translate(-50%, -100%);
-    background: rgba(15, 23, 42, .94);
-    color: #f8fafc;
-    border-radius: 6px;
-    padding: .35rem .55rem;
-    font-size: .72rem;
-    line-height: 1.25;
-    white-space: nowrap;
-    box-shadow: 0 6px 18px rgba(0, 0, 0, .25);
-    z-index: 100;
-    transition: opacity .12s ease;
-  }
-  .stock-mini-tooltip.is-visible { opacity: 1; }
-  .stock-mini-tooltip__row {
-    display: flex;
-    align-items: center;
-    gap: .35rem;
-  }
-  .stock-mini-tooltip__swatch {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 2px;
-    flex-shrink: 0;
-  }
   .stock-chart-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -323,14 +270,10 @@
 {# ----- KPI cards (stat-card style — no icons) ----- #}
 <div class="stock-stat-grid">
 
-  <div class="stat-card stat-card--with-mini">
+  <div class="stat-card">
     <div class="stat-value stat-value-num" style="color:#475569">{{ k.on_hand_count }}</div>
     <div class="stat-label" data-i18n="inv_stock_kpi_on_hand">Total On Hand Products</div>
     <div class="stat-sub" data-i18n="inv_stock_kpi_on_hand_sub">Storable — On Hand</div>
-    <div class="stock-stat-mini-chart" dir="ltr">
-      <canvas id="stockTypeMini"></canvas>
-      <div id="stockTypeMiniTooltip" class="stock-mini-tooltip" role="tooltip" aria-hidden="true"></div>
-    </div>
   </div>
 
   <div class="stat-card">
@@ -542,77 +485,6 @@
     if (!el) return null;
     liveCharts[id] = factory(el);
     return liveCharts[id];
-  }
-
-  // -------- 1) Type mini donut inside KPI card --------
-  // Uses an EXTERNAL HTML tooltip: the canvas is only 56x56 so the
-  // built-in canvas tooltip would be clipped. The HTML node lives in
-  // the card markup and is positioned absolutely so it can escape the
-  // card's overflow boundary (.stat-card--with-mini overrides the
-  // global overflow:hidden).
-  const MINI_PALETTE = ['#475569', '#94a3b8', '#cbd5e1'];
-  function miniTooltipHandler(ctx) {
-    const tip = document.getElementById('stockTypeMiniTooltip');
-    if (!tip) return;
-    const t = ctx.tooltip;
-    if (!t || t.opacity === 0) {
-      tip.classList.remove('is-visible');
-      tip.setAttribute('aria-hidden', 'true');
-      return;
-    }
-    const bodyLines = (t.body || []).map(b => b.lines).flat();
-    const titleLines = t.title || [];
-    const rows = [];
-    for (let i = 0; i < bodyLines.length; i++) {
-      const colors = (t.labelColors || [])[i] || {};
-      const swatch = colors.backgroundColor || MINI_PALETTE[i] || '#94a3b8';
-      rows.push(
-        '<div class="stock-mini-tooltip__row">' +
-          '<span class="stock-mini-tooltip__swatch" style="background:' + swatch + '"></span>' +
-          '<span>' + bodyLines[i] + '</span>' +
-        '</div>'
-      );
-    }
-    tip.innerHTML =
-      (titleLines.length
-        ? '<div style="font-weight:600;margin-bottom:.15rem">' + titleLines.join(' ') + '</div>'
-        : '') +
-      rows.join('');
-    // Place the tooltip above the canvas using the chart-relative
-    // caret position. translate(-50%, -100%) in CSS centers the tip
-    // horizontally and pops it above the hovered slice.
-    tip.style.left = t.caretX + 'px';
-    tip.style.top  = (t.caretY - 8) + 'px';
-    tip.classList.add('is-visible');
-    tip.setAttribute('aria-hidden', 'false');
-  }
-  function buildTypeMini() {
-    return rebuild('stockTypeMini', el => new Chart(el.getContext('2d'), {
-      type: 'doughnut',
-      data: {
-        labels: pickLabels(stockData.type),
-        datasets: [{
-          data: stockData.type.values,
-          backgroundColor: MINI_PALETTE,
-          borderWidth: 1,
-          borderColor: 'rgba(255,255,255,.6)',
-        }],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        cutout: '60%',
-        layout: { padding: 0 },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            enabled: false,
-            external: miniTooltipHandler,
-            callbacks: { label: ctx => ` ${ctx.label}: ${ctx.raw}` },
-          },
-        },
-      },
-    }));
   }
 
   // -------- 2) Stock Value by Category --------
@@ -877,7 +749,6 @@
   }
 
   function buildAll() {
-    buildTypeMini();
     buildValueByCat();
     buildTop10();
     buildStatus();
