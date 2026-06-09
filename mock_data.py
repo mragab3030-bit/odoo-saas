@@ -1810,3 +1810,495 @@ def financial_statements_snapshot(mapping=None):
             'inventory_total': inventory_cur,
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# Stock / Inventory snapshot — hand-tuned for /inventory/stock dashboard
+# ---------------------------------------------------------------------------
+
+STOCK_CATEGORIES = [
+    # (id, name_en, name_ar, costing_method, price_low, price_high)
+    (101, 'Raw Materials',   'مواد خام',           'fifo',     50.0,   5_000.0),
+    (102, 'Finished Goods',  'منتجات تامة الصنع',  'average',  500.0, 50_000.0),
+    (103, 'Packaging',       'مواد التغليف',       'standard',   5.0,     200.0),
+    (104, 'Spare Parts',     'قطع غيار',            'average',   50.0,   2_000.0),
+    (105, 'Office Supplies', 'لوازم مكتبية',        'standard',  10.0,     500.0),
+]
+
+STOCK_WAREHOUSES = [
+    # (id, name_en, name_ar, weight)
+    (1, 'Main Warehouse',         'المستودع الرئيسي',  0.55),
+    (2, 'Production Warehouse',   'مستودع الإنتاج',     0.25),
+    (3, 'Finished Goods Storage', 'مستودع المنتجات',    0.20),
+]
+
+# Templated multi-variant products: (template_name_en, template_name_ar,
+#   category_id, list of variant suffixes (en, ar), base_price).
+STOCK_VARIANT_TEMPLATES = [
+    ('T-Shirt', 'تي شيرت', 102, [
+        ('S / Red',   'صغير / أحمر'),
+        ('S / Blue',  'صغير / أزرق'),
+        ('M / Red',   'وسط / أحمر'),
+        ('M / Blue',  'وسط / أزرق'),
+        ('L / Red',   'كبير / أحمر'),
+        ('L / Blue',  'كبير / أزرق'),
+    ], 65.0),
+    ('Polo Shirt', 'بولو', 102, [
+        ('S / Black', 'صغير / أسود'),
+        ('M / Black', 'وسط / أسود'),
+        ('L / Black', 'كبير / أسود'),
+        ('XL / Black','XL / أسود'),
+    ], 95.0),
+    ('Network Cable Set', 'كابل شبكة', 101, [
+        ('Cat6 / 5m',  'Cat6 / 5م'),
+        ('Cat6 / 10m', 'Cat6 / 10م'),
+        ('Cat6 / 25m', 'Cat6 / 25م'),
+    ], 38.0),
+]
+
+STOCK_TEMPLATE_NAMES = [
+    # Raw materials
+    ('Steel Bar 12mm', 'حديد تسليح 12مم', 101),
+    ('Steel Bar 16mm', 'حديد تسليح 16مم', 101),
+    ('Aluminum Sheet 1mm', 'لوح ألومنيوم 1مم', 101),
+    ('Aluminum Sheet 2mm', 'لوح ألومنيوم 2مم', 101),
+    ('Cement Bag 50kg', 'كيس إسمنت 50كجم', 101),
+    ('Copper Wire 4mm²', 'سلك نحاس 4مم²', 101),
+    ('Copper Wire 10mm²', 'سلك نحاس 10مم²', 101),
+    ('PVC Pipe 4 inch', 'أنبوب PVC 4 بوصة', 101),
+    ('PVC Pipe 6 inch', 'أنبوب PVC 6 بوصة', 101),
+    ('Industrial Glue 5L', 'لاصق صناعي 5L', 101),
+    ('Stainless Steel Plate', 'لوح ستانلس ستيل', 101),
+    ('Wood Plank 2m', 'لوح خشب 2م', 101),
+    ('Insulation Foam Roll', 'لفافة عزل', 101),
+    ('Sealant Tube 300ml', 'أنبوب سيلانت 300مل', 101),
+    ('Welding Rod 5kg', 'سلك لحام 5كجم', 101),
+    # Finished Goods
+    ('Industrial Drilling Machine', 'آلة حفر صناعية', 102),
+    ('HVAC Compressor Unit', 'وحدة ضاغط تكييف', 102),
+    ('Solar Panel 450W', 'لوح شمسي 450W', 102),
+    ('Hydraulic Pump Assembly', 'وحدة مضخة هيدروليكية', 102),
+    ('Generator 100KVA', 'مولد 100KVA', 102),
+    ('Water Pump 5HP', 'مضخة ماء 5 حصان', 102),
+    ('Forklift 3-ton', 'رافعة شوكية 3 طن', 102),
+    ('Conveyor Belt 10m', 'سير ناقل 10م', 102),
+    ('Industrial Fan 36 inch', 'مروحة صناعية 36"', 102),
+    ('LED Floodlight 200W', 'كشاف LED 200W', 102),
+    ('Server Rack 42U', 'رف خادم 42U', 102),
+    ('Network Switch 48-port', 'سويتش شبكة 48 منفذ', 102),
+    ('CCTV Camera 4MP', 'كاميرا CCTV 4MP', 102),
+    ('Smart Thermostat', 'منظم حرارة ذكي', 102),
+    ('Air Conditioner Split 2-ton', 'مكيف سبليت 2 طن', 102),
+    ('Refrigerator 600L Commercial', 'ثلاجة 600L تجارية', 102),
+    ('Office Chair Executive', 'كرسي مكتب تنفيذي', 102),
+    ('Conference Table', 'طاولة اجتماعات', 102),
+    ('Storage Cabinet Steel', 'خزانة تخزين ستيل', 102),
+    # Packaging
+    ('Carton Box Small', 'صندوق كرتون صغير', 103),
+    ('Carton Box Medium', 'صندوق كرتون متوسط', 103),
+    ('Carton Box Large', 'صندوق كرتون كبير', 103),
+    ('Bubble Wrap Roll', 'فقاعات تغليف', 103),
+    ('Stretch Film 500m', 'فيلم تمدد 500م', 103),
+    ('Packing Tape', 'شريط لاصق', 103),
+    ('Pallet Wood', 'منصة خشبية', 103),
+    ('Plastic Bag Bulk', 'أكياس بلاستيكية', 103),
+    ('Label Sticker A4', 'ملصق A4', 103),
+    ('Shrink Wrap', 'لفافة تغليف', 103),
+    ('Foam Insert', 'حشوة فوم', 103),
+    ('Corner Protector', 'حماية زاوية', 103),
+    # Spare Parts
+    ('V-Belt Industrial', 'سير V صناعي', 104),
+    ('Bearing 6205', 'محمل 6205', 104),
+    ('Bearing 6305', 'محمل 6305', 104),
+    ('Oil Seal Set', 'مجموعة أختام زيت', 104),
+    ('Filter Cartridge', 'كرتوش فلتر', 104),
+    ('Pressure Gauge', 'مقياس ضغط', 104),
+    ('Ball Valve 4 inch', 'محبس كروي 4"', 104),
+    ('Ball Valve 6 inch', 'محبس كروي 6"', 104),
+    ('Hydraulic Hose 2m', 'خرطوم هيدروليكي 2م', 104),
+    ('Solenoid Valve 24V', 'صمام كهرومغناطيسي 24ف', 104),
+    ('Electric Motor 5HP', 'موتور كهربائي 5HP', 104),
+    ('Gear Reducer', 'مخفض سرعة', 104),
+    ('Pulley 200mm', 'بكرة 200مم', 104),
+    ('Pressure Switch', 'مفتاح ضغط', 104),
+    ('Coupling Flexible', 'وصلة مرنة', 104),
+    ('Safety Relief Valve', 'صمام أمان', 104),
+    # Office Supplies
+    ('A4 Paper 500-sheet', 'ورق A4 500 ورقة', 105),
+    ('Printer Ink Black', 'حبر طابعة أسود', 105),
+    ('Printer Ink Color', 'حبر طابعة ملون', 105),
+    ('Stapler Standard', 'دباسة', 105),
+    ('Staples Box', 'علبة دبابيس', 105),
+    ('Paper Clips Box', 'علبة مشابك', 105),
+    ('Highlighter Pack', 'علبة أقلام تظليل', 105),
+    ('Ballpoint Pen Pack', 'علبة أقلام جاف', 105),
+    ('Notebook A5', 'دفتر A5', 105),
+    ('Sticky Notes Pad', 'ورق ملاحظات', 105),
+    ('Whiteboard Marker', 'قلم سبورة', 105),
+    ('USB Flash 32GB', 'فلاش USB 32GB', 105),
+    ('Mouse Pad', 'بطانة فأرة', 105),
+    ('Power Strip 6-port', 'وصلة كهرباء 6 منافذ', 105),
+    ('Desktop Calculator', 'آلة حاسبة مكتبية', 105),
+    ('Document Folder', 'حافظ مستندات', 105),
+    ('Filing Cabinet Lock', 'قفل خزانة', 105),
+]
+
+
+def _stock_status(qty, reorder_min, reorder_max):
+    if qty <= 0:
+        return 'out'
+    if reorder_min is not None and qty < reorder_min:
+        return 'low'
+    if reorder_max is not None and qty > reorder_max:
+        return 'over'
+    return 'in'
+
+
+def _stock_aging_bucket(days):
+    if days <= 30:
+        return '0-30'
+    if days <= 60:
+        return '31-60'
+    if days <= 90:
+        return '61-90'
+    return '90+'
+
+
+def _build_stock_entries(rng):
+    """Generate 248 entries: 235 single-variant templates + 13 variants
+    across 3 multi-variant templates."""
+    entries = []
+    cats = {c[0]: c for c in STOCK_CATEGORIES}
+    whs = STOCK_WAREHOUSES
+
+    def synth(idx, name_en, name_ar, category_id, price, parent=None):
+        cat = cats[category_id]
+        wh = rng.choices(whs, weights=[w[3] for w in whs])[0]
+        # Costing methods per category, but with ~15% random override so we
+        # see a healthy spread across all three methods.
+        if rng.random() < 0.15:
+            costing = rng.choice(['standard', 'average', 'fifo'])
+        else:
+            costing = cat[3]
+        unit_cost = round(price * rng.uniform(0.85, 1.15), 2)
+        # Quantity tier scales inversely with unit cost so per-line value
+        # stays within a believable range.
+        if unit_cost > 5_000:
+            qty_lo, qty_hi = 1, 22
+        elif unit_cost > 500:
+            qty_lo, qty_hi = 8, 120
+        else:
+            qty_lo, qty_hi = 40, 800
+        # Reorder rules — 72% of entries have them, framed around the tier
+        # so we can then steer qty into low/healthy/over buckets below.
+        if rng.random() < 0.72:
+            reorder_min = round(rng.uniform(qty_lo * 1.4, qty_lo * 2.2), 0) or 1
+            reorder_max = round(rng.uniform(qty_hi * 0.8, qty_hi * 1.1), 0)
+            if reorder_max <= reorder_min:
+                reorder_max = reorder_min + max(qty_lo, 1)
+        else:
+            reorder_min = None
+            reorder_max = None
+        # Steer quantity into headline statuses so each KPI is non-zero:
+        # ~5% out, ~10% low, ~6% overstock, rest healthy. Without reorder
+        # rules the low/over carve-outs collapse into the healthy bucket.
+        roll = rng.random()
+        if roll < 0.05:
+            qty = 0 if rng.random() < 0.7 else round(-rng.uniform(0.5, 4), 2)
+        elif reorder_min is not None and roll < 0.15:
+            qty = round(rng.uniform(reorder_min * 0.2,
+                                    reorder_min * 0.95), 2)
+        elif reorder_max is not None and roll < 0.21:
+            qty = round(rng.uniform(reorder_max * 1.1,
+                                    reorder_max * 1.6), 2)
+        else:
+            # Healthy band: between min and max if rules exist, otherwise
+            # the middle of the tier range.
+            lo = reorder_min if reorder_min is not None else qty_lo
+            hi = reorder_max if reorder_max is not None else qty_hi
+            qty = round(rng.uniform(lo, hi), 2)
+        # Stock aging: oldest incoming receipt. Reweight buckets toward
+        # mid-aged stock so 60-90 day items have a presence.
+        age_days = rng.choices(
+            [rng.randint(0, 30),  rng.randint(31, 60),
+             rng.randint(61, 90), rng.randint(91, 180)],
+            weights=[0.30, 0.28, 0.22, 0.20])[0]
+        # Consumption: avg outgoing units per day in window (0-180d). Scale
+        # with the qty tier so avg days-of-stock stays realistic.
+        if rng.random() < 0.85:
+            daily_consumption = round(
+                rng.uniform(qty_lo, qty_hi) * 0.012, 3)
+        else:
+            daily_consumption = 0.0
+        value = round(max(qty, 0) * unit_cost, 2)
+        return {
+            'id': idx,
+            'name_en': name_en,
+            'name_ar': name_ar,
+            'parent_en': parent[0] if parent else None,
+            'parent_ar': parent[1] if parent else None,
+            'is_variant': parent is not None,
+            'category_id': category_id,
+            'category_en': cat[1],
+            'category_ar': cat[2],
+            'warehouse_id': wh[0],
+            'warehouse_en': wh[1],
+            'warehouse_ar': wh[2],
+            'costing': costing,
+            'qty': qty,
+            'unit_cost': unit_cost,
+            'value': value,
+            'reorder_min': reorder_min,
+            'reorder_max': reorder_max,
+            'status': _stock_status(qty, reorder_min, reorder_max),
+            'age_days': age_days,
+            'daily_consumption': daily_consumption,
+            'product_type': rng.choices(
+                ['storable', 'consumable', 'service'],
+                weights=[0.85, 0.08, 0.07])[0],
+        }
+
+    idx = 1
+    # Multi-variant templates
+    for tpl_en, tpl_ar, cat_id, variants, base in STOCK_VARIANT_TEMPLATES:
+        parent = (tpl_en, tpl_ar)
+        for v_en, v_ar in variants:
+            entries.append(synth(idx,
+                                 f'{tpl_en} — {v_en}',
+                                 f'{tpl_ar} — {v_ar}',
+                                 cat_id, base, parent=parent))
+            idx += 1
+    # Single-variant templates — drawn from STOCK_TEMPLATE_NAMES.
+    target = 248 - len(entries)
+    base_list = list(STOCK_TEMPLATE_NAMES)
+    # Cycle through the base list deterministically to reach the target count.
+    while target > 0:
+        if not base_list:
+            base_list = list(STOCK_TEMPLATE_NAMES)
+        name_en, name_ar, cat_id = base_list.pop(0)
+        # Avoid duplicate display names by appending a counter once base list
+        # exhausts.
+        suffix = ''
+        if any(e['name_en'] == name_en for e in entries):
+            suffix = f' #{rng.randint(2, 99)}'
+        cat = cats[cat_id]
+        price = rng.uniform(cat[4], cat[5])
+        entries.append(synth(idx, name_en + suffix, name_ar + suffix,
+                             cat_id, price))
+        idx += 1
+        target -= 1
+    return entries
+
+
+def _bucket(entries, key_fn, top=6, others_label='Others'):
+    """Sum a numeric field grouped by `key_fn(entry)`. Returns
+    `{labels, values}` keeping the top N + a rolled-up "Others" entry."""
+    totals = {}
+    for e in entries:
+        k = key_fn(e)
+        totals[k] = totals.get(k, 0.0) + max(e['value'], 0.0)
+    pairs = sorted(totals.items(), key=lambda kv: kv[1], reverse=True)
+    if len(pairs) > top:
+        head, tail = pairs[:top], pairs[top:]
+        others_sum = sum(v for _, v in tail)
+        head.append((others_label, others_sum))
+        pairs = head
+    return {
+        'labels': [p[0] for p in pairs],
+        'values': [round(p[1], 2) for p in pairs],
+    }
+
+
+def _type_distribution(entries, version_major):
+    """V17+ collapses storable + consumable into 'Goods' (matches Odoo 17's
+    schema change where product.type went from 'product'/'consu'/'service'
+    to 'product (goods)'/'service' on product.template)."""
+    counts = {'storable': 0, 'consumable': 0, 'service': 0}
+    for e in entries:
+        counts[e['product_type']] += 1
+    if version_major >= 17:
+        return {
+            'labels':    ['Goods', 'Service'],
+            'labels_ar': ['سلع', 'خدمة'],
+            'values':    [counts['storable'] + counts['consumable'],
+                          counts['service']],
+        }
+    return {
+        'labels':    ['Storable', 'Consumable', 'Service'],
+        'labels_ar': ['قابلة للتخزين', 'استهلاكية', 'خدمة'],
+        'values':    [counts['storable'], counts['consumable'],
+                      counts['service']],
+    }
+
+
+def stock_snapshot(version_major=18, category_ids=None, warehouse_id=None):
+    """Snapshot for /inventory/stock dashboard.
+
+    Filters are applied before computing KPIs/charts so the displayed
+    metrics always reflect the visible slice."""
+    rng = random.Random(0xCAFEF00D ^ int(version_major))
+    all_entries = _build_stock_entries(rng)
+
+    # Active filters
+    entries = all_entries
+    if category_ids:
+        category_ids = {int(c) for c in category_ids}
+        entries = [e for e in entries if e['category_id'] in category_ids]
+    if warehouse_id:
+        wid = int(warehouse_id)
+        entries = [e for e in entries if e['warehouse_id'] == wid]
+
+    has_reorder_rules = any(e['reorder_min'] is not None for e in all_entries)
+    has_consumption = any(e['daily_consumption'] > 0 for e in entries)
+
+    storable = [e for e in entries if e['product_type'] == 'storable']
+    on_hand_count = sum(1 for e in storable if e['qty'] > 0)
+    total_value = round(sum(max(e['value'], 0.0) for e in entries), 2)
+    low_count = sum(1 for e in entries if e['status'] == 'low')
+    out_count = sum(1 for e in storable if e['qty'] <= 0)
+    over_count = sum(1 for e in entries if e['status'] == 'over')
+
+    days_values = []
+    for e in entries:
+        if e['daily_consumption'] > 0 and e['qty'] > 0:
+            days_values.append(e['qty'] / e['daily_consumption'])
+    avg_days = round(sum(days_values) / len(days_values), 1) if days_values else None
+
+    # Status distribution: count "In Stock" only across storable items whose
+    # status is 'in' (excluding overstock which we surface separately).
+    in_count = sum(1 for e in storable if e['status'] == 'in')
+    status_dist = {
+        'labels':    ['In Stock', 'Low Stock', 'Out of Stock', 'Overstock'],
+        'labels_ar': ['متوفر', 'مخزون منخفض', 'نفد', 'مخزون زائد'],
+        'values':    [in_count, low_count, out_count, over_count],
+    }
+
+    # Top 10 entries by value (variants and templates both eligible).
+    top = sorted(entries, key=lambda e: e['value'], reverse=True)[:10]
+    top_chart = {
+        'labels':    [e['name_en'] for e in top],
+        'labels_ar': [e['name_ar'] for e in top],
+        'values':    [e['value'] for e in top],
+        'qtys':      [e['qty'] for e in top],
+    }
+
+    # Stock aging — bucket counts + value.
+    aging_buckets = ['0-30', '31-60', '61-90', '90+']
+    aging_counts = dict.fromkeys(aging_buckets, 0)
+    aging_values = dict.fromkeys(aging_buckets, 0.0)
+    for e in entries:
+        b = _stock_aging_bucket(e['age_days'])
+        aging_counts[b] += 1
+        aging_values[b] += max(e['value'], 0.0)
+    aging_chart = {
+        'labels':    aging_buckets,
+        'labels_ar': ['0-30 يوم', '31-60 يوم', '61-90 يوم', '90+ يوم'],
+        'counts':    [aging_counts[b] for b in aging_buckets],
+        'values':    [round(aging_values[b], 2) for b in aging_buckets],
+    }
+
+    # Reorder comparison — top 10 below or closest to reorder_min.
+    candidates = [e for e in entries
+                  if e['reorder_min'] is not None and e['qty'] >= 0]
+
+    def gap(e):
+        return e['qty'] - (e['reorder_min'] or 0)
+    candidates.sort(key=gap)
+    reorder_top = candidates[:10]
+    reorder_chart = {
+        'labels':    [e['name_en'] for e in reorder_top],
+        'labels_ar': [e['name_ar'] for e in reorder_top],
+        'current':   [e['qty'] for e in reorder_top],
+        'min':       [e['reorder_min'] for e in reorder_top],
+    }
+
+    # Stock value + count by costing method.
+    costing_labels = ['Standard Price', 'AVCO', 'FIFO']
+    costing_keys = ['standard', 'average', 'fifo']
+    costing_values = [
+        round(sum(max(e['value'], 0.0) for e in entries
+                  if e['costing'] == k), 2)
+        for k in costing_keys
+    ]
+    costing_counts = [
+        sum(1 for e in entries if e['costing'] == k)
+        for k in costing_keys
+    ]
+    costing_chart = {
+        'labels':    costing_labels,
+        'labels_ar': ['التكلفة القياسية', 'المتوسط', 'الوارد أولا'],
+        'values':    costing_values,
+        'counts':    costing_counts,
+    }
+
+    # Warehouse distribution. If only one warehouse is present in the filtered
+    # set, switch to per-location storage breakdown (still warehouse-derived
+    # in demo, just spread across 3 storage zones to give the donut content).
+    wh_value = {}
+    for e in entries:
+        wh_value[e['warehouse_en']] = wh_value.get(e['warehouse_en'], 0.0) + \
+            max(e['value'], 0.0)
+    if len(wh_value) > 1:
+        wh_chart = {
+            'labels': list(wh_value.keys()),
+            'labels_ar': [next((w[2] for w in STOCK_WAREHOUSES if w[1] == k),
+                               k) for k in wh_value.keys()],
+            'values': [round(v, 2) for v in wh_value.values()],
+            'mode': 'warehouse',
+        }
+    else:
+        # Single-warehouse fallback — top storage locations within it.
+        locations = ['Shelf A', 'Shelf B', 'Cold Storage', 'Bulk Area',
+                     'Pick Zone']
+        locations_ar = ['رف A', 'رف B', 'تخزين مبرد', 'منطقة مجمعة', 'منطقة الاختيار']
+        if entries:
+            total = sum(max(e['value'], 0.0) for e in entries)
+            shares = [0.38, 0.26, 0.17, 0.12, 0.07]
+            wh_chart = {
+                'labels': locations,
+                'labels_ar': locations_ar,
+                'values': [round(total * s, 2) for s in shares],
+                'mode': 'location',
+            }
+        else:
+            wh_chart = {'labels': [], 'labels_ar': [], 'values': [],
+                        'mode': 'location'}
+
+    return {
+        'currency': DEMO_CURRENCY_NAME,
+        'kpis': {
+            'on_hand_count': on_hand_count,
+            'total_value': total_value,
+            'low_count': low_count,
+            'out_count': out_count,
+            'over_count': over_count,
+            'avg_days_stock': avg_days,
+        },
+        'has_reorder_rules': has_reorder_rules,
+        'has_consumption': has_consumption,
+        'type_distribution': _type_distribution(entries, version_major),
+        'value_by_category': _bucket(
+            entries,
+            lambda e: e['category_en'],
+            top=6),
+        'value_by_category_ar': _bucket(
+            entries,
+            lambda e: e['category_ar'],
+            top=6, others_label='أخرى'),
+        'top_products': top_chart,
+        'status_distribution': status_dist,
+        'stock_aging': aging_chart,
+        'reorder_compare': reorder_chart,
+        'value_by_costing': costing_chart,
+        'warehouse_distribution': wh_chart,
+        'categories': [
+            {'id': c[0], 'name_en': c[1], 'name_ar': c[2]}
+            for c in STOCK_CATEGORIES
+        ],
+        'warehouses': [
+            {'id': w[0], 'name_en': w[1], 'name_ar': w[2]}
+            for w in STOCK_WAREHOUSES
+        ],
+        'entries': entries,
+        'total_entry_count': len(entries),
+    }

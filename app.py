@@ -5452,6 +5452,22 @@ INVENTORY_V2_PAGES = {
 }
 
 
+def _parse_id_list(name):
+    """Read a repeated query-string parameter and return a sorted list of
+    unique ints. Tolerates malformed values silently."""
+    out = set()
+    for v in request.args.getlist(name):
+        for part in str(v).split(','):
+            part = part.strip()
+            if not part:
+                continue
+            try:
+                out.add(int(part))
+            except (TypeError, ValueError):
+                continue
+    return sorted(out)
+
+
 @app.route('/inventory/<page>')
 @login_required
 def inventory_v2(page):
@@ -5460,6 +5476,27 @@ def inventory_v2(page):
     if _feature_is_locked('inventory'):
         return redirect(url_for('feature_unavailable', feature='inventory'))
     meta = INVENTORY_V2_PAGES[page]
+
+    if page == 'stock':
+        from mock_data import stock_snapshot
+        version_major = session.get('odoo_version_major') or DEMO_DEFAULT_VERSION
+        category_ids = _parse_id_list('category')
+        warehouse_id = request.args.get('warehouse', '').strip()
+        try:
+            warehouse_id = int(warehouse_id) if warehouse_id else None
+        except (TypeError, ValueError):
+            warehouse_id = None
+        snapshot = stock_snapshot(version_major=version_major,
+                                  category_ids=category_ids or None,
+                                  warehouse_id=warehouse_id)
+        return render_template('inventory_stock.html',
+                               page=page, meta=meta,
+                               snapshot=snapshot,
+                               selected_categories=category_ids,
+                               selected_warehouse=warehouse_id,
+                               odoo_version_major=version_major,
+                               inventory_pages=INVENTORY_V2_PAGES)
+
     return render_template('inventory_placeholder.html',
                            page=page, meta=meta,
                            inventory_pages=INVENTORY_V2_PAGES)
@@ -5833,11 +5870,16 @@ EXPORT_CONFIG = {
         'headers': ['Description', 'Employee', 'Date', 'Amount', 'Currency', 'Status'],
     },
     'inventory_stock': {
-        'title': 'Stock Report',
-        'model': 'stock.quant',
-        'domain': [['location_id.usage', '=', 'internal']],
-        'fields': ['product_id', 'location_id', 'quantity', 'reserved_quantity', 'value'],
-        'headers': ['Product', 'Location', 'Quantity', 'Reserved', 'Value'],
+        'title': 'Stock Dashboard Report',
+        # Handled by `_export_inventory_stock` — builds rows from the same
+        # snapshot the dashboard renders so the PDF/Excel mirrors what the
+        # user sees on screen.
+        'model': None,
+        'fields': [],
+        'headers': ['Product', 'Category', 'Warehouse', 'Costing',
+                    'Qty On Hand', 'Unit Cost', 'Stock Value',
+                    'Reorder Min', 'Status', 'Age (days)'],
+        'col_widths': [3.0, 1.4, 1.4, 1.1, 1.0, 1.0, 1.2, 1.0, 1.0, 0.9],
     },
     'inventory_movements': {
         'title': 'Stock Movements Report',
@@ -5924,6 +5966,67 @@ EXPORT_CONFIG = {
         'col_widths': [1.2, 1.8, 0.8, 2.2, 3.0],
     },
 }
+
+
+def _export_inventory_stock(fmt: str):
+    """Build PDF/Excel from the same `stock_snapshot()` the dashboard
+    renders so the export honors the active category / warehouse filters."""
+    from mock_data import stock_snapshot
+
+    cfg = EXPORT_CONFIG['inventory_stock']
+    version_major = session.get('odoo_version_major') or DEMO_DEFAULT_VERSION
+    category_ids = _parse_id_list('category')
+    warehouse_id = request.args.get('warehouse', '').strip()
+    try:
+        warehouse_id = int(warehouse_id) if warehouse_id else None
+    except (TypeError, ValueError):
+        warehouse_id = None
+    snap = stock_snapshot(version_major=version_major,
+                          category_ids=category_ids or None,
+                          warehouse_id=warehouse_id)
+
+    ccy = snap.get('currency', 'SAR')
+    costing_label = {
+        'standard': 'Standard Price',
+        'average':  'AVCO',
+        'fifo':     'FIFO',
+    }
+    status_label = {
+        'in':   'In Stock',
+        'low':  'Low Stock',
+        'out':  'Out of Stock',
+        'over': 'Overstock',
+    }
+
+    rows = []
+    for e in sorted(snap['entries'],
+                    key=lambda x: x['value'], reverse=True):
+        rows.append([
+            e['name_en'],
+            e['category_en'],
+            e['warehouse_en'],
+            costing_label.get(e['costing'], e['costing']),
+            f"{e['qty']:,.2f}",
+            f"{ccy} {e['unit_cost']:,.2f}",
+            f"{ccy} {e['value']:,.2f}",
+            f"{e['reorder_min']:,.0f}" if e['reorder_min'] is not None else '—',
+            status_label.get(e['status'], e['status']),
+            e['age_days'],
+        ])
+
+    title = cfg['title']
+    if fmt == 'pdf':
+        buf = export_pdf(title, cfg['headers'], rows,
+                         col_widths=cfg.get('col_widths'))
+        return send_file(buf, mimetype='application/pdf',
+                         download_name='inventory_stock.pdf',
+                         as_attachment=True)
+    buf = export_excel(title, cfg['headers'], rows)
+    return send_file(
+        buf,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        download_name='inventory_stock.xlsx', as_attachment=True,
+    )
 
 
 def _export_financial_statements(key: str, fmt: str):
@@ -6071,6 +6174,9 @@ def export(key: str, fmt: str):
 
     if key.startswith('financial_statements_'):
         return _export_financial_statements(key, fmt)
+
+    if key == 'inventory_stock':
+        return _export_inventory_stock(fmt)
 
     cfg = EXPORT_CONFIG[key]
     c = get_client()
