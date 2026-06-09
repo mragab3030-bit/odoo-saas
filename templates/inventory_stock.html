@@ -23,17 +23,51 @@
 
 {% block head %}
 <style>
-  /* Stock dashboard local layout — KPI tile mini chart + reorder banner. */
-  .stock-kpi-chart {
+  /* Stock dashboard — KPI grid + chart layout. KPI cards reuse the global
+     .stat-card pattern (no icons, big number, label, subtitle) so they
+     read identically to Invoices / Bills / Assets / Analytic. */
+  .stock-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: .75rem;
+    margin-bottom: 1.5rem;
+    align-items: stretch;
+  }
+  .stock-stat-grid .stat-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 1rem 1rem 1.05rem;
+    min-height: 158px;
+  }
+  .stock-stat-grid .stat-label {
+    margin-top: .35rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+    /* Shrink label font-size so multi-word KPI titles stay on one line. */
+    font-size: clamp(.62rem, 1.1vw, .72rem);
+  }
+  .stock-stat-grid .stat-sub {
+    margin-top: .25rem;
+    font-size: .7rem;
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+  .stock-stat-grid .stat-value-num {
+    font-size: clamp(1rem, 2vw, 1.55rem);
+  }
+  /* Card 1: mini donut centered below the label/subtitle. */
+  .stock-stat-mini-chart {
+    margin-top: auto;
+    padding-top: .55rem;
     width: 56px;
     height: 56px;
-    flex-shrink: 0;
-    margin-left: auto;
+    align-self: center;
     position: relative;
   }
-  [dir="rtl"] .stock-kpi-chart { margin-left: 0; margin-right: auto; }
-  .stock-kpi-card-with-chart { display: flex; align-items: center; gap: .75rem; }
-  .stock-kpi-card-with-chart .kpi-body { flex: 1; min-width: 0; }
   .stock-chart-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -68,30 +102,22 @@
   .stock-info-row:last-child { border-bottom: 0; }
   .stock-info-row strong { font-weight: 600; }
 
-  /* Multi-select chips on the filter bar. */
+  /* Filter bar — compact dropdowns aligned with global .filter-bar look. */
   .stock-filter-bar {
     display: flex;
     flex-wrap: wrap;
-    gap: .75rem;
+    gap: .75rem 1rem;
     align-items: flex-end;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 12px;
-    padding: 1rem 1.25rem;
+    padding: .85rem 1.1rem;
     margin-bottom: 1rem;
   }
   .stock-filter-bar .filter-group {
     display: flex;
     flex-direction: column;
-    min-width: 180px;
-  }
-  .stock-filter-bar select.form-control,
-  .stock-filter-bar select {
-    min-height: 36px;
-    padding: .35rem .6rem;
-  }
-  .stock-filter-bar select[multiple] {
-    min-height: 110px;
+    min-width: 200px;
   }
   .stock-filter-bar label {
     font-size: .72rem;
@@ -100,6 +126,17 @@
     text-transform: uppercase;
     letter-spacing: .04em;
     font-weight: 600;
+  }
+  .stock-filter-bar select,
+  .stock-filter-bar .form-control,
+  .stock-multi {
+    min-height: 36px;
+    padding: .35rem .6rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-size: .82rem;
   }
   .stock-filter-bar .filter-actions {
     display: flex;
@@ -110,6 +147,67 @@
   [dir="rtl"] .stock-filter-bar .filter-actions {
     margin-left: 0; margin-right: auto;
   }
+
+  /* Compact multi-select for Categories. */
+  .stock-multi {
+    position: relative;
+  }
+  .stock-multi-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem;
+    width: 100%;
+    background: transparent;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+  }
+  [dir="rtl"] .stock-multi-toggle { text-align: right; }
+  .stock-multi-toggle .stock-multi-chevron {
+    font-size: .7rem;
+    color: var(--text-muted);
+    transition: transform .15s ease;
+  }
+  .stock-multi.is-open .stock-multi-chevron { transform: rotate(180deg); }
+  .stock-multi-panel {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow-md);
+    padding: .35rem;
+    z-index: 30;
+    max-height: 240px;
+    overflow-y: auto;
+    display: none;
+  }
+  .stock-multi.is-open .stock-multi-panel { display: block; }
+  .stock-multi-option {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    padding: .35rem .5rem;
+    border-radius: 6px;
+    font-size: .82rem;
+    cursor: pointer;
+    user-select: none;
+  }
+  .stock-multi-option:hover { background: var(--surface-2); }
+  .stock-multi-option input { accent-color: var(--primary); margin: 0; }
+  .stock-multi-summary {
+    font-size: .82rem;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 </style>
 {% endblock %}
 
@@ -119,17 +217,29 @@
 {% set _categories = snapshot.categories %}
 {% set _warehouses = snapshot.warehouses %}
 <form method="GET" action="{{ url_for('inventory_v2', page='stock') }}" class="stock-filter-bar" id="stockFilters">
+
   <div class="filter-group">
-    <label for="stockCatFilter" data-i18n="inv_stock_filter_category">Categories</label>
-    <select id="stockCatFilter" name="category" class="form-control" multiple size="4">
-      {% for c in _categories %}
-      <option value="{{ c.id }}" {% if c.id in selected_categories %}selected{% endif %}
-              data-text-en="{{ c.name_en }}" data-text-ar="{{ c.name_ar }}">
-        {{ c.name_en }}
-      </option>
-      {% endfor %}
-    </select>
+    <label data-i18n="inv_stock_filter_category">Categories</label>
+    <div class="stock-multi" id="stockCatFilter">
+      <button type="button" class="stock-multi-toggle" data-multi-toggle aria-haspopup="listbox" aria-expanded="false">
+        <span class="stock-multi-summary" data-multi-summary>
+          <span data-i18n="inv_stock_all_categories">All Categories</span>
+        </span>
+        <i class="fa-solid fa-chevron-down stock-multi-chevron" aria-hidden="true"></i>
+      </button>
+      <div class="stock-multi-panel" role="listbox" data-multi-panel>
+        {% for c in _categories %}
+        <label class="stock-multi-option">
+          <input type="checkbox" name="category" value="{{ c.id }}"
+                 {% if c.id in selected_categories %}checked{% endif %}
+                 data-multi-checkbox>
+          <span data-text-en="{{ c.name_en }}" data-text-ar="{{ c.name_ar }}">{{ c.name_en }}</span>
+        </label>
+        {% endfor %}
+      </div>
+    </div>
   </div>
+
   <div class="filter-group">
     <label for="stockWhFilter" data-i18n="inv_stock_filter_warehouse">Warehouse</label>
     <select id="stockWhFilter" name="warehouse" class="form-control">
@@ -143,6 +253,7 @@
       {% endfor %}
     </select>
   </div>
+
   <div class="filter-actions">
     <button type="submit" class="btn btn-primary btn-sm">
       <i class="fa-solid fa-filter"></i>
@@ -170,74 +281,54 @@
 {% set ccy = snapshot.currency %}
 {% set has_rules = snapshot.has_reorder_rules %}
 
-{# ----- KPI cards ----- #}
-<div class="kpi-grid">
+{# ----- KPI cards (stat-card style — no icons) ----- #}
+<div class="stock-stat-grid">
 
-  <div class="kpi-card stock-kpi-card-with-chart">
-    <div class="kpi-icon" style="background: linear-gradient(135deg, #475569, #64748b)">
-      <i class="fa-solid fa-boxes-stacked"></i>
-    </div>
-    <div class="kpi-body">
-      <div class="kpi-value" style="color: #475569">{{ k.on_hand_count }}</div>
-      <div class="kpi-label" data-i18n="inv_stock_kpi_on_hand">Total On Hand Products</div>
-      <div class="kpi-sub" data-i18n="inv_stock_kpi_on_hand_sub">Storable — On Hand</div>
-    </div>
-    <div class="stock-kpi-chart" dir="ltr">
+  <div class="stat-card">
+    <div class="stat-value stat-value-num" style="color:#475569">{{ k.on_hand_count }}</div>
+    <div class="stat-label" data-i18n="inv_stock_kpi_on_hand">Total On Hand Products</div>
+    <div class="stat-sub" data-i18n="inv_stock_kpi_on_hand_sub">Storable — On Hand</div>
+    <div class="stock-stat-mini-chart" dir="ltr">
       <canvas id="stockTypeMini"></canvas>
     </div>
   </div>
 
-  <div class="kpi-card">
-    <div class="kpi-icon blue"><i class="fa-solid fa-coins"></i></div>
-    <div class="kpi-body">
-      <div class="kpi-value" style="color: var(--info)">
-        <span class="amount-display" data-amount="{{ k.total_value or 0 }}" data-currency="{{ ccy }}">{{ ccy }} {{ k.total_value | fmt_currency_int }}</span>
-      </div>
-      <div class="kpi-label" data-i18n="inv_stock_kpi_total_value">Total Stock Value</div>
-      <div class="kpi-sub" data-i18n="inv_stock_kpi_total_value_sub">Valued at Actual Cost</div>
+  <div class="stat-card">
+    <div class="stat-value stat-value-num" style="color:var(--info)">
+      <span class="amount-display" data-amount="{{ k.total_value or 0 }}" data-currency="{{ ccy }}">{{ ccy }} {{ k.total_value | fmt_currency_int }}</span>
     </div>
+    <div class="stat-label" data-i18n="inv_stock_kpi_total_value">Total Stock Value</div>
+    <div class="stat-sub" data-i18n="inv_stock_kpi_total_value_sub">Valued at Actual Cost</div>
   </div>
 
-  <div class="kpi-card" {% if not has_rules %}title="No reorder rules configured" data-i18n-title="inv_stock_no_reorder_tooltip"{% endif %}>
-    <div class="kpi-icon orange"><i class="fa-solid fa-triangle-exclamation"></i></div>
-    <div class="kpi-body">
-      <div class="kpi-value" style="color: var(--warning)">{{ k.low_count if has_rules else 0 }}</div>
-      <div class="kpi-label" data-i18n="inv_stock_kpi_low">Low Stock Items</div>
-      <div class="kpi-sub" data-i18n="inv_stock_kpi_low_sub">Below Reorder Point</div>
-    </div>
+  <div class="stat-card" {% if not has_rules %}title="No reorder rules configured" data-i18n-title="inv_stock_no_reorder_tooltip"{% endif %}>
+    <div class="stat-value stat-value-num" style="color:var(--warning)">{{ k.low_count if has_rules else 0 }}</div>
+    <div class="stat-label" data-i18n="inv_stock_kpi_low">Low Stock Items</div>
+    <div class="stat-sub" data-i18n="inv_stock_kpi_low_sub">Below Reorder Point</div>
   </div>
 
-  <div class="kpi-card">
-    <div class="kpi-icon red"><i class="fa-solid fa-circle-xmark"></i></div>
-    <div class="kpi-body">
-      <div class="kpi-value" style="color: var(--danger)">{{ k.out_count }}</div>
-      <div class="kpi-label" data-i18n="inv_stock_kpi_out">Out of Stock</div>
-      <div class="kpi-sub" data-i18n="inv_stock_kpi_out_sub">Zero or Negative Quantity</div>
-    </div>
+  <div class="stat-card">
+    <div class="stat-value stat-value-num" style="color:var(--danger)">{{ k.out_count }}</div>
+    <div class="stat-label" data-i18n="inv_stock_kpi_out">Out of Stock</div>
+    <div class="stat-sub" data-i18n="inv_stock_kpi_out_sub">Zero or Negative Quantity</div>
   </div>
 
-  <div class="kpi-card" {% if not has_rules %}title="No reorder rules configured" data-i18n-title="inv_stock_no_reorder_tooltip"{% endif %}>
-    <div class="kpi-icon purple"><i class="fa-solid fa-arrow-up-from-bracket"></i></div>
-    <div class="kpi-body">
-      <div class="kpi-value" style="color: #a78bfa">{{ k.over_count if has_rules else 0 }}</div>
-      <div class="kpi-label" data-i18n="inv_stock_kpi_over">Overstock Items</div>
-      <div class="kpi-sub" data-i18n="inv_stock_kpi_over_sub">Above Maximum Quantity</div>
-    </div>
+  <div class="stat-card" {% if not has_rules %}title="No reorder rules configured" data-i18n-title="inv_stock_no_reorder_tooltip"{% endif %}>
+    <div class="stat-value stat-value-num" style="color:#a78bfa">{{ k.over_count if has_rules else 0 }}</div>
+    <div class="stat-label" data-i18n="inv_stock_kpi_over">Overstock Items</div>
+    <div class="stat-sub" data-i18n="inv_stock_kpi_over_sub">Above Maximum Quantity</div>
   </div>
 
-  <div class="kpi-card">
-    <div class="kpi-icon teal"><i class="fa-solid fa-calendar-day"></i></div>
-    <div class="kpi-body">
-      <div class="kpi-value" style="color: var(--info)">
-        {% if k.avg_days_stock is none %}
-        <span data-i18n="inv_stock_na">N/A</span>
-        {% else %}
-        {{ k.avg_days_stock }}
-        {% endif %}
-      </div>
-      <div class="kpi-label" data-i18n="inv_stock_kpi_avg_days">Avg Days of Stock</div>
-      <div class="kpi-sub" data-i18n="inv_stock_kpi_avg_days_sub">Average Coverage Days</div>
+  <div class="stat-card">
+    <div class="stat-value stat-value-num" style="color:var(--info)">
+      {% if k.avg_days_stock is none %}
+      <span data-i18n="inv_stock_na">N/A</span>
+      {% else %}
+      {{ k.avg_days_stock }}
+      {% endif %}
     </div>
+    <div class="stat-label" data-i18n="inv_stock_kpi_avg_days">Avg Days of Stock</div>
+    <div class="stat-sub" data-i18n="inv_stock_kpi_avg_days_sub">Average Coverage Days</div>
   </div>
 
 </div>
@@ -734,9 +825,87 @@
       if (v) el.textContent = v;
     });
   }
-  function syncStockLang() { applyStockLang(currentLang()); }
+  function syncStockLang() {
+    applyStockLang(currentLang());
+    syncMultiSummary();
+  }
   document.addEventListener('DOMContentLoaded', syncStockLang);
   document.addEventListener('olens:language-change', syncStockLang);
+
+  // -------- Compact Categories multi-select --------
+  function syncMultiSummary() {
+    document.querySelectorAll('.stock-multi').forEach(function (root) {
+      const summary = root.querySelector('[data-multi-summary]');
+      if (!summary) return;
+      const checked = root.querySelectorAll('input[data-multi-checkbox]:checked');
+      const lang = currentLang();
+      if (!checked.length) {
+        const allTxt = lang === 'ar' ? 'جميع الفئات' : 'All Categories';
+        summary.textContent = allTxt;
+        return;
+      }
+      if (checked.length === 1) {
+        const span = checked[0].parentElement.querySelector('[data-text-en]');
+        if (span) {
+          summary.textContent = span.getAttribute(
+            lang === 'ar' ? 'data-text-ar' : 'data-text-en') || span.textContent;
+        } else {
+          summary.textContent = checked[0].parentElement.textContent.trim();
+        }
+        return;
+      }
+      const tpl = lang === 'ar' ? checked.length + ' فئة محددة'
+                                : checked.length + ' selected';
+      summary.textContent = tpl;
+    });
+  }
+  document.addEventListener('click', function (e) {
+    const toggle = e.target.closest('[data-multi-toggle]');
+    if (toggle) {
+      const root = toggle.closest('.stock-multi');
+      if (!root) return;
+      const open = root.classList.toggle('is-open');
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      // Close any other open dropdown so they don't overlap.
+      document.querySelectorAll('.stock-multi.is-open').forEach(function (el) {
+        if (el !== root) {
+          el.classList.remove('is-open');
+          const t = el.querySelector('[data-multi-toggle]');
+          if (t) t.setAttribute('aria-expanded', 'false');
+        }
+      });
+      return;
+    }
+    if (e.target.matches('input[data-multi-checkbox]')) {
+      syncMultiSummary();
+      return;
+    }
+    // Outside click → close any open dropdown.
+    if (!e.target.closest('.stock-multi')) {
+      document.querySelectorAll('.stock-multi.is-open').forEach(function (el) {
+        el.classList.remove('is-open');
+        const t = el.querySelector('[data-multi-toggle]');
+        if (t) t.setAttribute('aria-expanded', 'false');
+      });
+    }
+  });
+  document.addEventListener('DOMContentLoaded', syncMultiSummary);
+
+  // -------- amt-shrink so long totals never truncate --------
+  function applyShrink(el) {
+    el.classList.remove('amt-shrink-1', 'amt-shrink-2', 'amt-shrink-3');
+    const len = (el.textContent || '').length;
+    if (len > 17) el.classList.add('amt-shrink-3');
+    else if (len > 14) el.classList.add('amt-shrink-2');
+    else if (len > 11) el.classList.add('amt-shrink-1');
+  }
+  function shrinkAllAmounts() {
+    document.querySelectorAll('.amount-display').forEach(applyShrink);
+  }
+  document.addEventListener('DOMContentLoaded', shrinkAllAmounts);
+  document.addEventListener('odoo:amount-mode-change', shrinkAllAmounts);
+  document.addEventListener('olens:language-change',   shrinkAllAmounts);
+  window.olensStockShrink = shrinkAllAmounts;
 </script>
 
 {# Reusable amount-format toolbar handler — wired in financial_statements

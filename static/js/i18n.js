@@ -469,6 +469,7 @@
       // Inventory / Stock dashboard
       inv_stock_title:                'Stock',
       inv_stock_filter_category:      'Categories',
+      inv_stock_all_categories:       'All Categories',
       inv_stock_filter_warehouse:     'Warehouse',
       inv_stock_reset:                'Reset',
       inv_stock_na:                   'N/A',
@@ -951,6 +952,7 @@
       // Inventory / Stock dashboard
       inv_stock_title:                'المخزون',
       inv_stock_filter_category:      'الفئات',
+      inv_stock_all_categories:       'جميع الفئات',
       inv_stock_filter_warehouse:     'المستودع',
       inv_stock_reset:                'إعادة تعيين',
       inv_stock_na:                   'غير متاح',
