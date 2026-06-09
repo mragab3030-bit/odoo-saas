@@ -5006,7 +5006,8 @@ def financial_statements_mapping():
     return_tab = (request.form.get('return_tab') or 'ratios').strip()
     if return_tab not in FS_TABS:
         return_tab = 'ratios'
-    return redirect(url_for('financial_statements', tab=return_tab))
+    return redirect(url_for('financial_statements',
+                            page=FS_TAB_TO_PAGE[return_tab]))
 
 
 # ---- Custom Ratio Builder ----
@@ -5256,14 +5257,14 @@ def financial_statements_custom_ratio():
             flash('Custom ratio deleted.', 'success')
         else:
             flash('Missing ratio id.', 'danger')
-        return redirect(url_for('financial_statements', tab='ratios'))
+        return redirect(url_for('financial_statements', page='ratios'))
 
     # save / update
     try:
         payload = json.loads(request.form.get('payload') or '{}')
     except (json.JSONDecodeError, TypeError):
         flash('Invalid ratio payload.', 'danger')
-        return redirect(url_for('financial_statements', tab='ratios'))
+        return redirect(url_for('financial_statements', page='ratios'))
 
     name_en = (payload.get('name_en') or '').strip()
     numerator = payload.get('numerator') or []
@@ -5273,10 +5274,10 @@ def financial_statements_custom_ratio():
     # Validation: name + non-empty sides
     if not name_en:
         flash('Ratio name is required.', 'danger')
-        return redirect(url_for('financial_statements', tab='ratios'))
+        return redirect(url_for('financial_statements', page='ratios'))
     if not numerator or not denominator:
         flash('Both Numerator and Denominator must have at least one component.', 'danger')
-        return redirect(url_for('financial_statements', tab='ratios'))
+        return redirect(url_for('financial_statements', page='ratios'))
 
     # Duplicate name (case-insensitive, ignoring the row being edited)
     existing = _fs_get_custom_ratios()
@@ -5284,7 +5285,7 @@ def financial_statements_custom_ratio():
         if (r.get('name_en') or '').strip().lower() == name_en.lower() \
                 and r.get('id') != ratio_id:
             flash(f'A ratio named "{name_en}" already exists.', 'danger')
-            return redirect(url_for('financial_statements', tab='ratios'))
+            return redirect(url_for('financial_statements', page='ratios'))
 
     section = (payload.get('section') or 'custom').lower()
     if section not in FS_CUSTOM_SECTIONS:
@@ -5328,7 +5329,7 @@ def financial_statements_custom_ratio():
     }
     _fs_upsert_custom_ratio(ratio)
     flash('Custom ratio saved.', 'success')
-    return redirect(url_for('financial_statements', tab='ratios'))
+    return redirect(url_for('financial_statements', page='ratios'))
 
 
 def _sanitize_side(side):
@@ -5342,12 +5343,32 @@ def _sanitize_side(side):
     return out
 
 
+FS_PAGE_TO_TAB = {
+    'pl': 'pnl',
+    'balance-sheet': 'balance_sheet',
+    'trial-balance': 'trial_balance',
+    'ratios': 'ratios',
+}
+FS_TAB_TO_PAGE = {v: k for k, v in FS_PAGE_TO_TAB.items()}
+
+
 @app.route('/financial-statements')
+@app.route('/financial-statements/<page>')
 @login_required
-def financial_statements():
-    tab = request.args.get('tab', 'pnl')
-    if tab not in FS_TABS:
-        tab = 'pnl'
+def financial_statements(page=None):
+    if page is None:
+        # Redirect /financial-statements (with optional ?tab=) to the
+        # canonical /financial-statements/<page> URL. Preserves any
+        # other query parameters (period, date_from, etc.).
+        tab_qs = (request.args.get('tab') or '').strip().lower()
+        target_page = FS_TAB_TO_PAGE.get(tab_qs, 'pl')
+        other_args = {k: v for k, v in request.args.items() if k != 'tab'}
+        return redirect(url_for('financial_statements',
+                                page=target_page, **other_args))
+
+    if page not in FS_PAGE_TO_TAB:
+        return redirect(url_for('financial_statements', page='pl'))
+    tab = FS_PAGE_TO_TAB[page]
     period_key = (request.args.get('period') or 'ytd').strip()
     raw_from = request.args.get('date_from', '')
     raw_to = request.args.get('date_to', '')
@@ -5423,6 +5444,26 @@ def financial_statements():
 # ---------------------------------------------------------------------------
 # Inventory
 # ---------------------------------------------------------------------------
+
+INVENTORY_V2_PAGES = {
+    'stock':     {'icon': '📦', 'label_en': 'Stock',     'label_ar': 'المخزن'},
+    'movements': {'icon': '🔄', 'label_en': 'Movements', 'label_ar': 'حركات المخزون'},
+    'valuation': {'icon': '💰', 'label_en': 'Valuation', 'label_ar': 'التقييم'},
+}
+
+
+@app.route('/inventory/<page>')
+@login_required
+def inventory_v2(page):
+    if page not in INVENTORY_V2_PAGES:
+        return redirect(url_for('inventory_v2', page='stock'))
+    if _feature_is_locked('inventory'):
+        return redirect(url_for('feature_unavailable', feature='inventory'))
+    meta = INVENTORY_V2_PAGES[page]
+    return render_template('inventory_placeholder.html',
+                           page=page, meta=meta,
+                           inventory_pages=INVENTORY_V2_PAGES)
+
 
 @app.route('/inventory')
 @login_required
@@ -5895,7 +5936,7 @@ def _export_financial_statements(key: str, fmt: str):
     snapshot = _fs_snapshot(client)
     if snapshot.get('unavailable'):
         flash('Financial statements data is not available in this mode.', 'warning')
-        return redirect(url_for('financial_statements'))
+        return redirect(url_for('financial_statements', page='pl'))
 
     period_key = (request.args.get('period') or 'ytd').strip()
     raw_from = request.args.get('date_from', '')

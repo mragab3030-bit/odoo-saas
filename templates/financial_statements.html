@@ -809,25 +809,6 @@
 
 {% block content %}
 
-<!-- Tabs -->
-<div class="tab-bar">
-  <a href="{{ url_for('financial_statements', tab='pnl') }}"
-     class="tab-item {% if tab == 'pnl' %}active{% endif %}">
-    <i class="fa-solid fa-chart-line"></i> <span data-i18n="fs_pnl">P&L</span>
-  </a>
-  <a href="{{ url_for('financial_statements', tab='balance_sheet') }}"
-     class="tab-item {% if tab == 'balance_sheet' %}active{% endif %}">
-    <i class="fa-solid fa-scale-balanced"></i> <span data-i18n="fs_balance_sheet">Balance Sheet</span>
-  </a>
-  <a href="{{ url_for('financial_statements', tab='trial_balance') }}"
-     class="tab-item {% if tab == 'trial_balance' %}active{% endif %}">
-    <i class="fa-solid fa-list-check"></i> <span data-i18n="fs_trial_balance">Trial Balance</span>
-  </a>
-  <a href="{{ url_for('financial_statements', tab='ratios') }}"
-     class="tab-item {% if tab == 'ratios' %}active{% endif %}">
-    <i class="fa-solid fa-gauge-high"></i> <span data-i18n="fs_financial_ratios">Financial Ratios</span>
-  </a>
-</div>
 
 {% if snapshot.get('unavailable') %}
 <div class="fs-section" style="text-align:center;padding:3rem 1rem">
@@ -852,8 +833,8 @@
 {% endif %}
 
 <!-- Toolbar: period + compare (shared by P&L, BS, TB) -->
-<form method="GET" action="{{ url_for('financial_statements') }}" class="fs-toolbar" id="fsToolbar">
-  <input type="hidden" name="tab" value="{{ tab }}">
+{% set fs_page_slug = {'pnl':'pl','balance_sheet':'balance-sheet','trial_balance':'trial-balance','ratios':'ratios'}[tab] %}
+<form method="GET" action="{{ url_for('financial_statements', page=fs_page_slug) }}" class="fs-toolbar" id="fsToolbar">
   <div class="filter-group">
     <label for="fsPeriod" data-i18n="period">Period</label>
     <select id="fsPeriod" name="period" onchange="document.getElementById('fsToolbar').submit()">

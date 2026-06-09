@@ -372,6 +372,71 @@ a:hover { text-decoration: none; }
   font-size: .8rem;
   font-weight: 400;
 }
+[dir="rtl"] .nav-item.sub-item {
+  padding-left: .75rem;
+  padding-right: 2.25rem;
+}
+
+/* Collapsible nav groups (Financial Statements, Inventory) ---------------- */
+.nav-group { display: block; }
+
+.nav-group-toggle {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+[dir="rtl"] .nav-group-toggle { text-align: right; }
+
+.nav-group-section-toggle {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  /* Inherits .sidebar-section-label typography; just adds button affordances. */
+}
+.nav-group-section-toggle:hover { color: var(--sidebar-text-strong, #e2e8f0); }
+
+.nav-group-chevron {
+  margin-left: auto;
+  font-size: 10px;
+  width: auto;
+  opacity: .65;
+  transition: transform .18s ease;
+}
+[dir="rtl"] .nav-group-chevron { margin-left: 0; margin-right: auto; }
+
+.nav-group-toggle.is-open .nav-group-chevron,
+.nav-group-section-toggle.is-open .nav-group-chevron {
+  transform: rotate(90deg);
+}
+[dir="rtl"] .nav-group-toggle.is-open .nav-group-chevron,
+[dir="rtl"] .nav-group-section-toggle.is-open .nav-group-chevron {
+  transform: rotate(-90deg);
+}
+
+.nav-group-items {
+  display: none;
+  padding-top: 2px;
+}
+.nav-group.is-open > .nav-group-items { display: block; }
+
+.nav-sub-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  font-size: 13px;
+  line-height: 1;
+  flex-shrink: 0;
+}
 
 /* Feature-unavailable landing page ---------------------------------------- */
 .feature-unavailable {

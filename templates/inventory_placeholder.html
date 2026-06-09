@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+{% block title %}{{ meta.label_en }} · Olens{% endblock %}
+{% block page_title %}
+  <span data-text-en="{{ meta.label_en }}" data-text-ar="{{ meta.label_ar }}">{{ meta.label_en }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="inv-placeholder">
+  <div class="inv-placeholder-icon" aria-hidden="true">{{ meta.icon }}</div>
+  <h2 class="inv-placeholder-title">
+    <span data-text-en="{{ meta.label_en }}" data-text-ar="{{ meta.label_ar }}">{{ meta.label_en }}</span>
+  </h2>
+  <p class="inv-placeholder-sub"
+     data-text-en="This page is coming soon."
+     data-text-ar="هذه الصفحة قيد التطوير.">This page is coming soon.</p>
+</div>
+
+<style>
+  .inv-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: calc(100vh - 220px);
+    padding: 3rem 1rem;
+    text-align: center;
+  }
+  .inv-placeholder-icon {
+    font-size: 4rem;
+    line-height: 1;
+    margin-bottom: 1rem;
+    opacity: .9;
+  }
+  .inv-placeholder-title {
+    margin: 0 0 .5rem;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text-strong, #0f172a);
+  }
+  .inv-placeholder-sub {
+    margin: 0;
+    color: var(--text-muted, #64748b);
+    font-size: .95rem;
+  }
+</style>
+
+<script>
+  (function () {
+    function applyInvLang(lang) {
+      document.querySelectorAll('[data-text-en],[data-text-ar]').forEach(function (el) {
+        var v = el.getAttribute(lang === 'ar' ? 'data-text-ar' : 'data-text-en');
+        if (v) el.textContent = v;
+      });
+    }
+    function currentLang() {
+      try { return localStorage.getItem('olens.lang') || 'en'; } catch (e) { return 'en'; }
+    }
+    document.addEventListener('DOMContentLoaded', function () { applyInvLang(currentLang()); });
+    document.addEventListener('olens:language-change', function (e) {
+      applyInvLang((e.detail && e.detail.lang) || currentLang());
+    });
+  })();
+</script>
+{% endblock %}

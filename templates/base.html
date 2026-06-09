@@ -143,31 +143,76 @@
         <i class="fa-solid fa-diagram-project"></i> <span data-i18n="analytic">Analytic</span>
         {% if not f_analytic %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
       </a>
-      <a href="{{ url_for('financial_statements') }}"
-         class="nav-item {% if request.endpoint == 'financial_statements' %}active{% endif %}">
-        <i class="fa-solid fa-book-open"></i> <span data-i18n="financial_statements">Financial Statements</span>
-      </a>
+      {% set fs_page = request.view_args.get('page') if request.endpoint == 'financial_statements' else None %}
+      {% set fs_group_active = (request.endpoint == 'financial_statements') %}
+      <div class="nav-group {% if fs_group_active %}is-open{% endif %}" data-nav-group="financial-statements">
+        <button type="button" class="nav-item nav-group-toggle {% if fs_group_active %}is-open{% endif %}"
+                aria-expanded="{{ 'true' if fs_group_active else 'false' }}"
+                data-nav-group-toggle>
+          <i class="fa-solid fa-book-open"></i>
+          <span data-i18n="financial_statements">Financial Statements</span>
+          <i class="fa-solid fa-chevron-right nav-group-chevron" aria-hidden="true"></i>
+        </button>
+        <div class="nav-group-items" data-nav-group-items>
+          <a href="{{ url_for('financial_statements', page='pl') }}"
+             class="nav-item sub-item {% if fs_page == 'pl' %}active{% endif %}">
+            <span class="nav-sub-icon" aria-hidden="true">📈</span>
+            <span data-i18n="fs_pnl">P&L</span>
+          </a>
+          <a href="{{ url_for('financial_statements', page='balance-sheet') }}"
+             class="nav-item sub-item {% if fs_page == 'balance-sheet' %}active{% endif %}">
+            <span class="nav-sub-icon" aria-hidden="true">⚖️</span>
+            <span data-i18n="fs_balance_sheet">Balance Sheet</span>
+          </a>
+          <a href="{{ url_for('financial_statements', page='trial-balance') }}"
+             class="nav-item sub-item {% if fs_page == 'trial-balance' %}active{% endif %}">
+            <span class="nav-sub-icon" aria-hidden="true">📋</span>
+            <span data-i18n="fs_trial_balance">Trial Balance</span>
+          </a>
+          <a href="{{ url_for('financial_statements', page='ratios') }}"
+             class="nav-item sub-item {% if fs_page == 'ratios' %}active{% endif %}">
+            <span class="nav-sub-icon" aria-hidden="true">🎯</span>
+            <span data-i18n="fs_financial_ratios">Financial Ratios</span>
+          </a>
+        </div>
+      </div>
 
       {% set f_inv = features.get('inventory', True) %}
-      <div class="sidebar-section-label" style="margin-top:.75rem" data-i18n="inventory">Inventory</div>
-      <a href="{% if f_inv %}{{ url_for('inventory', tab='stock') }}{% else %}{{ url_for('feature_unavailable', feature='inventory') }}{% endif %}"
-         class="nav-item {% if not f_inv %}locked{% endif %} {% if request.endpoint == 'inventory' and request.args.get('tab','stock') == 'stock' %}active{% endif %}"
-         {% if not f_inv %}title="Requires the stock module"{% endif %}>
-        <i class="fa-solid fa-warehouse"></i> <span data-i18n="stock">Stock</span>
-        {% if not f_inv %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
-      </a>
-      <a href="{% if f_inv %}{{ url_for('inventory', tab='movements') }}{% else %}{{ url_for('feature_unavailable', feature='inventory') }}{% endif %}"
-         class="nav-item {% if not f_inv %}locked{% endif %} {% if request.endpoint == 'inventory' and request.args.get('tab') == 'movements' %}active{% endif %}"
-         {% if not f_inv %}title="Requires the stock module"{% endif %}>
-        <i class="fa-solid fa-arrows-rotate"></i> <span data-i18n="movements">Movements</span>
-        {% if not f_inv %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
-      </a>
-      <a href="{% if f_inv %}{{ url_for('inventory', tab='valuation') }}{% else %}{{ url_for('feature_unavailable', feature='inventory') }}{% endif %}"
-         class="nav-item {% if not f_inv %}locked{% endif %} {% if request.endpoint == 'inventory' and request.args.get('tab') == 'valuation' %}active{% endif %}"
-         {% if not f_inv %}title="Requires the stock module"{% endif %}>
-        <i class="fa-solid fa-scale-balanced"></i> <span data-i18n="valuation">Valuation</span>
-        {% if not f_inv %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
-      </a>
+      {% set inv_page = request.view_args.get('page') if request.endpoint == 'inventory_v2' else None %}
+      {% set inv_group_active = (request.endpoint == 'inventory_v2') %}
+      <div class="nav-group nav-group--section {% if inv_group_active %}is-open{% endif %}"
+           style="margin-top:.75rem"
+           data-nav-group="inventory">
+        <button type="button" class="sidebar-section-label nav-group-section-toggle {% if inv_group_active %}is-open{% endif %}"
+                aria-expanded="{{ 'true' if inv_group_active else 'false' }}"
+                data-nav-group-toggle>
+          <span data-i18n="inventory">Inventory</span>
+          <i class="fa-solid fa-chevron-right nav-group-chevron" aria-hidden="true"></i>
+        </button>
+        <div class="nav-group-items" data-nav-group-items>
+          <a href="{% if f_inv %}{{ url_for('inventory_v2', page='stock') }}{% else %}{{ url_for('feature_unavailable', feature='inventory') }}{% endif %}"
+             class="nav-item sub-item {% if not f_inv %}locked{% endif %} {% if inv_page == 'stock' %}active{% endif %}"
+             {% if not f_inv %}title="Requires the stock module"{% endif %}>
+            <span class="nav-sub-icon" aria-hidden="true">📦</span>
+            <span data-i18n="stock">Stock</span>
+            {% if not f_inv %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
+          </a>
+          <a href="{% if f_inv %}{{ url_for('inventory_v2', page='movements') }}{% else %}{{ url_for('feature_unavailable', feature='inventory') }}{% endif %}"
+             class="nav-item sub-item {% if not f_inv %}locked{% endif %} {% if inv_page == 'movements' %}active{% endif %}"
+             {% if not f_inv %}title="Requires the stock module"{% endif %}>
+            <span class="nav-sub-icon" aria-hidden="true">🔄</span>
+            <span data-i18n="movements">Movements</span>
+            {% if not f_inv %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
+          </a>
+          <a href="{% if f_inv %}{{ url_for('inventory_v2', page='valuation') }}{% else %}{{ url_for('feature_unavailable', feature='inventory') }}{% endif %}"
+             class="nav-item sub-item {% if not f_inv %}locked{% endif %} {% if inv_page == 'valuation' %}active{% endif %}"
+             {% if not f_inv %}title="Requires the stock module"{% endif %}>
+            <span class="nav-sub-icon" aria-hidden="true">💰</span>
+            <span data-i18n="valuation">Valuation</span>
+            {% if not f_inv %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
+          </a>
+        </div>
+      </div>
 
       {% set f_sales = features.get('sales', True) %}
       <div class="sidebar-section-label" style="margin-top:.75rem" data-i18n="sales">Sales</div>
@@ -324,6 +369,51 @@
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
 <script src="{{ url_for('static', filename='js/i18n.js') }}"></script>
 <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+<script>
+  /* Collapsible sidebar groups (Financial Statements + Inventory).
+     The template sets `is-open` when the current page belongs to the
+     group; user toggles persist in localStorage and override the
+     route-derived default for groups that are NOT route-active. */
+  (function () {
+    var STORAGE_PREFIX = 'olens.sidebarGroup.';
+
+    function storedState(key) {
+      try {
+        var v = localStorage.getItem(STORAGE_PREFIX + key);
+        if (v === 'open' || v === 'closed') return v;
+      } catch (e) {}
+      return null;
+    }
+    function persistState(key, isOpen) {
+      try { localStorage.setItem(STORAGE_PREFIX + key, isOpen ? 'open' : 'closed'); } catch (e) {}
+    }
+
+    function setGroupOpen(groupEl, toggleEl, isOpen) {
+      groupEl.classList.toggle('is-open', isOpen);
+      toggleEl.classList.toggle('is-open', isOpen);
+      toggleEl.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    }
+
+    document.querySelectorAll('[data-nav-group]').forEach(function (groupEl) {
+      var key = groupEl.getAttribute('data-nav-group');
+      var toggleEl = groupEl.querySelector('[data-nav-group-toggle]');
+      if (!toggleEl) return;
+
+      var routeActive = groupEl.classList.contains('is-open');
+      var saved = storedState(key);
+      // Route-active groups always render open. Otherwise honor saved state.
+      var open = routeActive || saved === 'open';
+      setGroupOpen(groupEl, toggleEl, open);
+
+      toggleEl.addEventListener('click', function (e) {
+        e.preventDefault();
+        var nowOpen = !groupEl.classList.contains('is-open');
+        setGroupOpen(groupEl, toggleEl, nowOpen);
+        persistState(key, nowOpen);
+      });
+    });
+  })();
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>
