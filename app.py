@@ -5849,16 +5849,17 @@ def _pipeline_domain(search='', stage=''):
     """crm.lead domain for the Pipeline tab and its export.
 
     `stage` is '' (all open opportunities), a stage id, 'won' or 'lost'.
-    Lost deals are archived in Odoo (active=False, probability 0), so they
-    only appear when asked for explicitly."""
+    Won and lost are outcomes, not stages: won deals sit at probability
+    100 and lost ones are archived at 0 (how Odoo stores them), so the
+    open pipeline and its stage breakdown leave both out."""
     domain = [['type', '=', 'opportunity']]
     if stage == 'lost':
         domain += [['active', '=', False], ['probability', '=', 0]]
+    elif stage == 'won':
+        domain += [['active', '=', True], ['probability', '=', 100]]
     else:
-        domain.append(['active', '=', True])
-        if stage == 'won':
-            domain.append(['probability', '=', 100])
-        elif stage.isdigit():
+        domain += [['active', '=', True], ['probability', '<', 100]]
+        if stage.isdigit():
             domain.append(['stage_id', '=', int(stage)])
     if search:
         domain += ['|', ['name', 'ilike', search], ['partner_id.name', 'ilike', search]]
@@ -5930,7 +5931,10 @@ def sales():
             limit=PAGE_SIZE, offset=(page - 1) * PAGE_SIZE,
             order='expected_revenue desc')
 
-        stage_grp = c.safe_read_group('crm.lead', domain,
+        # Revenue by Stage always describes the open pipeline: an outcome
+        # filter (won/lost) must not turn "Won" back into a stage slice.
+        stage_domain = domain if stage not in ('won', 'lost') else _pipeline_domain(search, '')
+        stage_grp = c.safe_read_group('crm.lead', stage_domain,
             ['stage_id', 'expected_revenue:sum'], ['stage_id'])
         all_grp = c.safe_read_group('crm.lead', domain, ['expected_revenue:sum'], [])
         grand = all_grp[0].get('expected_revenue', 0) if all_grp else 0
@@ -5954,6 +5958,12 @@ def sales():
             'crm.stage', [], ['id'], order='sequence, id') or [])}
         stage_options.sort(key=lambda st: (seq.get(st[0], len(seq)), st[0]))
         ctx['stage_options'] = stage_options
+        stage_grp.sort(key=lambda g: (seq.get((g.get('stage_id') or [0])[0], len(seq)),
+                                      (g.get('stage_id') or [0])[0]))
+        ctx['charts']['stages'] = json.dumps({
+            'labels': [g['stage_id'][1] if g.get('stage_id') else 'No Stage' for g in stage_grp],
+            'values': [g.get('expected_revenue', 0) for g in stage_grp],
+        })
 
         # Won vs lost, Odoo-style: won = probability 100 (Odoo pins won
         # deals there), lost = archived with probability 0.
@@ -5963,8 +5973,6 @@ def sales():
             'won': won, 'lost': lost,
             'win_rate': round(won * 100 / (won + lost)) if (won + lost) else None,
         }
-        ctx['won_stage_id'] = next(
-            (st[0] for st in ctx['stage_options'] if st[1].lower() == 'won'), None)
         ctx['charts']['won_lost'] = json.dumps({
             'labels': ['Won', 'Lost'], 'values': [won, lost],
         })

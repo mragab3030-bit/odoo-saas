@@ -144,7 +144,10 @@
       {% for st in stage_options %}
       <option value="{{ st[0] }}" {% if stage == st[0]|string %}selected{% endif %}>{{ st[1] }}</option>
       {% endfor %}
-      <option value="lost" {% if stage == 'lost' %}selected{% endif %}>Lost</option>
+      <optgroup label="Outcome">
+        <option value="won" {% if stage == 'won' %}selected{% endif %}>Won</option>
+        <option value="lost" {% if stage == 'lost' %}selected{% endif %}>Lost</option>
+      </optgroup>
     </select>
   </div>
   <div class="filter-group" style="justify-content:flex-end">
@@ -157,7 +160,7 @@
   <div class="card table-card">
     <table class="data-table">
       <thead>
-        <tr><th data-i18n="opportunity">Opportunity</th><th data-i18n="customer">Customer</th><th data-i18n="stage">Stage</th><th data-i18n="expected_rev">Expected Rev.</th><th data-i18n="probability">Probability</th><th data-i18n="deadline">Deadline</th><th>⭐</th></tr>
+        <tr><th data-i18n="opportunity">Opportunity</th><th data-i18n="customer">Customer</th>{% if stage in ('won', 'lost') %}<th>Outcome</th>{% else %}<th data-i18n="stage">Stage</th>{% endif %}<th data-i18n="expected_rev">Expected Rev.</th><th data-i18n="probability">Probability</th><th data-i18n="deadline">Deadline</th><th>⭐</th></tr>
       </thead>
       <tbody>
         {% for lead in records %}
@@ -167,7 +170,7 @@
           <td>
             {% if stage == 'lost' %}<span class="badge badge-danger">Lost</span>
             <span style="font-size:.7rem;color:var(--text-muted)">at {{ lead.stage_id[1] if lead.stage_id else '—' }}</span>
-            {% elif (lead.probability or 0) >= 100 %}<span class="badge badge-success">{{ lead.stage_id[1] if lead.stage_id else 'Won' }}</span>
+            {% elif stage == 'won' %}<span class="badge badge-success">Won</span>
             {% else %}<span class="badge badge-primary">{{ lead.stage_id[1] if lead.stage_id else 'No Stage' }}</span>{% endif %}
           </td>
           <td>{{ (lead.expected_revenue or 0) | fmt_currency }}</td>
@@ -199,7 +202,7 @@
     <div class="card-body" style="padding:.75rem 1rem">
       {% if won_lost.won or won_lost.lost %}
       <div style="display:flex;justify-content:space-around;text-align:center;margin-bottom:.5rem">
-        <a href="{{ url_for('sales', tab='pipeline', stage=won_stage_id, search=search) if won_stage_id else '#' }}" style="text-decoration:none">
+        <a href="{{ url_for('sales', tab='pipeline', stage='won', search=search) }}" style="text-decoration:none">
           <div style="font-size:1.5rem;font-weight:800;color:var(--success)">{{ won_lost.won }}</div>
           <div style="font-size:.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">Won</div>
         </a>
