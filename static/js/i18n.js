@@ -466,6 +466,28 @@
       outstanding_label: 'Outstanding',
       total_label:       'Total',
 
+      // Inventory / Valuation
+      inv_val_title:            'Valuation',
+      inv_val_at_date:          'Valuation at',
+      inv_val_location:         'Location',
+      inv_val_total_value:      'Total Valuation',
+      inv_val_as_of_today:      'As of today',
+      inv_val_as_of:            'As of',
+      inv_val_products:         'Products in Stock',
+      inv_val_products_sub:     'Product variants with quantity',
+      inv_val_products_short:   'products',
+      inv_val_total_qty:        'Total Quantity',
+      inv_val_total_qty_sub:    'All units of measure',
+      inv_val_by_category:      'Value by Category',
+      inv_val_by_warehouse:     'Value by Warehouse',
+      inv_val_by_location:      'Value by Location',
+      inv_val_show_all:         'Show all',
+      inv_val_product:          'Product',
+      inv_val_quantity:         'Quantity',
+      inv_val_unit_cost:        'Cost per Unit',
+      inv_val_total_value_col:  'Total Value',
+      inv_val_variant:          'Variant',
+
       // Inventory / Stock dashboard
       inv_stock_title:                'Stock',
       inv_stock_filter_category:      'Categories',
@@ -959,6 +981,28 @@
       // Misc
       outstanding_label: 'المستحق',
       total_label:       'الإجمالي',
+
+      // Inventory / Valuation
+      inv_val_title:            'التقييم',
+      inv_val_at_date:          'التقييم في تاريخ',
+      inv_val_location:         'الموقع',
+      inv_val_total_value:      'إجمالي التقييم',
+      inv_val_as_of_today:      'حتى اليوم',
+      inv_val_as_of:            'حتى',
+      inv_val_products:         'المنتجات في المخزون',
+      inv_val_products_sub:     'متغيرات المنتجات ذات الكمية',
+      inv_val_products_short:   'منتجات',
+      inv_val_total_qty:        'إجمالي الكمية',
+      inv_val_total_qty_sub:    'جميع وحدات القياس',
+      inv_val_by_category:      'القيمة حسب الفئة',
+      inv_val_by_warehouse:     'القيمة حسب المستودع',
+      inv_val_by_location:      'القيمة حسب الموقع',
+      inv_val_show_all:         'عرض الكل',
+      inv_val_product:          'المنتج',
+      inv_val_quantity:         'الكمية',
+      inv_val_unit_cost:        'تكلفة الوحدة',
+      inv_val_total_value_col:  'القيمة الإجمالية',
+      inv_val_variant:          'متغير',
 
       // Inventory / Stock dashboard
       inv_stock_title:                'المخزون',

@@ -2519,7 +2519,7 @@ def _module_home_url(key):
         return url_for('financial', tab=key)
     if key == 'financial-statements':
         return url_for('financial_statements', page='pl')
-    if key in ('stock', 'movements', 'valuation'):
+    if key in ('stock', 'valuation'):
         return url_for('inventory_v2', page=key)
     if key == 'sales':
         return url_for('sales', tab='pipeline')
@@ -5746,7 +5746,6 @@ def financial_statements(page=None):
 
 INVENTORY_V2_PAGES = {
     'stock':     {'icon': '📦', 'label_en': 'Stock',     'label_ar': 'المخزن'},
-    'movements': {'icon': '🔄', 'label_en': 'Movements', 'label_ar': 'حركات المخزون'},
     'valuation': {'icon': '💰', 'label_en': 'Valuation', 'label_ar': 'التقييم'},
 }
 
@@ -5765,6 +5764,47 @@ def _parse_id_list(name):
             except (TypeError, ValueError):
                 continue
     return sorted(out)
+
+
+def _valuation_args():
+    """Filters shared by the Valuation page and its export."""
+    def _int_arg(name):
+        v = request.args.get(name, '').strip()
+        return int(v) if v.isdigit() else None
+    at_raw = request.args.get('at', '').strip()
+    try:
+        at = date.fromisoformat(at_raw) if at_raw else None
+    except ValueError:
+        at = None
+    return {
+        'at_date': at,
+        'category_id': _int_arg('category'),
+        'warehouse_id': _int_arg('warehouse'),
+        'location_id': _int_arg('location'),
+        'search': request.args.get('search', '').strip(),
+    }
+
+
+def _valuation_snapshot():
+    from mock_data import valuation_snapshot
+    version_major = session.get('odoo_version_major') or DEMO_DEFAULT_VERSION
+    return valuation_snapshot(version_major=version_major, **_valuation_args())
+
+
+def _inventory_valuation_page(meta):
+    snap = _valuation_snapshot()
+    args = _valuation_args()
+    page = safe_int_param('page')
+    total = len(snap['rows'])
+    total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+    page = min(page, total_pages)
+    return render_template(
+        'inventory_valuation.html', page_key='valuation', meta=meta,
+        inventory_pages=INVENTORY_V2_PAGES, snap=snap, filters=args,
+        records=snap['rows'][(page - 1) * PAGE_SIZE: page * PAGE_SIZE],
+        page=page, total_pages=total_pages, total_count=total,
+        today_iso=date.today().isoformat(),
+    )
 
 
 @app.route('/inventory/<page>')
@@ -5795,6 +5835,9 @@ def inventory_v2(page):
                                selected_warehouse=warehouse_id,
                                odoo_version_major=version_major,
                                inventory_pages=INVENTORY_V2_PAGES)
+
+    if page == 'valuation':
+        return _inventory_valuation_page(meta)
 
     return render_template('inventory_placeholder.html',
                            page=page, meta=meta,
@@ -6257,10 +6300,12 @@ EXPORT_CONFIG = {
     },
     'inventory_valuation': {
         'title': 'Inventory Valuation Report',
-        'model': 'stock.valuation.layer',
-        'domain': [['quantity', '!=', 0]],
-        'fields': ['product_id', 'quantity', 'value', 'unit_cost'],
-        'headers': ['Product', 'Quantity', 'Value', 'Unit Cost'],
+        # Handled by `_export_inventory_valuation` — same at-date snapshot
+        # and filters as the /inventory/valuation page.
+        'model': None,
+        'fields': [],
+        'headers': ['Product', 'Category', 'Warehouse', 'Location',
+                    'Quantity', 'Unit Cost', 'Total Value'],
     },
     'sales_orders': {
         'title': 'Sales Orders Report',
@@ -6333,6 +6378,30 @@ EXPORT_CONFIG = {
         'col_widths': [1.2, 1.8, 0.8, 2.2, 3.0],
     },
 }
+
+
+def _export_inventory_valuation(fmt: str):
+    """PDF/Excel of the Valuation page: same at-date snapshot and filters."""
+    cfg = EXPORT_CONFIG['inventory_valuation']
+    snap = _valuation_snapshot()
+    ccy = snap.get('currency', 'SAR')
+    rows = [[r['name_en'], r['category_en'], r['warehouse_en'], r['location'],
+             f"{r['qty']:,.2f}", f"{ccy} {r['unit_cost']:,.2f}",
+             f"{ccy} {r['value']:,.2f}"] for r in snap['rows']]
+    rows.append(['Total', '', '', '', f"{snap['total_qty']:,.2f}", '',
+                 f"{ccy} {snap['total_value']:,.2f}"])
+    title = f"{cfg['title']} — at {snap['at_date']}"
+    if fmt == 'pdf':
+        buf = export_pdf(title, cfg['headers'], rows)
+        return send_file(buf, mimetype='application/pdf',
+                         download_name=f"inventory_valuation_{snap['at_date']}.pdf",
+                         as_attachment=True)
+    buf = export_excel(title, cfg['headers'], rows)
+    return send_file(
+        buf,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        download_name=f"inventory_valuation_{snap['at_date']}.xlsx", as_attachment=True,
+    )
 
 
 def _export_inventory_stock(fmt: str):
@@ -6544,6 +6613,9 @@ def export(key: str, fmt: str):
 
     if key == 'inventory_stock':
         return _export_inventory_stock(fmt)
+
+    if key == 'inventory_valuation':
+        return _export_inventory_valuation(fmt)
 
     cfg = EXPORT_CONFIG[key]
     c = get_client()

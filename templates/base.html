@@ -195,7 +195,7 @@
       </div>
       {% endif %}
 
-      {% if module_allowed('stock', 'movements', 'valuation') %}
+      {% if module_allowed('stock', 'valuation') %}
       {% set f_inv = features.get('inventory', True) %}
       {% set inv_page = request.view_args.get('page') if request.endpoint == 'inventory_v2' else None %}
       {% set inv_group_active = (request.endpoint == 'inventory_v2') %}
@@ -215,15 +215,6 @@
              {% if not f_inv %}title="Requires the stock module"{% endif %}>
             <span class="nav-sub-icon" aria-hidden="true">📦</span>
             <span data-i18n="stock">Stock</span>
-            {% if not f_inv %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
-          </a>
-          {% endif %}
-          {% if module_allowed('movements') %}
-          <a href="{% if f_inv %}{{ url_for('inventory_v2', page='movements') }}{% else %}{{ url_for('feature_unavailable', feature='inventory') }}{% endif %}"
-             class="nav-item sub-item {% if not f_inv %}locked{% endif %} {% if inv_page == 'movements' %}active{% endif %}"
-             {% if not f_inv %}title="Requires the stock module"{% endif %}>
-            <span class="nav-sub-icon" aria-hidden="true">🔄</span>
-            <span data-i18n="movements">Movements</span>
             {% if not f_inv %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
           </a>
           {% endif %}

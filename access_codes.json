@@ -34,7 +34,7 @@
     "database": "",
     "username": "",
     "password": "",
-    "modules": ["stock", "movements", "valuation"],
+    "modules": ["stock", "valuation"],
     "expiry": "2026-12-31",
     "read_only": true,
     "logo": null,
