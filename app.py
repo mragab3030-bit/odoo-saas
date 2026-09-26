@@ -2114,7 +2114,7 @@ def _enforce_access_code():
     code = session.get('access_code')
     endpoint = request.endpoint or ''
     if (not code or 'odoo_uid' not in session
-            or endpoint in ('logout', 'static', 'login_logo')
+            or endpoint in ('logout', 'static')
             or endpoint.startswith('admin_')):
         return None
 
@@ -2202,63 +2202,6 @@ def access_code_login():
     session['access_modules'] = allowed_modules(entry)
     session['access_read_only'] = bool(entry.get('read_only'))
     return response
-
-
-# ---------------------------------------------------------------------------
-# Login-page branding — Silver Solutions logo discovered on disk
-# ---------------------------------------------------------------------------
-
-_LOGO_SEARCH_DIRS = ('Desktop', 'Downloads', 'Documents', 'Pictures')
-_LOGO_EXTS = ('.png', '.jpg', '.jpeg', '.svg', '.webp')
-_LOGO_MIMETYPES = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-                   '.svg': 'image/svg+xml', '.webp': 'image/webp'}
-_silver_logo_cache = []
-
-
-def _find_silver_logo():
-    """Path of the Silver Solutions logo, or None. Looks in ~/Desktop,
-    ~/Downloads, ~/Documents and ~/Pictures (in that order, top level only).
-    A name containing "silver" wins over one that only says "SS" or "logo",
-    so a stray logo.png from another client isn't picked first. Cached for
-    the life of the process."""
-    if _silver_logo_cache:
-        return _silver_logo_cache[0]
-    home = os.path.expanduser('~')
-    candidates = []
-    for d in _LOGO_SEARCH_DIRS:
-        folder = os.path.join(home, d)
-        try:
-            names = sorted(os.listdir(folder))
-        except OSError:
-            continue
-        for name in names:
-            if not name.lower().endswith(_LOGO_EXTS):
-                continue
-            path = os.path.join(folder, name)
-            if os.path.isfile(path):
-                candidates.append((name, path))
-    found = None
-    for match in (lambda n: 'silver' in n.lower(),
-                  lambda n: 'SS' in n or 'logo' in n.lower()):
-        found = next((p for n, p in candidates if match(n)), None)
-        if found:
-            break
-    _silver_logo_cache.append(found)
-    return found
-
-
-@app.context_processor
-def inject_login_branding():
-    return {'silver_logo_available': bool(_find_silver_logo())}
-
-
-@app.route('/login-logo')
-def login_logo():
-    path = _find_silver_logo()
-    if not path:
-        return ('', 404)
-    ext = os.path.splitext(path)[1].lower()
-    return send_file(path, mimetype=_LOGO_MIMETYPES.get(ext), max_age=3600)
 
 
 # ---------------------------------------------------------------------------

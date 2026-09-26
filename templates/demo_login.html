@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sign in · Olens — Odoo Analytics Platform</title>
+  <title>Sign in · SS Dashboard</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   <script>
@@ -53,13 +53,8 @@
       filter: grayscale(0);
     }
     .login-tab:hover { color: var(--text); }
-    /* Three tabs don't fit side by side on phones — stack emoji over label. */
     @media (max-width: 480px) {
-      .login-tab {
-        flex-direction: column; gap: .2rem;
-        min-width: 0; padding: .7rem .25rem;
-        font-size: .8rem; white-space: normal; text-align: center;
-      }
+      .login-tab { padding: .75rem .25rem; font-size: .85rem; }
     }
     .login-tab.active {
       color: #E63030;
