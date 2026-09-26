@@ -949,6 +949,9 @@ def model_fields(model, version_major):
             'amount_untaxed', 'amount_tax', 'currency_id', 'state',
             'user_id', 'invoice_status', 'company_id',
         },
+        'crm.stage': {
+            'id', 'name', 'sequence', 'is_won',
+        },
         'crm.lead': {
             'id', 'name', 'partner_id', 'expected_revenue', 'probability',
             'stage_id', 'date_deadline', 'create_date', 'user_id',
@@ -1063,6 +1066,10 @@ def build_dataset(version_major, edition):
         'stock.move':                   moves,
         'stock.valuation.layer':        valuations,
         'sale.order':                   _build_sale_orders(rng),
+        'crm.stage':                    [
+            {'id': sid, 'name': name, 'sequence': sid, 'is_won': name == 'Won'}
+            for sid, name in CRM_STAGES
+        ],
         'crm.lead':                     _build_leads(rng),
         'hr.employee':                  employees,
         'hr.attendance':                attendances,

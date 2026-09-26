@@ -5845,20 +5845,34 @@ def inventory():
 # Sales
 # ---------------------------------------------------------------------------
 
-def _pipeline_domain(search='', stage=''):
+def _won_stage_ids(c):
+    """Ids of stages flagged "Is Won stage?" — where Odoo's Mark Won button
+    moves a deal. Cached per request."""
+    if not hasattr(g, '_won_stage_ids'):
+        g._won_stage_ids = [st['id'] for st in (c.safe_search_read(
+            'crm.stage', [['is_won', '=', True]], ['id']) or [])]
+    return g._won_stage_ids
+
+
+def _pipeline_domain(c, search='', stage=''):
     """crm.lead domain for the Pipeline tab and its export.
 
     `stage` is '' (all open opportunities), a stage id, 'won' or 'lost'.
-    Won and lost are outcomes, not stages: won deals sit at probability
-    100 and lost ones are archived at 0 (how Odoo stores them), so the
+    Won and lost are outcomes set by the user's Mark Won / Mark Lost click,
+    not stages: Mark Won moves the deal into a stage flagged is_won, and
+    Mark Lost archives it (Odoo's own "Lost" filter: archived at 0%). The
     open pipeline and its stage breakdown leave both out."""
+    won_ids = _won_stage_ids(c)
     domain = [['type', '=', 'opportunity']]
     if stage == 'lost':
         domain += [['active', '=', False], ['probability', '=', 0]]
     elif stage == 'won':
-        domain += [['active', '=', True], ['probability', '=', 100]]
+        domain.append(['active', '=', True])
+        # No readable crm.stage (ACL): fall back to Odoo's won probability.
+        domain.append(['stage_id', 'in', won_ids] if won_ids else ['probability', '=', 100])
     else:
-        domain += [['active', '=', True], ['probability', '<', 100]]
+        domain.append(['active', '=', True])
+        domain.append(['stage_id', 'not in', won_ids] if won_ids else ['probability', '<', 100])
         if stage.isdigit():
             domain.append(['stage_id', '=', int(stage)])
     if search:
@@ -5922,7 +5936,7 @@ def sales():
 
     elif tab == 'pipeline':
         stage = request.args.get('stage', '').strip()
-        domain = _pipeline_domain(search, stage)
+        domain = _pipeline_domain(c, search, stage)
 
         total = c.safe_count('crm.lead', domain)
         records = c.safe_search_read('crm.lead', domain,
@@ -5933,7 +5947,7 @@ def sales():
 
         # Revenue by Stage always describes the open pipeline: an outcome
         # filter (won/lost) must not turn "Won" back into a stage slice.
-        stage_domain = domain if stage not in ('won', 'lost') else _pipeline_domain(search, '')
+        stage_domain = domain if stage not in ('won', 'lost') else _pipeline_domain(c, search, '')
         stage_grp = c.safe_read_group('crm.lead', stage_domain,
             ['stage_id', 'expected_revenue:sum'], ['stage_id'])
         all_grp = c.safe_read_group('crm.lead', domain, ['expected_revenue:sum'], [])
@@ -5949,7 +5963,7 @@ def sales():
         # independent of the stage currently selected.
         stage_options = [
             g['stage_id'] for g in c.safe_read_group(
-                'crm.lead', _pipeline_domain(search, ''),
+                'crm.lead', _pipeline_domain(c, search, ''),
                 ['stage_id'], ['stage_id'])
             if g.get('stage_id')
         ]
@@ -5965,10 +5979,9 @@ def sales():
             'values': [g.get('expected_revenue', 0) for g in stage_grp],
         })
 
-        # Won vs lost, Odoo-style: won = probability 100 (Odoo pins won
-        # deals there), lost = archived with probability 0.
-        won = c.safe_count('crm.lead', _pipeline_domain(search, 'won'))
-        lost = c.safe_count('crm.lead', _pipeline_domain(search, 'lost'))
+        # Won vs lost: outcomes of the Mark Won / Mark Lost buttons.
+        won = c.safe_count('crm.lead', _pipeline_domain(c, search, 'won'))
+        lost = c.safe_count('crm.lead', _pipeline_domain(c, search, 'lost'))
         ctx['won_lost'] = {
             'won': won, 'lost': lost,
             'win_rate': round(won * 100 / (won + lost)) if (won + lost) else None,
@@ -6498,7 +6511,7 @@ def export(key: str, fmt: str):
         domain += [[df, '<=', date_to]]
 
     if key == 'sales_pipeline':
-        domain = _pipeline_domain(search, request.args.get('stage', '').strip())
+        domain = _pipeline_domain(c, search, request.args.get('stage', '').strip())
 
     title = cfg['title']
     title_extras = []
