@@ -1,26 +1,35 @@
 {# Silver Solutions branding — login pages only. The dashboard keeps Olens. #}
 <style>
-  .silver-brand { text-align: center; margin-bottom: 2rem; }
+  .silver-brand {
+    --ss-magenta: #810054;
+    --ss-charcoal: #444444;
+    text-align: center; margin-bottom: 2rem;
+  }
   .silver-brand-logo {
-    display: block; margin: 0 auto .75rem;
+    display: block; margin: 0 auto .9rem;
     max-height: 80px; max-width: 100%;
     width: auto; height: auto; object-fit: contain;
   }
-  .silver-brand-text {
-    font-size: 1.85rem; line-height: 1.2; letter-spacing: .01em;
-    margin: 0 0 .35rem;
+  .silver-brand-sub { color: var(--text-muted); font-size: .9rem; margin: 0; }
+  .silver-brand-name { font-weight: 800; letter-spacing: .01em; }
+  .silver-brand-name .ss-mark { color: var(--ss-magenta); }
+  .silver-brand-name .ss-word { color: var(--ss-charcoal); }
+
+  /* Midnight has a dark card: sit the logo on a light plate and lift the
+     brand colours so they stay readable. */
+  [data-theme="midnight"] .silver-brand-logo {
+    background: #ffffff; border-radius: 10px; padding: .45rem .75rem;
+    box-sizing: content-box;
   }
-  .silver-brand-text .ss-silver { color: #9CA3AF; font-weight: 600; }
-  .silver-brand-text .ss-solutions { color: var(--text); font-weight: 800; }
-  .silver-brand-sub { color: var(--text-muted); font-size: .85rem; margin: 0; }
+  [data-theme="midnight"] .silver-brand-name .ss-mark { color: #e04a9e; }
+  [data-theme="midnight"] .silver-brand-name .ss-word { color: #e5e7eb; }
 </style>
 <div class="silver-brand">
-  {% if silver_logo_available %}
-  <img class="silver-brand-logo" src="{{ url_for('login_logo') }}" alt="Silver Solutions">
-  {% else %}
-  <h1 class="silver-brand-text" aria-label="Silver Solutions">
-    <span class="ss-silver">Silver</span> <span class="ss-solutions">Solutions</span>
-  </h1>
-  {% endif %}
-  <p class="silver-brand-sub">Odoo Analytics Platform — Powered by Silver Solutions</p>
+  <img class="silver-brand-logo"
+       src="{{ url_for('static', filename='img/silver-solutions-logo.png') }}"
+       alt="Silver Solutions" width="224" height="80">
+  <p class="silver-brand-sub">
+    <span class="silver-brand-name" style="white-space:nowrap"><span class="ss-mark">SS</span> <span class="ss-word">Dashboard</span></span>
+    — Powered by Silver Solutions
+  </p>
 </div>
