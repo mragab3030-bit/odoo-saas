@@ -44,7 +44,9 @@
       border-radius: 6px; background: var(--surface-2); border: 1px solid var(--border);
       font-size: .72rem; white-space: nowrap;
     }
-    .row-actions { display: flex; gap: .35rem; white-space: nowrap; }
+    .row-actions { display: flex; flex-wrap: wrap; gap: .35rem; max-width: 230px; }
+    .row-actions .btn { white-space: nowrap; }
+    .row-actions .btn[disabled] { opacity: .4; cursor: not-allowed; }
     .row-actions .btn { padding: .3rem .55rem; }
     .empty-row td { text-align: center; color: var(--text-muted); padding: 2rem; }
 
@@ -156,7 +158,7 @@
         <thead>
           <tr>
             <th>Code</th><th>Client Name</th><th>Modules</th><th>Expiry</th>
-            <th>Days Left</th><th>Read Only</th><th>Active</th><th>Actions</th>
+            <th>Days Left</th><th>Read Only</th><th>Active</th><th>Session</th><th>Actions</th>
           </tr>
         </thead>
         <tbody id="rows"></tbody>
@@ -240,6 +242,12 @@
         <input type="date" id="f_expiry" name="expiry" class="form-control" required>
       </div>
 
+      <div class="field" style="max-width:220px">
+        <label for="f_max">Max Sessions</label>
+        <input type="number" id="f_max" name="max_sessions" class="form-control" min="1" max="50" value="1">
+        <small>People who can use this code at the same time.</small>
+      </div>
+
       <div class="toggles">
         <label class="switch"><input type="checkbox" name="read_only"> Read Only</label>
         <label class="switch"><input type="checkbox" name="active" checked> Active</label>
@@ -277,7 +285,9 @@
   var URLS = {
     save: "{{ url_for('admin_save_code') }}",
     del: "{{ url_for('admin_delete_code') }}",
-    gen: "{{ url_for('admin_generate_code') }}"
+    gen: "{{ url_for('admin_generate_code') }}",
+    force: "{{ url_for('admin_force_logout') }}",
+    rows: "{{ url_for('admin_rows_json') }}"
   };
   var STATUS = {
     active:   '🟢 Active',
@@ -299,7 +309,7 @@
 
   function render() {
     if (!rows.length) {
-      tbody.innerHTML = '<tr class="empty-row"><td colspan="8">No access codes yet.</td></tr>';
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="9">No access codes yet.</td></tr>';
       return;
     }
     tbody.innerHTML = rows.map(function (r, i) {
@@ -317,13 +327,32 @@
         '<td class="num">' + STATUS[r.status] + ' · ' + days + '</td>' +
         '<td>' + (r.read_only ? 'Yes' : 'No') + '</td>' +
         '<td>' + (r.active ? 'Yes' : 'No') + '</td>' +
+        '<td class="num">' + sessionCell(r) + '</td>' +
         '<td><div class="row-actions">' +
           '<button type="button" class="btn btn-outline btn-sm" data-edit="' + i + '" title="Edit"><i class="fa-solid fa-pen"></i> Edit</button>' +
           '<button type="button" class="btn btn-outline btn-sm" data-copy="' + i + '" title="Copy code"><i class="fa-regular fa-copy"></i> Copy</button>' +
+          '<button type="button" class="btn btn-outline btn-sm" data-force="' + i + '" title="End active sessions now"' +
+            (r.session.active ? '' : ' disabled') + '><i class="fa-solid fa-power-off"></i> Force Logout</button>' +
           '<button type="button" class="btn btn-danger btn-sm" data-delete="' + i + '" title="Delete"><i class="fa-solid fa-trash"></i> Delete</button>' +
         '</div></td>' +
       '</tr>';
     }).join('');
+  }
+
+  function ago(m) {
+    if (m == null) return '';
+    if (m < 1) return 'just now';
+    if (m < 60) return m + ' min ago';
+    if (m < 1440) return Math.floor(m / 60) + ' h ago';
+    return Math.floor(m / 1440) + ' d ago';
+  }
+  function sessionCell(r) {
+    var s = r.session || {};
+    var slots = r.max_sessions > 1 ? ' (' + s.active + '/' + r.max_sessions + ')' : '';
+    if (s.state === 'online') return '🟢 Online' + slots;
+    if (s.state === 'idle') return '🕐 Last seen ' + ago(s.minutes_ago) + slots;
+    return '⚫ Offline' + (s.minutes_ago != null
+      ? '<br><small style="color:var(--text-muted)">last seen ' + ago(s.minutes_ago) + '</small>' : '');
   }
 
   function setMode(mode) {
@@ -350,6 +379,7 @@
     form.expiry.value = editing ? row.expiry : '';
     form.read_only.checked = editing ? row.read_only : false;
     form.active.checked = editing ? row.active : true;
+    form.max_sessions.value = editing ? row.max_sessions : 1;
     var mods = editing ? row.modules : [];
     form.querySelectorAll('input[name="modules"]').forEach(function (cb) {
       cb.checked = mods.indexOf(cb.value) !== -1;
@@ -410,6 +440,12 @@
     } else if (btn.hasAttribute('data-copy')) {
       var code = rows[+btn.getAttribute('data-copy')].code;
       copyText(code).then(function () { toast('Copied ' + code); });
+    } else if (btn.hasAttribute('data-force')) {
+      var fr = rows[+btn.getAttribute('data-force')];
+      if (!confirm('Sign out everyone using ' + fr.code + ' (' + fr.client_name + ') now?')) return;
+      post(URLS.force, { code: fr.code })
+        .then(function (d) { rows = d.rows; render(); toast('Signed out ' + fr.code); })
+        .catch(function (err) { alert(err.message); });
     } else if (btn.hasAttribute('data-delete')) {
       var row = rows[+btn.getAttribute('data-delete')];
       if (!confirm('Delete access code ' + row.code + ' (' + row.client_name + ')? Anyone using it will be signed out.')) return;
@@ -435,7 +471,8 @@
         form.querySelectorAll('input[name="modules"]:checked'), function (cb) { return cb.value; }),
       expiry: form.expiry.value,
       read_only: form.read_only.checked,
-      active: form.active.checked
+      active: form.active.checked,
+      max_sessions: parseInt(form.max_sessions.value, 10) || 1
     };
     var saveBtn = document.getElementById('saveBtn');
     saveBtn.disabled = true;
@@ -446,6 +483,15 @@
   });
 
   render();
+
+  // Keep the Session column current while the panel stays open.
+  setInterval(function () {
+    if (modal.classList.contains('open') || document.hidden) return;
+    fetch(URLS.rows, { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { if (d && d.rows) { rows = d.rows; render(); } })
+      .catch(function () {});
+  }, 30000);
 })();
 </script>
 {% endif %}

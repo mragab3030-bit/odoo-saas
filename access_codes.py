@@ -111,6 +111,14 @@ def allowed_modules(entry):
     return mods or None
 
 
+def max_sessions(entry):
+    """Concurrent sessions allowed for a code (default 1)."""
+    try:
+        return max(1, int(entry.get('max_sessions') or 1))
+    except (TypeError, ValueError):
+        return 1
+
+
 def is_demo_entry(entry):
     return (entry.get('mode') or 'live') == 'demo'
 

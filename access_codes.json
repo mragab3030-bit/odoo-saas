@@ -10,7 +10,8 @@
     "expiry": "2026-12-31",
     "read_only": false,
     "logo": null,
-    "active": true
+    "active": true,
+    "max_sessions": 1
   },
   "FINANCE01": {
     "client_name": "Finance Demo",
@@ -23,7 +24,8 @@
     "expiry": "2026-12-31",
     "read_only": true,
     "logo": null,
-    "active": true
+    "active": true,
+    "max_sessions": 1
   },
   "INVENTORY01": {
     "client_name": "Inventory Demo",
@@ -36,6 +38,7 @@
     "expiry": "2026-12-31",
     "read_only": true,
     "logo": null,
-    "active": true
+    "active": true,
+    "max_sessions": 1
   }
 }

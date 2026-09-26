@@ -2020,6 +2020,9 @@ def login():
 
 @app.route('/logout')
 def logout():
+    if session.get('access_code'):
+        import session_tracker
+        session_tracker.release(session['access_code'], session.get('access_session_id'))
     session.clear()
     flash('You have been logged out.', 'info')
     return redirect(url_for('login'))
@@ -2032,6 +2035,9 @@ def logout():
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', '')
 
 ACCESS_CODE_ERROR = 'Invalid or expired access code'
+ACCOUNT_IN_USE_MESSAGE = ('This account is currently in use. Please try again '
+                          'later or contact Silver Solutions.')
+SESSION_ENDED_MESSAGE = 'Your session has ended. Please sign in again.'
 
 # Endpoints that change data or hand it out as a file. View-only codes
 # can't reach them.
@@ -2119,10 +2125,17 @@ def _enforce_access_code():
         return None
 
     from access_codes import lookup_valid, allowed_modules
+    import session_tracker
     entry = lookup_valid(code)
     if entry is None:
+        session_tracker.release(code, session.get('access_session_id'))
         session.clear()
         flash(ACCESS_CODE_ERROR, 'danger')
+        return redirect(url_for('login'))
+    if not session_tracker.touch(code, session.get('access_session_id')):
+        # Idle past the timeout, or force-logged-out from the admin panel.
+        session.clear()
+        flash(SESSION_ENDED_MESSAGE, 'warning')
         return redirect(url_for('login'))
     session['access_client_name'] = entry.get('client_name') or ''
     session['access_modules'] = allowed_modules(entry)
@@ -2174,9 +2187,19 @@ def access_code_login():
         flash(ACCESS_CODE_ERROR, 'danger')
         return _render_login_page(active_tab='access')
 
+    import session_tracker
+    from access_codes import max_sessions
+    # Claim the slot first: it's atomic across workers, so two logins racing
+    # for the last slot can't both win. Released again if Odoo login fails.
+    sid = session_tracker.claim(code, max_sessions(entry))
+    if sid is None:
+        flash(ACCOUNT_IN_USE_MESSAGE, 'danger')
+        return _render_login_page(active_tab='access')
+
     client_name = entry.get('client_name') or code
     if is_demo_entry(entry):
         if not DEMO_MODE:
+            session_tracker.release(code, sid)
             flash(ACCESS_CODE_ERROR, 'danger')
             return _render_login_page(active_tab='access')
         response = _start_demo_session(DEMO_DEFAULT_VERSION, DEMO_DEFAULT_EDITION,
@@ -2192,12 +2215,14 @@ def access_code_login():
             client = OdooClient.authenticate(url, db, username, password)
         except (OdooAuthError, OdooConnectionError) as e:
             logger.warning('Access code %s: Odoo login failed: %s', code, e)
+            session_tracker.release(code, sid)
             flash('This access code could not connect to Odoo. '
                   'Please contact Silver Solutions.', 'danger')
             return _render_login_page(active_tab='access')
         response = _start_live_session(client, url, db, username, password)
 
     session['access_code'] = code
+    session['access_session_id'] = sid
     session['access_client_name'] = client_name
     session['access_modules'] = allowed_modules(entry)
     session['access_read_only'] = bool(entry.get('read_only'))
@@ -2218,7 +2243,8 @@ def admin_required(f):
 
 
 def _admin_rows():
-    from access_codes import load_codes, code_status, is_demo_entry
+    from access_codes import load_codes, code_status, is_demo_entry, max_sessions
+    import session_tracker
     rows = []
     for code, entry in sorted(load_codes().items()):
         if not isinstance(entry, dict):
@@ -2239,6 +2265,8 @@ def _admin_rows():
             'status': status,
             'read_only': bool(entry.get('read_only')),
             'active': bool(entry.get('active')),
+            'max_sessions': max_sessions(entry),
+            'session': session_tracker.status(code),
         })
     return rows
 
@@ -2318,6 +2346,7 @@ def admin_save_code():
         'read_only': bool(data.get('read_only')),
         'logo': (previous or {}).get('logo'),
         'active': bool(data.get('active')),
+        'max_sessions': max(1, min(50, _int_or(data.get('max_sessions'), 1))),
     }
     if mode == 'live' and not all([entry['odoo_url'], entry['database'],
                                    entry['username'], entry['password']]):
@@ -2327,6 +2356,9 @@ def admin_save_code():
         codes.pop(original, None)
     codes[code] = entry
     save_codes(codes)
+    if original and original != code:
+        import session_tracker
+        session_tracker.rename(original, code)
     return jsonify({'ok': True, 'rows': _admin_rows()})
 
 
@@ -2340,7 +2372,34 @@ def admin_delete_code():
         return jsonify({'error': 'Code not found.'}), 404
     codes.pop(code)
     save_codes(codes)
+    import session_tracker
+    session_tracker.forget(code)
     return jsonify({'ok': True, 'rows': _admin_rows()})
+
+
+@app.route('/admin/access-codes/rows')
+@admin_required
+def admin_rows_json():
+    return jsonify({'rows': _admin_rows()})
+
+
+@app.route('/admin/access-codes/force-logout', methods=['POST'])
+@admin_required
+def admin_force_logout():
+    from access_codes import load_codes, normalize_code
+    import session_tracker
+    code = normalize_code((request.get_json(silent=True) or {}).get('code'))
+    if code not in load_codes():
+        return jsonify({'error': 'Code not found.'}), 404
+    session_tracker.force_logout(code)
+    return jsonify({'ok': True, 'rows': _admin_rows()})
+
+
+def _int_or(value, default):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 @app.route('/select-company', methods=['POST'])
