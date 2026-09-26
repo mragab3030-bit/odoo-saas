@@ -24,9 +24,23 @@
       } catch (e) {}
     })();
   </script>
+  {% if access_read_only %}
+  <style>
+    .view-only-banner {
+      display: inline-flex; align-items: center; gap: .35rem;
+      padding: .25rem .65rem; border-radius: 999px;
+      background: rgba(245, 158, 11, .14); color: var(--warning);
+      border: 1px solid rgba(245, 158, 11, .35);
+      font-size: .75rem; font-weight: 700; white-space: nowrap;
+    }
+    .is-read-only [data-readonly-disabled] {
+      opacity: .45; cursor: not-allowed !important; pointer-events: none;
+    }
+  </style>
+  {% endif %}
   {% block head %}{% endblock %}
 </head>
-<body>
+<body{% if access_read_only %} class="is-read-only"{% endif %}>
 
 <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
@@ -112,16 +126,25 @@
         <i class="fa-solid fa-gauge-high"></i> <span data-i18n="dashboard">Dashboard</span>
       </a>
 
+      {% if module_allowed('invoices', 'bills', 'banks', 'assets', 'expenses', 'analytic', 'financial-statements') %}
       <div class="sidebar-section-label" style="margin-top:.75rem" data-i18n="finance">Finance</div>
+      {% endif %}
+      {% if module_allowed('invoices') %}
       <a href="{{ url_for('financial', tab='invoices') }}" class="nav-item {% if request.endpoint == 'financial' and request.args.get('tab') == 'invoices' %}active{% endif %}">
         <i class="fa-solid fa-file-invoice-dollar"></i> <span data-i18n="invoices">Invoices</span>
       </a>
+      {% endif %}
+      {% if module_allowed('bills') %}
       <a href="{{ url_for('financial', tab='bills') }}" class="nav-item {% if request.endpoint == 'financial' and request.args.get('tab') == 'bills' %}active{% endif %}">
         <i class="fa-solid fa-file-invoice"></i> <span data-i18n="bills">Bills</span>
       </a>
+      {% endif %}
+      {% if module_allowed('banks') %}
       <a href="{{ url_for('financial', tab='banks') }}" class="nav-item {% if request.endpoint == 'financial' and request.args.get('tab') == 'banks' %}active{% endif %}">
         <i class="fa-solid fa-building-columns"></i> <span data-i18n="banks">Banks</span>
       </a>
+      {% endif %}
+      {% if module_allowed('assets') %}
       {% set f_assets = features.get('assets', True) %}
       <a href="{% if f_assets %}{{ url_for('financial', tab='assets') }}{% else %}{{ url_for('feature_unavailable', feature='assets') }}{% endif %}"
          class="nav-item {% if not f_assets %}locked{% endif %} {% if request.endpoint == 'financial' and request.args.get('tab') == 'assets' %}active{% endif %}"
@@ -129,6 +152,8 @@
         <i class="fa-solid fa-boxes-packing"></i> <span data-i18n="assets">Assets</span>
         {% if not f_assets %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
       </a>
+      {% endif %}
+      {% if module_allowed('expenses') %}
       {% set f_expenses = features.get('expenses', True) %}
       <a href="{% if f_expenses %}{{ url_for('financial', tab='expenses') }}{% else %}{{ url_for('feature_unavailable', feature='expenses') }}{% endif %}"
          class="nav-item {% if not f_expenses %}locked{% endif %} {% if request.endpoint == 'financial' and request.args.get('tab') == 'expenses' %}active{% endif %}"
@@ -136,6 +161,8 @@
         <i class="fa-solid fa-receipt"></i> <span data-i18n="expenses">Expenses</span>
         {% if not f_expenses %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
       </a>
+      {% endif %}
+      {% if module_allowed('analytic') %}
       {% set f_analytic = features.get('analytic', True) %}
       <a href="{% if f_analytic %}{{ url_for('financial', tab='analytic') }}{% else %}{{ url_for('feature_unavailable', feature='analytic') }}{% endif %}"
          class="nav-item {% if not f_analytic %}locked{% endif %} {% if request.endpoint == 'financial' and request.args.get('tab') == 'analytic' %}active{% endif %}"
@@ -143,6 +170,8 @@
         <i class="fa-solid fa-diagram-project"></i> <span data-i18n="analytic">Analytic</span>
         {% if not f_analytic %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
       </a>
+      {% endif %}
+      {% if module_allowed('financial-statements') %}
       {% set fs_page = request.view_args.get('page') if request.endpoint == 'financial_statements' else None %}
       {% set fs_group_active = (request.endpoint == 'financial_statements') %}
       <div class="nav-group {% if fs_group_active %}is-open{% endif %}" data-nav-group="financial-statements">
@@ -176,7 +205,9 @@
           </a>
         </div>
       </div>
+      {% endif %}
 
+      {% if module_allowed('stock', 'movements', 'valuation') %}
       {% set f_inv = features.get('inventory', True) %}
       {% set inv_page = request.view_args.get('page') if request.endpoint == 'inventory_v2' else None %}
       {% set inv_group_active = (request.endpoint == 'inventory_v2') %}
@@ -190,6 +221,7 @@
           <i class="fa-solid fa-chevron-right nav-group-chevron" aria-hidden="true"></i>
         </button>
         <div class="nav-group-items" data-nav-group-items>
+          {% if module_allowed('stock') %}
           <a href="{% if f_inv %}{{ url_for('inventory_v2', page='stock') }}{% else %}{{ url_for('feature_unavailable', feature='inventory') }}{% endif %}"
              class="nav-item sub-item {% if not f_inv %}locked{% endif %} {% if inv_page == 'stock' %}active{% endif %}"
              {% if not f_inv %}title="Requires the stock module"{% endif %}>
@@ -197,6 +229,8 @@
             <span data-i18n="stock">Stock</span>
             {% if not f_inv %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
           </a>
+          {% endif %}
+          {% if module_allowed('movements') %}
           <a href="{% if f_inv %}{{ url_for('inventory_v2', page='movements') }}{% else %}{{ url_for('feature_unavailable', feature='inventory') }}{% endif %}"
              class="nav-item sub-item {% if not f_inv %}locked{% endif %} {% if inv_page == 'movements' %}active{% endif %}"
              {% if not f_inv %}title="Requires the stock module"{% endif %}>
@@ -204,6 +238,8 @@
             <span data-i18n="movements">Movements</span>
             {% if not f_inv %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
           </a>
+          {% endif %}
+          {% if module_allowed('valuation') %}
           <a href="{% if f_inv %}{{ url_for('inventory_v2', page='valuation') }}{% else %}{{ url_for('feature_unavailable', feature='inventory') }}{% endif %}"
              class="nav-item sub-item {% if not f_inv %}locked{% endif %} {% if inv_page == 'valuation' %}active{% endif %}"
              {% if not f_inv %}title="Requires the stock module"{% endif %}>
@@ -211,9 +247,12 @@
             <span data-i18n="valuation">Valuation</span>
             {% if not f_inv %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
           </a>
+          {% endif %}
         </div>
       </div>
+      {% endif %}
 
+      {% if module_allowed('sales') %}
       {% set f_sales = features.get('sales', True) %}
       <div class="sidebar-section-label" style="margin-top:.75rem" data-i18n="sales">Sales</div>
       <a href="{% if f_sales %}{{ url_for('sales', tab='pipeline') }}{% else %}{{ url_for('feature_unavailable', feature='sales') }}{% endif %}"
@@ -228,7 +267,9 @@
         <i class="fa-solid fa-cart-shopping"></i> <span data-i18n="orders">Orders</span>
         {% if not f_sales %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
       </a>
+      {% endif %}
 
+      {% if module_allowed('hr') %}
       {% set f_att = features.get('hr_attendance', True) %}
       {% set f_leave = features.get('hr_leave', True) %}
       <div class="sidebar-section-label" style="margin-top:.75rem" data-i18n="human_resources">Human Resources</div>
@@ -244,7 +285,9 @@
         <i class="fa-solid fa-calendar-xmark"></i> <span data-i18n="leave">Leave</span>
         {% if not f_leave %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
       </a>
+      {% endif %}
 
+      {% if module_allowed('manufacturing') %}
       {% set f_mfg = features.get('manufacturing', True) %}
       <div class="sidebar-section-label" style="margin-top:.75rem" data-i18n="manufacturing">Manufacturing</div>
       <a href="{% if f_mfg %}{{ url_for('manufacturing') }}{% else %}{{ url_for('feature_unavailable', feature='manufacturing') }}{% endif %}"
@@ -253,6 +296,7 @@
         <i class="fa-solid fa-industry"></i> <span data-i18n="production">Production</span>
         {% if not f_mfg %}<i class="fa-solid fa-lock nav-lock"></i>{% endif %}
       </a>
+      {% endif %}
     </nav>
 
     <div class="sidebar-footer">
@@ -315,6 +359,9 @@
         {% block page_subtitle %}<small>{{ session.get('odoo_url', '') }}</small>{% endblock %}
       </div>
       <div style="display:flex;align-items:center;gap:.75rem">
+        {% if access_read_only %}
+        <span class="view-only-banner" title="This access code is view only">👁️ View Only Mode</span>
+        {% endif %}
         {% if selected_company %}
         <span class="topbar-company" title="{{ selected_company.name }}">
           <i class="fa-solid fa-building"></i>
@@ -414,6 +461,37 @@
     });
   })();
 </script>
+{% if access_read_only %}
+<script>
+  /* View-only access codes: grey out anything that changes data or exports
+     it. The server rejects these requests too; this just makes it obvious. */
+  (function () {
+    var SELECTORS = [
+      '[data-export]', 'a[href*="/export/"]',
+      '[data-fs-custom-open]', '[data-fs-settings-open]', '.fs-ratio-action-btn',
+      'form[action*="/financial-statements/mapping"] [type="submit"]',
+      'form[action*="/financial-statements/custom-ratio"] [type="submit"]'
+    ].join(',');
+    function lock(root) {
+      (root || document).querySelectorAll(SELECTORS).forEach(function (el) {
+        if (el.hasAttribute('data-readonly-disabled')) return;
+        el.setAttribute('data-readonly-disabled', '');
+        el.setAttribute('aria-disabled', 'true');
+        el.setAttribute('title', 'View Only Mode');
+        if ('disabled' in el) el.disabled = true;
+        if (el.tagName === 'A') el.setAttribute('tabindex', '-1');
+      });
+    }
+    lock();
+    new MutationObserver(function () { lock(); })
+      .observe(document.body, { childList: true, subtree: true });
+    document.addEventListener('click', function (e) {
+      var el = e.target.closest && e.target.closest('[data-readonly-disabled]');
+      if (el) { e.preventDefault(); e.stopPropagation(); }
+    }, true);
+  })();
+</script>
+{% endif %}
 {% block scripts %}{% endblock %}
 </body>
 </html>

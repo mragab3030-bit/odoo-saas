@@ -1825,12 +1825,6 @@ app.jinja_env.filters['fmt_currency_int'] = fmt_currency_int
 
 def _process_demo_login():
     """Hydrate the session for the Demo tab — no XML-RPC."""
-    from mock_data import (
-        installed_modules, version_info,
-        DEMO_COMPANY_ID, DEMO_COMPANY_NAME,
-        DEMO_CURRENCY_ID, DEMO_CURRENCY_NAME, DEMO_CURRENCY_SYMBOL,
-    )
-
     try:
         ver = int(request.form.get('version', DEMO_DEFAULT_VERSION))
     except (TypeError, ValueError):
@@ -1840,11 +1834,20 @@ def _process_demo_login():
     edition = request.form.get('edition', DEMO_DEFAULT_EDITION).lower()
     if edition not in ('community', 'enterprise'):
         edition = DEMO_DEFAULT_EDITION
+    return _start_demo_session(ver, edition)
+
+
+def _start_demo_session(ver, edition, username='demo@olens.io'):
+    from mock_data import (
+        installed_modules, version_info,
+        DEMO_COMPANY_ID, DEMO_COMPANY_NAME,
+        DEMO_CURRENCY_ID, DEMO_CURRENCY_NAME, DEMO_CURRENCY_SYMBOL,
+    )
 
     session.permanent = True
     session['odoo_url'] = 'https://demo.olens.local'
     session['odoo_db'] = 'olens-demo'
-    session['odoo_username'] = 'demo@olens.io'
+    session['odoo_username'] = username
     session['odoo_uid'] = 2
     session['odoo_api_key'] = '__demo__'
     session['odoo_version_info'] = version_info(ver, edition)
@@ -1876,6 +1879,97 @@ def _render_login_page(active_tab='demo', url='', database='', username=''):
             live_url=url, live_database=database, live_username=username,
         )
     return render_template('login.html', url=url, database=database, username=username)
+
+
+def _start_live_session(client, url, db, username, api_key):
+    """Hydrate the session after a successful Odoo authenticate()."""
+    session.permanent = True
+    session['odoo_url'] = url
+    session['odoo_db'] = db
+    session['odoo_username'] = username
+    session['odoo_uid'] = client.uid
+    session['odoo_api_key'] = api_key
+    # Version detection — captured during authenticate() via common.version()
+    session['odoo_version_info'] = client.version_info or {}
+    session['odoo_version_major'] = client.version_major or 0
+
+    # Module detection — drives feature flags used to gate tabs.
+    # Best-effort: if the user lacks access to ir.module.module, we fall
+    # back to an empty set and `_resolve_installed_features` gives a
+    # permissive default.
+    try:
+        session['installed_modules'] = sorted(client.fetch_installed_modules())
+    except Exception:
+        session['installed_modules'] = []
+
+    # Edition detection — community vs enterprise. Drives the "Enterprise
+    # only" copy on the feature-unavailable screen. Algorithm version is
+    # captured so future detection changes auto-invalidate cached values
+    # (see get_client()).
+    try:
+        session['odoo_edition'] = client.detect_edition()
+    except Exception:
+        session['odoo_edition'] = 'community'
+    session['odoo_edition_algo'] = 3
+
+    # Fetch companies the user has access to (multi-company support)
+    try:
+        user_data = client.execute_kw(
+            'res.users', 'read', [[client.uid]],
+            {'fields': ['company_id', 'company_ids']}
+        )
+        user_data = user_data[0] if user_data else {}
+        default_cid = user_data.get('company_id')
+        default_cid = default_cid[0] if isinstance(default_cid, list) else None
+        allowed_ids = user_data.get('company_ids') or []
+        if not isinstance(allowed_ids, list):
+            allowed_ids = []
+        if allowed_ids:
+            companies = client.execute_kw(
+                'res.company', 'read', [allowed_ids],
+                {'fields': ['id', 'name', 'currency_id']}
+            )
+        else:
+            companies = []
+        # Resolve currency symbol/name for each company in one batch
+        cur_ids = list({
+            co['currency_id'][0]
+            for co in (companies or [])
+            if isinstance(co.get('currency_id'), list) and co['currency_id']
+        })
+        cur_map = {}
+        if cur_ids:
+            cur_rows = client.execute_kw(
+                'res.currency', 'read', [cur_ids],
+                {'fields': ['id', 'symbol', 'name']}
+            )
+            cur_map = {cu['id']: cu for cu in (cur_rows or [])}
+    except Exception:
+        companies = []
+        default_cid = None
+        cur_map = {}
+
+    session['companies'] = [
+        {
+            'id': co['id'],
+            'name': co.get('name', ''),
+            'currency_id': (co.get('currency_id') or [None])[0]
+                if isinstance(co.get('currency_id'), list) else None,
+            'currency_name': (
+                cur_map.get((co.get('currency_id') or [0])[0], {}).get('name', '')
+                if isinstance(co.get('currency_id'), list) else ''
+            ),
+            'currency_symbol': (
+                cur_map.get((co.get('currency_id') or [0])[0], {}).get('symbol', '')
+                if isinstance(co.get('currency_id'), list) else ''
+            ),
+        }
+        for co in (companies or [])
+    ]
+    session['company_id'] = default_cid or (
+        session['companies'][0]['id'] if session['companies'] else None
+    )
+    return redirect(url_for('dashboard'))
 
 
 @app.route('/', methods=['GET', 'POST'])
@@ -1913,93 +2007,7 @@ def login():
             flash(str(e), 'danger')
             return _render_login_page(active_tab='live', url=url, database=db, username=username)
 
-        session.permanent = True
-        session['odoo_url'] = url
-        session['odoo_db'] = db
-        session['odoo_username'] = username
-        session['odoo_uid'] = client.uid
-        session['odoo_api_key'] = api_key
-        # Version detection — captured during authenticate() via common.version()
-        session['odoo_version_info'] = client.version_info or {}
-        session['odoo_version_major'] = client.version_major or 0
-
-        # Module detection — drives feature flags used to gate tabs.
-        # Best-effort: if the user lacks access to ir.module.module, we fall
-        # back to an empty set and `_resolve_installed_features` gives a
-        # permissive default.
-        try:
-            session['installed_modules'] = sorted(client.fetch_installed_modules())
-        except Exception:
-            session['installed_modules'] = []
-
-        # Edition detection — community vs enterprise. Drives the "Enterprise
-        # only" copy on the feature-unavailable screen. Algorithm version is
-        # captured so future detection changes auto-invalidate cached values
-        # (see get_client()).
-        try:
-            session['odoo_edition'] = client.detect_edition()
-        except Exception:
-            session['odoo_edition'] = 'community'
-        session['odoo_edition_algo'] = 3
-
-        # Fetch companies the user has access to (multi-company support)
-        try:
-            user_data = client.execute_kw(
-                'res.users', 'read', [[client.uid]],
-                {'fields': ['company_id', 'company_ids']}
-            )
-            user_data = user_data[0] if user_data else {}
-            default_cid = user_data.get('company_id')
-            default_cid = default_cid[0] if isinstance(default_cid, list) else None
-            allowed_ids = user_data.get('company_ids') or []
-            if not isinstance(allowed_ids, list):
-                allowed_ids = []
-            if allowed_ids:
-                companies = client.execute_kw(
-                    'res.company', 'read', [allowed_ids],
-                    {'fields': ['id', 'name', 'currency_id']}
-                )
-            else:
-                companies = []
-            # Resolve currency symbol/name for each company in one batch
-            cur_ids = list({
-                co['currency_id'][0]
-                for co in (companies or [])
-                if isinstance(co.get('currency_id'), list) and co['currency_id']
-            })
-            cur_map = {}
-            if cur_ids:
-                cur_rows = client.execute_kw(
-                    'res.currency', 'read', [cur_ids],
-                    {'fields': ['id', 'symbol', 'name']}
-                )
-                cur_map = {cu['id']: cu for cu in (cur_rows or [])}
-        except Exception:
-            companies = []
-            default_cid = None
-            cur_map = {}
-
-        session['companies'] = [
-            {
-                'id': co['id'],
-                'name': co.get('name', ''),
-                'currency_id': (co.get('currency_id') or [None])[0]
-                    if isinstance(co.get('currency_id'), list) else None,
-                'currency_name': (
-                    cur_map.get((co.get('currency_id') or [0])[0], {}).get('name', '')
-                    if isinstance(co.get('currency_id'), list) else ''
-                ),
-                'currency_symbol': (
-                    cur_map.get((co.get('currency_id') or [0])[0], {}).get('symbol', '')
-                    if isinstance(co.get('currency_id'), list) else ''
-                ),
-            }
-            for co in (companies or [])
-        ]
-        session['company_id'] = default_cid or (
-            session['companies'][0]['id'] if session['companies'] else None
-        )
-        return redirect(url_for('dashboard'))
+        return _start_live_session(client, url, db, username, api_key)
 
     return _render_login_page(active_tab='demo' if DEMO_MODE else 'live')
 
@@ -2009,6 +2017,381 @@ def logout():
     session.clear()
     flash('You have been logged out.', 'info')
     return redirect(url_for('login'))
+
+
+# ---------------------------------------------------------------------------
+# Access codes — single-field login backed by access_codes.json
+# ---------------------------------------------------------------------------
+
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', '')
+
+ACCESS_CODE_ERROR = 'Invalid or expired access code'
+
+# Endpoints that change data or hand it out as a file. View-only codes
+# can't reach them.
+READ_ONLY_BLOCKED_ENDPOINTS = {
+    'financial_statements_mapping',
+    'financial_statements_custom_ratio',
+    'export',
+    'export_cost_center_pnl',
+    'export_budget_vs_actual',
+}
+
+# Full pages redirect to the dashboard when blocked; everything else is a
+# JSON/XHR endpoint and gets a 403.
+_ACCESS_PAGE_ENDPOINTS = {
+    'financial', 'financial_statements', 'inventory_v2', 'inventory',
+    'sales', 'hr', 'manufacturing', 'export',
+    'export_cost_center_pnl', 'export_budget_vs_actual',
+}
+
+_ANALYTIC_ENDPOINTS = {
+    'financial_analytic_kpi_stats', 'financial_analytic_aggregate',
+    'set_analytic_account_view', 'financial_cost_center_pnl',
+    'export_cost_center_pnl', 'financial_budget_vs_actual',
+    'export_budget_vs_actual', 'api_analytic_debug',
+}
+
+
+def _required_access_modules(endpoint):
+    """Module keys that grant the current request (any one is enough), or
+    None when the endpoint isn't module-scoped."""
+    from access_codes import FINANCE_MODULES, INVENTORY_MODULES, ACCESS_MODULE_KEYS
+    view_args = request.view_args or {}
+    if endpoint == 'financial':
+        return {request.args.get('tab', 'invoices')}
+    if endpoint in ('financial_statements', 'financial_statements_mapping',
+                    'financial_statements_custom_ratio'):
+        return {'financial-statements'}
+    if endpoint in _ANALYTIC_ENDPOINTS:
+        return {'analytic'}
+    if endpoint == 'api_assets_debug':
+        return {'assets'}
+    if endpoint in ('financial_kpi_stats', 'financial_collection_rate',
+                    'financial_trend', 'financial_tax_summary'):
+        return set(FINANCE_MODULES)
+    if endpoint == 'inventory_v2':
+        page = view_args.get('page')
+        return {page} if page in INVENTORY_MODULES else set(INVENTORY_MODULES)
+    if endpoint == 'inventory':
+        return set(INVENTORY_MODULES)
+    if endpoint in ('sales', 'hr', 'manufacturing'):
+        return {endpoint}
+    if endpoint == 'export':
+        key = view_args.get('key') or ''
+        if key.startswith('financial_statements_'):
+            return {'financial-statements'}
+        prefix, _, rest = key.partition('_')
+        if prefix == 'financial':
+            return {rest}
+        if prefix == 'inventory':
+            return {rest} if rest in INVENTORY_MODULES else set(INVENTORY_MODULES)
+        if prefix in ACCESS_MODULE_KEYS:
+            return {prefix}
+    return None
+
+
+def _redirect_back():
+    """Referrer if it's on this host, else the dashboard."""
+    from urllib.parse import urlparse
+    ref = request.referrer or ''
+    parsed = urlparse(ref)
+    if ref and parsed.netloc == request.host:
+        return redirect(parsed.path + (('?' + parsed.query) if parsed.query else ''))
+    return redirect(url_for('dashboard'))
+
+
+@app.before_request
+def _enforce_access_code():
+    """Re-validate the session's access code on every request so disabling
+    or expiring a code (or editing its modules) takes effect immediately."""
+    code = session.get('access_code')
+    endpoint = request.endpoint or ''
+    if (not code or 'odoo_uid' not in session
+            or endpoint in ('logout', 'static', 'login_logo')
+            or endpoint.startswith('admin_')):
+        return None
+
+    from access_codes import lookup_valid, allowed_modules
+    entry = lookup_valid(code)
+    if entry is None:
+        session.clear()
+        flash(ACCESS_CODE_ERROR, 'danger')
+        return redirect(url_for('login'))
+    session['access_client_name'] = entry.get('client_name') or ''
+    session['access_modules'] = allowed_modules(entry)
+    session['access_read_only'] = bool(entry.get('read_only'))
+
+    is_page = endpoint in _ACCESS_PAGE_ENDPOINTS
+
+    if session['access_read_only'] and endpoint in READ_ONLY_BLOCKED_ENDPOINTS:
+        if request.method == 'GET' and not is_page:
+            return jsonify({'error': 'View Only Mode'}), 403
+        flash('View Only Mode — this action is disabled for your access code.', 'warning')
+        return _redirect_back()
+
+    mods = session['access_modules']
+    required = _required_access_modules(endpoint)
+    if mods is not None and required and not (required & set(mods)):
+        if not is_page:
+            return jsonify({'error': 'Module not included in your access code'}), 403
+        flash('That module is not included in your access code.', 'warning')
+        return redirect(url_for('dashboard'))
+    return None
+
+
+@app.context_processor
+def inject_access_context():
+    has_code = bool(session.get('access_code'))
+    mods = session.get('access_modules') if has_code else None
+
+    def module_allowed(*keys):
+        return mods is None or any(k in mods for k in keys)
+
+    return {
+        'module_allowed': module_allowed,
+        'access_read_only': has_code and bool(session.get('access_read_only')),
+        'access_client_name': session.get('access_client_name') if has_code else '',
+    }
+
+
+@app.route('/access-code', methods=['POST'])
+def access_code_login():
+    if 'odoo_uid' in session:
+        return redirect(url_for('dashboard'))
+
+    from access_codes import (lookup_valid, allowed_modules, is_demo_entry,
+                              normalize_code)
+    code = normalize_code(request.form.get('access_code'))
+    entry = lookup_valid(code)
+    if entry is None:
+        flash(ACCESS_CODE_ERROR, 'danger')
+        return _render_login_page(active_tab='access')
+
+    client_name = entry.get('client_name') or code
+    if is_demo_entry(entry):
+        if not DEMO_MODE:
+            flash(ACCESS_CODE_ERROR, 'danger')
+            return _render_login_page(active_tab='access')
+        response = _start_demo_session(DEMO_DEFAULT_VERSION, DEMO_DEFAULT_EDITION,
+                                       username=client_name)
+    else:
+        url = (entry.get('odoo_url') or '').strip()
+        db = (entry.get('database') or '').strip()
+        username = (entry.get('username') or '').strip()
+        password = entry.get('password') or ''
+        if url and not url.startswith(('http://', 'https://')):
+            url = 'https://' + url
+        try:
+            client = OdooClient.authenticate(url, db, username, password)
+        except (OdooAuthError, OdooConnectionError) as e:
+            logger.warning('Access code %s: Odoo login failed: %s', code, e)
+            flash('This access code could not connect to Odoo. '
+                  'Please contact Silver Solutions.', 'danger')
+            return _render_login_page(active_tab='access')
+        response = _start_live_session(client, url, db, username, password)
+
+    session['access_code'] = code
+    session['access_client_name'] = client_name
+    session['access_modules'] = allowed_modules(entry)
+    session['access_read_only'] = bool(entry.get('read_only'))
+    return response
+
+
+# ---------------------------------------------------------------------------
+# Login-page branding — Silver Solutions logo discovered on disk
+# ---------------------------------------------------------------------------
+
+_LOGO_SEARCH_DIRS = ('Desktop', 'Downloads', 'Documents', 'Pictures')
+_LOGO_EXTS = ('.png', '.jpg', '.jpeg', '.svg', '.webp')
+_LOGO_MIMETYPES = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+                   '.svg': 'image/svg+xml', '.webp': 'image/webp'}
+_silver_logo_cache = []
+
+
+def _find_silver_logo():
+    """Path of the Silver Solutions logo, or None. Looks in ~/Desktop,
+    ~/Downloads, ~/Documents and ~/Pictures (in that order, top level only).
+    A name containing "silver" wins over one that only says "SS" or "logo",
+    so a stray logo.png from another client isn't picked first. Cached for
+    the life of the process."""
+    if _silver_logo_cache:
+        return _silver_logo_cache[0]
+    home = os.path.expanduser('~')
+    candidates = []
+    for d in _LOGO_SEARCH_DIRS:
+        folder = os.path.join(home, d)
+        try:
+            names = sorted(os.listdir(folder))
+        except OSError:
+            continue
+        for name in names:
+            if not name.lower().endswith(_LOGO_EXTS):
+                continue
+            path = os.path.join(folder, name)
+            if os.path.isfile(path):
+                candidates.append((name, path))
+    found = None
+    for match in (lambda n: 'silver' in n.lower(),
+                  lambda n: 'SS' in n or 'logo' in n.lower()):
+        found = next((p for n, p in candidates if match(n)), None)
+        if found:
+            break
+    _silver_logo_cache.append(found)
+    return found
+
+
+@app.context_processor
+def inject_login_branding():
+    return {'silver_logo_available': bool(_find_silver_logo())}
+
+
+@app.route('/login-logo')
+def login_logo():
+    path = _find_silver_logo()
+    if not path:
+        return ('', 404)
+    ext = os.path.splitext(path)[1].lower()
+    return send_file(path, mimetype=_LOGO_MIMETYPES.get(ext), max_age=3600)
+
+
+# ---------------------------------------------------------------------------
+# Admin panel — manage access codes
+# ---------------------------------------------------------------------------
+
+def admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get('is_admin'):
+            return jsonify({'error': 'Admin login required'}), 401
+        return f(*args, **kwargs)
+    return decorated
+
+
+def _admin_rows():
+    from access_codes import load_codes, code_status, is_demo_entry
+    rows = []
+    for code, entry in sorted(load_codes().items()):
+        if not isinstance(entry, dict):
+            continue
+        status, days_left = code_status(entry)
+        rows.append({
+            'code': code,
+            'client_name': entry.get('client_name') or '',
+            'mode': 'demo' if is_demo_entry(entry) else 'live',
+            'odoo_url': entry.get('odoo_url') or '',
+            'database': entry.get('database') or '',
+            'username': entry.get('username') or '',
+            # Never sent to the browser; the form keeps it when left blank.
+            'has_password': bool(entry.get('password')),
+            'modules': entry.get('modules') or [],
+            'expiry': entry.get('expiry') or '',
+            'days_left': days_left,
+            'status': status,
+            'read_only': bool(entry.get('read_only')),
+            'active': bool(entry.get('active')),
+        })
+    return rows
+
+
+@app.route('/admin/access-codes')
+def admin_access_codes():
+    from access_codes import ACCESS_MODULES
+    if not session.get('is_admin'):
+        return render_template('admin_access_codes.html', authed=False,
+                               admin_enabled=bool(ADMIN_PASSWORD))
+    return render_template('admin_access_codes.html', authed=True,
+                           admin_enabled=True, rows=_admin_rows(),
+                           modules=ACCESS_MODULES)
+
+
+@app.route('/admin/login', methods=['POST'])
+def admin_login():
+    import hmac
+    password = request.form.get('password') or ''
+    if ADMIN_PASSWORD and hmac.compare_digest(password.encode(), ADMIN_PASSWORD.encode()):
+        session['is_admin'] = True
+    else:
+        flash('Incorrect admin password.', 'danger')
+    return redirect(url_for('admin_access_codes'))
+
+
+@app.route('/admin/logout', methods=['POST'])
+def admin_logout():
+    session.pop('is_admin', None)
+    return redirect(url_for('admin_access_codes'))
+
+
+@app.route('/admin/access-codes/generate')
+@admin_required
+def admin_generate_code():
+    from access_codes import generate_code, load_codes
+    return jsonify({'code': generate_code(load_codes().keys())})
+
+
+@app.route('/admin/access-codes/save', methods=['POST'])
+@admin_required
+def admin_save_code():
+    from access_codes import (load_codes, save_codes, normalize_code, CODE_RE,
+                              ACCESS_MODULE_KEYS, parse_expiry)
+    data = request.get_json(silent=True) or {}
+    code = normalize_code(data.get('code'))
+    original = normalize_code(data.get('original_code'))
+    mode = 'demo' if data.get('mode') == 'demo' else 'live'
+
+    if not CODE_RE.match(code):
+        return jsonify({'error': 'Code must be 4–32 characters: A–Z, 0–9, "-" or "_".'}), 400
+    client_name = (data.get('client_name') or '').strip()
+    if not client_name:
+        return jsonify({'error': 'Client name is required.'}), 400
+    expiry = (data.get('expiry') or '').strip()
+    if not expiry or parse_expiry(expiry) is None:
+        return jsonify({'error': 'A valid expiry date is required.'}), 400
+    modules = [m for m in (data.get('modules') or []) if m in ACCESS_MODULE_KEYS]
+
+    codes = load_codes()
+    if code != original and code in codes:
+        return jsonify({'error': f'Code {code} already exists.'}), 400
+    previous = codes.get(original) if original else None
+
+    password = data.get('password') or ''
+    if not password and previous:
+        password = previous.get('password') or ''
+    entry = {
+        'client_name': client_name,
+        'mode': mode,
+        'odoo_url': (data.get('odoo_url') or '').strip() if mode == 'live' else '',
+        'database': (data.get('database') or '').strip() if mode == 'live' else '',
+        'username': (data.get('username') or '').strip() if mode == 'live' else '',
+        'password': password if mode == 'live' else '',
+        'modules': modules,
+        'expiry': expiry,
+        'read_only': bool(data.get('read_only')),
+        'logo': (previous or {}).get('logo'),
+        'active': bool(data.get('active')),
+    }
+    if mode == 'live' and not all([entry['odoo_url'], entry['database'],
+                                   entry['username'], entry['password']]):
+        return jsonify({'error': 'Odoo URL, database, username and password are required.'}), 400
+
+    if original and original != code:
+        codes.pop(original, None)
+    codes[code] = entry
+    save_codes(codes)
+    return jsonify({'ok': True, 'rows': _admin_rows()})
+
+
+@app.route('/admin/access-codes/delete', methods=['POST'])
+@admin_required
+def admin_delete_code():
+    from access_codes import load_codes, save_codes, normalize_code
+    code = normalize_code((request.get_json(silent=True) or {}).get('code'))
+    codes = load_codes()
+    if code not in codes:
+        return jsonify({'error': 'Code not found.'}), 404
+    codes.pop(code)
+    save_codes(codes)
+    return jsonify({'ok': True, 'rows': _admin_rows()})
 
 
 @app.route('/select-company', methods=['POST'])

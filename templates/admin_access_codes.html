@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Access Codes · Admin</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('olens.theme');
+        if (t === 'light' || t === 'midnight' || t === 'dark') {
+          document.documentElement.setAttribute('data-theme', t);
+        }
+      } catch (e) {}
+    })();
+  </script>
+  <style>
+    body { background: var(--bg); color: var(--text); }
+    .admin-wrap { max-width: 1200px; margin: 0 auto; padding: 2rem 1rem 3rem; }
+    .admin-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 1rem; flex-wrap: wrap; margin-bottom: 1.25rem;
+    }
+    .admin-head h1 { font-size: 1.35rem; margin: 0; }
+    .admin-head p { margin: .2rem 0 0; color: var(--text-muted); font-size: .85rem; }
+    .admin-actions { display: flex; gap: .5rem; }
+    .admin-table-wrap { overflow-x: auto; }
+    .admin-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+    .admin-table th, .admin-table td {
+      padding: .65rem .75rem; text-align: left;
+      border-bottom: 1px solid var(--border); vertical-align: middle;
+    }
+    .admin-table th {
+      font-size: .72rem; text-transform: uppercase; letter-spacing: .05em;
+      color: var(--text-muted); font-weight: 700; white-space: nowrap;
+    }
+    .admin-table td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .code-cell { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 700; letter-spacing: .04em; }
+    .mode-tag { font-size: .68rem; color: var(--text-muted); font-weight: 600; margin-left: .35rem; }
+    .mod-chip {
+      display: inline-block; margin: .1rem .2rem .1rem 0; padding: .1rem .45rem;
+      border-radius: 6px; background: var(--surface-2); border: 1px solid var(--border);
+      font-size: .72rem; white-space: nowrap;
+    }
+    .row-actions { display: flex; gap: .35rem; white-space: nowrap; }
+    .row-actions .btn { padding: .3rem .55rem; }
+    .empty-row td { text-align: center; color: var(--text-muted); padding: 2rem; }
+
+    /* Modal */
+    .adm-modal-backdrop {
+      position: fixed; inset: 0; background: rgba(15, 23, 42, .55);
+      display: none; align-items: flex-start; justify-content: center;
+      padding: 2rem 1rem; overflow-y: auto; z-index: 1000;
+    }
+    .adm-modal-backdrop.open { display: flex; }
+    .adm-modal {
+      background: var(--surface); color: var(--text);
+      border-radius: 14px; width: 100%; max-width: 620px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.35);
+    }
+    .adm-modal header, .adm-modal footer {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 1rem 1.25rem; gap: .5rem;
+    }
+    .adm-modal header { border-bottom: 1px solid var(--border); }
+    .adm-modal header h2 { font-size: 1.05rem; margin: 0; }
+    .adm-modal footer { border-top: 1px solid var(--border); justify-content: flex-end; }
+    .adm-modal .body { padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem; }
+    .adm-close { background: none; border: 0; color: var(--text-muted); font-size: 1.1rem; cursor: pointer; }
+    .field label { display: block; font-size: .78rem; font-weight: 600; margin-bottom: .3rem; }
+    .field .form-control { width: 100%; }
+    .field small { color: var(--text-muted); font-size: .72rem; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+    @media (max-width: 560px) { .grid-2 { grid-template-columns: 1fr; } }
+    .input-row { display: flex; gap: .5rem; }
+    .input-row .form-control { flex: 1; text-transform: uppercase; font-family: ui-monospace, monospace; letter-spacing: .04em; }
+    .fieldset { border: 1px solid var(--border); border-radius: 10px; padding: .85rem 1rem; }
+    .fieldset legend { font-size: .78rem; font-weight: 700; padding: 0 .35rem; }
+    .mod-group-title { font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin: .5rem 0 .25rem; font-weight: 700; }
+    .mod-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: .3rem .75rem; }
+    .check { display: flex; align-items: center; gap: .45rem; font-size: .84rem; cursor: pointer; }
+    .toggles { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+    .switch { display: inline-flex; align-items: center; gap: .55rem; cursor: pointer; font-size: .85rem; font-weight: 600; }
+    .switch input { width: 2.2rem; height: 1.2rem; accent-color: var(--primary); cursor: pointer; }
+    .form-error { color: var(--danger); font-size: .82rem; margin: 0; min-height: 1em; }
+    .mode-switch { display: flex; gap: 1rem; }
+
+    .toast {
+      position: fixed; bottom: 1.25rem; left: 50%; transform: translateX(-50%);
+      background: #111827; color: #f9fafb; padding: .55rem 1rem; border-radius: 8px;
+      font-size: .85rem; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 1100;
+    }
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+
+{% if not authed %}
+<div class="login-page">
+  <div class="login-card">
+    <div class="login-logo">
+      <h1 style="font-size:1.4rem"><i class="fa-solid fa-user-shield"></i> Admin</h1>
+      <p>Access code management</p>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for cat, msg in messages %}
+        <div class="alert alert-{{ cat }}"><i class="fa-solid fa-circle-exclamation"></i> {{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    {% if admin_enabled %}
+    <form method="POST" action="{{ url_for('admin_login') }}" style="display:flex;flex-direction:column;gap:1rem">
+      <div class="filter-group" style="width:100%">
+        <label for="password">Admin password</label>
+        <input type="password" id="password" name="password" class="form-control"
+               required autofocus style="width:100%">
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center">
+        <i class="fa-solid fa-right-to-bracket"></i> Sign in
+      </button>
+    </form>
+    {% else %}
+    <div class="alert alert-warning">
+      <i class="fa-solid fa-triangle-exclamation"></i>
+      The admin panel is disabled. Set the <code>ADMIN_PASSWORD</code> environment variable and restart the app.
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% else %}
+<div class="admin-wrap">
+  <div class="admin-head">
+    <div>
+      <h1><i class="fa-solid fa-key"></i> Access Codes</h1>
+      <p>Codes clients use on the login page's Access Code tab.</p>
+    </div>
+    <div class="admin-actions">
+      <button type="button" class="btn btn-primary btn-sm" id="addBtn">
+        <i class="fa-solid fa-plus"></i> Add New Code
+      </button>
+      <form method="POST" action="{{ url_for('admin_logout') }}">
+        <button type="submit" class="btn btn-outline btn-sm">
+          <i class="fa-solid fa-right-from-bracket"></i> Sign out
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="admin-table-wrap">
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th>Code</th><th>Client Name</th><th>Modules</th><th>Expiry</th>
+            <th>Days Left</th><th>Read Only</th><th>Active</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="adm-modal-backdrop" id="modal" aria-hidden="true">
+  <form class="adm-modal" id="codeForm" role="dialog" aria-modal="true" aria-labelledby="modalTitle" novalidate>
+    <header>
+      <h2 id="modalTitle">Add New Code</h2>
+      <button type="button" class="adm-close" data-close aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+    </header>
+    <div class="body">
+      <input type="hidden" name="original_code">
+
+      <div class="field">
+        <label for="f_code">Access Code</label>
+        <div class="input-row">
+          <input type="text" id="f_code" name="code" class="form-control" maxlength="32" required>
+          <button type="button" class="btn btn-outline btn-sm" id="genBtn">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> Generate
+          </button>
+        </div>
+        <small>4–32 characters: letters, digits, "-" or "_".</small>
+      </div>
+
+      <div class="field">
+        <label for="f_client">Client Name</label>
+        <input type="text" id="f_client" name="client_name" class="form-control" required>
+      </div>
+
+      <fieldset class="fieldset">
+        <legend>Data source</legend>
+        <div class="mode-switch">
+          <label class="check"><input type="radio" name="mode" value="live" checked> Live Odoo</label>
+          <label class="check"><input type="radio" name="mode" value="demo"> Demo data (no Odoo connection)</label>
+        </div>
+        <div id="liveFields" style="display:flex;flex-direction:column;gap:.75rem;margin-top:.85rem">
+          <div class="field">
+            <label for="f_url">Odoo URL</label>
+            <input type="text" id="f_url" name="odoo_url" class="form-control" placeholder="https://client.odoo.com">
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label for="f_db">Database</label>
+              <input type="text" id="f_db" name="database" class="form-control">
+            </div>
+            <div class="field">
+              <label for="f_user">Username</label>
+              <input type="text" id="f_user" name="username" class="form-control">
+            </div>
+          </div>
+          <div class="field">
+            <label for="f_pwd">Password</label>
+            <input type="password" id="f_pwd" name="password" class="form-control" autocomplete="new-password">
+            <small id="pwdHint" hidden>Leave blank to keep the saved password.</small>
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset class="fieldset">
+        <legend>Allowed Modules</legend>
+        <small style="color:var(--text-muted);font-size:.72rem">Leave all unchecked to allow every module.</small>
+        {% set ns = namespace(section='') %}
+        {% for key, label, section in modules %}
+          {% if section != ns.section %}
+            {% if not loop.first %}</div>{% endif %}
+            <div class="mod-group-title">{{ section }}</div>
+            <div class="mod-grid">
+            {% set ns.section = section %}
+          {% endif %}
+          <label class="check"><input type="checkbox" name="modules" value="{{ key }}"> {{ label }}</label>
+          {% if loop.last %}</div>{% endif %}
+        {% endfor %}
+      </fieldset>
+
+      <div class="field" style="max-width:220px">
+        <label for="f_expiry">Expiry Date</label>
+        <input type="date" id="f_expiry" name="expiry" class="form-control" required>
+      </div>
+
+      <div class="toggles">
+        <label class="switch"><input type="checkbox" name="read_only"> Read Only</label>
+        <label class="switch"><input type="checkbox" name="active" checked> Active</label>
+      </div>
+
+      <p class="form-error" id="formError" role="alert"></p>
+    </div>
+    <footer>
+      <button type="button" class="btn btn-outline btn-sm" data-close>Cancel</button>
+      <button type="submit" class="btn btn-primary btn-sm" id="saveBtn">
+        <i class="fa-solid fa-floppy-disk"></i> Save
+      </button>
+    </footer>
+  </form>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script id="rowsData" type="application/json">{{ rows|tojson }}</script>
+<script id="modulesData" type="application/json">{{ modules|tojson }}</script>
+<script>
+(function () {
+  var rows = JSON.parse(document.getElementById('rowsData').textContent);
+  var MODULE_LABELS = {};
+  JSON.parse(document.getElementById('modulesData').textContent)
+    .forEach(function (m) { MODULE_LABELS[m[0]] = m[1]; });
+
+  var tbody = document.getElementById('rows');
+  var modal = document.getElementById('modal');
+  var form = document.getElementById('codeForm');
+  var errorEl = document.getElementById('formError');
+  var toastEl = document.getElementById('toast');
+  var toastTimer;
+
+  var URLS = {
+    save: "{{ url_for('admin_save_code') }}",
+    del: "{{ url_for('admin_delete_code') }}",
+    gen: "{{ url_for('admin_generate_code') }}"
+  };
+  var STATUS = {
+    active:   '🟢 Active',
+    expiring: '🟡 Expiring Soon',
+    expired:  '🔴 Expired'
+  };
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.classList.remove('show'); }, 1800);
+  }
+
+  function render() {
+    if (!rows.length) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="8">No access codes yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(function (r, i) {
+      var mods = r.modules.length
+        ? r.modules.map(function (m) { return '<span class="mod-chip">' + esc(MODULE_LABELS[m] || m) + '</span>'; }).join('')
+        : '<span class="mod-chip">All modules</span>';
+      var days = r.days_left == null ? '—'
+        : r.days_left < 0 ? Math.abs(r.days_left) + ' days ago'
+        : r.days_left + (r.days_left === 1 ? ' day' : ' days');
+      return '<tr>' +
+        '<td class="code-cell">' + esc(r.code) + (r.mode === 'demo' ? '<span class="mode-tag">DEMO</span>' : '') + '</td>' +
+        '<td>' + esc(r.client_name) + '</td>' +
+        '<td>' + mods + '</td>' +
+        '<td class="num">' + esc(r.expiry || '—') + '</td>' +
+        '<td class="num">' + STATUS[r.status] + ' · ' + days + '</td>' +
+        '<td>' + (r.read_only ? 'Yes' : 'No') + '</td>' +
+        '<td>' + (r.active ? 'Yes' : 'No') + '</td>' +
+        '<td><div class="row-actions">' +
+          '<button type="button" class="btn btn-outline btn-sm" data-edit="' + i + '" title="Edit"><i class="fa-solid fa-pen"></i> Edit</button>' +
+          '<button type="button" class="btn btn-outline btn-sm" data-copy="' + i + '" title="Copy code"><i class="fa-regular fa-copy"></i> Copy</button>' +
+          '<button type="button" class="btn btn-danger btn-sm" data-delete="' + i + '" title="Delete"><i class="fa-solid fa-trash"></i> Delete</button>' +
+        '</div></td>' +
+      '</tr>';
+    }).join('');
+  }
+
+  function setMode(mode) {
+    form.querySelector('input[name="mode"][value="' + mode + '"]').checked = true;
+    document.getElementById('liveFields').style.display = mode === 'live' ? 'flex' : 'none';
+  }
+  form.querySelectorAll('input[name="mode"]').forEach(function (el) {
+    el.addEventListener('change', function () { setMode(el.value); });
+  });
+
+  function openModal(row) {
+    form.reset();
+    errorEl.textContent = '';
+    var editing = !!row;
+    document.getElementById('modalTitle').textContent = editing ? 'Edit Code' : 'Add New Code';
+    document.getElementById('pwdHint').hidden = !(editing && row.has_password);
+    form.original_code.value = editing ? row.code : '';
+    form.code.value = editing ? row.code : '';
+    form.client_name.value = editing ? row.client_name : '';
+    form.odoo_url.value = editing ? row.odoo_url : '';
+    form.database.value = editing ? row.database : '';
+    form.username.value = editing ? row.username : '';
+    form.password.value = '';
+    form.expiry.value = editing ? row.expiry : '';
+    form.read_only.checked = editing ? row.read_only : false;
+    form.active.checked = editing ? row.active : true;
+    var mods = editing ? row.modules : [];
+    form.querySelectorAll('input[name="modules"]').forEach(function (cb) {
+      cb.checked = mods.indexOf(cb.value) !== -1;
+    });
+    setMode(editing ? row.mode : 'live');
+    modal.classList.add('open');
+    modal.setAttribute('aria-hidden', 'false');
+    (editing ? form.client_name : form.code).focus();
+  }
+  function closeModal() {
+    modal.classList.remove('open');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+
+  function post(url, body) {
+    return fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(body)
+    }).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (data) {
+        if (!res.ok) throw new Error(data.error || ('Request failed (' + res.status + ')'));
+        return data;
+      });
+    });
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text);
+    }
+    var ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } finally { document.body.removeChild(ta); }
+    return Promise.resolve();
+  }
+
+  document.getElementById('addBtn').addEventListener('click', function () { openModal(null); });
+  modal.querySelectorAll('[data-close]').forEach(function (b) { b.addEventListener('click', closeModal); });
+  modal.addEventListener('click', function (e) { if (e.target === modal) closeModal(); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && modal.classList.contains('open')) closeModal();
+  });
+
+  document.getElementById('genBtn').addEventListener('click', function () {
+    fetch(URLS.gen, { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) { if (d.code) form.code.value = d.code; });
+  });
+
+  tbody.addEventListener('click', function (e) {
+    var btn = e.target.closest('button');
+    if (!btn) return;
+    if (btn.hasAttribute('data-edit')) {
+      openModal(rows[+btn.getAttribute('data-edit')]);
+    } else if (btn.hasAttribute('data-copy')) {
+      var code = rows[+btn.getAttribute('data-copy')].code;
+      copyText(code).then(function () { toast('Copied ' + code); });
+    } else if (btn.hasAttribute('data-delete')) {
+      var row = rows[+btn.getAttribute('data-delete')];
+      if (!confirm('Delete access code ' + row.code + ' (' + row.client_name + ')? Anyone using it will be signed out.')) return;
+      post(URLS.del, { code: row.code })
+        .then(function (d) { rows = d.rows; render(); toast('Deleted ' + row.code); })
+        .catch(function (err) { alert(err.message); });
+    }
+  });
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    errorEl.textContent = '';
+    var body = {
+      original_code: form.original_code.value,
+      code: form.code.value.trim().toUpperCase(),
+      client_name: form.client_name.value.trim(),
+      mode: form.querySelector('input[name="mode"]:checked').value,
+      odoo_url: form.odoo_url.value.trim(),
+      database: form.database.value.trim(),
+      username: form.username.value.trim(),
+      password: form.password.value,
+      modules: Array.prototype.map.call(
+        form.querySelectorAll('input[name="modules"]:checked'), function (cb) { return cb.value; }),
+      expiry: form.expiry.value,
+      read_only: form.read_only.checked,
+      active: form.active.checked
+    };
+    var saveBtn = document.getElementById('saveBtn');
+    saveBtn.disabled = true;
+    post(URLS.save, body)
+      .then(function (d) { rows = d.rows; render(); closeModal(); toast('Saved ' + body.code); })
+      .catch(function (err) { errorEl.textContent = err.message; })
+      .then(function () { saveBtn.disabled = false; });
+  });
+
+  render();
+})();
+</script>
+{% endif %}
+
+</body>
+</html>

@@ -1,0 +1,41 @@
+{
+  "DEMO2026": {
+    "client_name": "Olens Demo",
+    "mode": "demo",
+    "odoo_url": "",
+    "database": "",
+    "username": "",
+    "password": "",
+    "modules": [],
+    "expiry": "2026-12-31",
+    "read_only": false,
+    "logo": null,
+    "active": true
+  },
+  "FINANCE01": {
+    "client_name": "Finance Demo",
+    "mode": "demo",
+    "odoo_url": "",
+    "database": "",
+    "username": "",
+    "password": "",
+    "modules": ["invoices", "bills", "banks", "assets", "expenses", "analytic", "financial-statements"],
+    "expiry": "2026-12-31",
+    "read_only": true,
+    "logo": null,
+    "active": true
+  },
+  "INVENTORY01": {
+    "client_name": "Inventory Demo",
+    "mode": "demo",
+    "odoo_url": "",
+    "database": "",
+    "username": "",
+    "password": "",
+    "modules": ["stock", "movements", "valuation"],
+    "expiry": "2026-12-31",
+    "read_only": true,
+    "logo": null,
+    "active": true
+  }
+}
