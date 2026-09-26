@@ -2452,129 +2452,37 @@ def feature_unavailable(feature):
 
 
 # ---------------------------------------------------------------------------
-# Dashboard
+# Home — there is no overview page; land on the first module allowed
 # ---------------------------------------------------------------------------
+
+def _module_home_url(key):
+    if key in ('invoices', 'bills', 'banks', 'assets', 'expenses', 'analytic'):
+        return url_for('financial', tab=key)
+    if key == 'financial-statements':
+        return url_for('financial_statements', page='pl')
+    if key in ('stock', 'movements', 'valuation'):
+        return url_for('inventory_v2', page=key)
+    if key == 'sales':
+        return url_for('sales', tab='pipeline')
+    if key == 'hr':
+        return url_for('hr', tab='attendance')
+    if key == 'manufacturing':
+        return url_for('manufacturing')
+    return None
+
 
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    c = get_client()
-    kpis = {}
-    charts = {}
-
-    # --- Financial KPIs ---
-    try:
-        kpis['unpaid_invoices'] = c.safe_count('account.move', [
-            ['move_type', '=', 'out_invoice'],
-            ['state', '=', 'posted'],
-            ['payment_state', 'in', ['not_paid', 'partial']],
-        ])
-        grp = c.safe_read_group('account.move', [
-            ['move_type', '=', 'out_invoice'],
-            ['state', '=', 'posted'],
-            ['payment_state', 'in', ['not_paid', 'partial']],
-        ], ['amount_residual:sum'], [])
-        kpis['unpaid_amount'] = grp[0].get('amount_residual', 0) if grp else 0
-    except Exception:
-        kpis['unpaid_invoices'] = 0
-        kpis['unpaid_amount'] = 0
-
-    # --- Sales KPIs ---
-    try:
-        kpis['open_orders'] = c.safe_count('sale.order', [['state', 'in', ['sale', 'done']]])
-        grp = c.safe_read_group('sale.order', [
-            ['state', 'in', ['sale', 'done']],
-            ['date_order', '>=', month_start_str()],
-        ], ['amount_total:sum'], [])
-        kpis['monthly_sales'] = grp[0].get('amount_total', 0) if grp else 0
-    except Exception:
-        kpis['open_orders'] = 0
-        kpis['monthly_sales'] = 0
-
-    try:
-        kpis['active_leads'] = c.safe_count('crm.lead', [
-            ['type', '=', 'opportunity'],
-            ['active', '=', True],
-        ])
-    except Exception:
-        kpis['active_leads'] = 0
-
-    # --- Inventory KPIs ---
-    try:
-        grp = c.safe_read_group('stock.quant', [
-            ['location_id.usage', '=', 'internal'],
-        ], ['value:sum'], [])
-        kpis['stock_value'] = grp[0].get('value', 0) if grp else 0
-        kpis['stock_products'] = c.safe_count('product.product', [['active', '=', True]])
-    except Exception:
-        kpis['stock_value'] = 0
-        kpis['stock_products'] = 0
-
-    # --- HR KPIs ---
-    try:
-        kpis['pending_leaves'] = c.safe_count('hr.leave', [
-            ['state', '=', 'confirm'],
-        ])
-        kpis['employees'] = c.safe_count('hr.employee', [['active', '=', True]])
-    except Exception:
-        kpis['pending_leaves'] = 0
-        kpis['employees'] = 0
-
-    # --- Manufacturing KPIs ---
-    try:
-        kpis['in_progress_mo'] = c.safe_count('mrp.production', [
-            ['state', 'in', ['confirmed', 'progress']],
-        ])
-    except Exception:
-        kpis['in_progress_mo'] = 0
-
-    # --- Expense KPIs ---
-    try:
-        kpis['pending_expenses'] = c.safe_count('hr.expense', [
-            ['state', 'in', ['draft', 'reported']],
-        ])
-    except Exception:
-        kpis['pending_expenses'] = 0
-
-    # --- Invoice chart (monthly revenue last 6 months) ---
-    try:
-        inv_grp = c.safe_read_group(
-            'account.move',
-            [['move_type', '=', 'out_invoice'], ['state', '=', 'posted'],
-             ['invoice_date', '>=', (date.today() - timedelta(days=180)).isoformat()]],
-            ['amount_untaxed:sum', 'invoice_date:month'],
-            ['invoice_date:month'],
-        )
-        # Use Odoo's own labels directly — avoids locale/format mismatches
-        charts['revenue'] = json.dumps({
-            'labels': [g.get('invoice_date:month', '') for g in inv_grp],
-            'values': [g.get('amount_untaxed', 0) for g in inv_grp],
-        })
-    except Exception:
-        charts['revenue'] = json.dumps({'labels': [], 'values': []})
-
-    # --- Invoice status chart ---
-    try:
-        status_grp = c.safe_read_group(
-            'account.move',
-            [['move_type', '=', 'out_invoice'], ['state', '=', 'posted']],
-            ['payment_state'],
-            ['payment_state'],
-        )
-        labels_map = {
-            'not_paid': 'Unpaid', 'in_payment': 'In Payment',
-            'paid': 'Paid', 'partial': 'Partial', 'reversed': 'Reversed',
-        }
-        charts['inv_status'] = json.dumps({
-            'labels': [labels_map.get(g['payment_state'], g['payment_state']) for g in status_grp],
-            'values': [g.get('__count', 0) for g in status_grp],
-        })
-    except Exception:
-        charts['inv_status'] = json.dumps({'labels': [], 'values': []})
-
-    return render_template('dashboard.html', kpis=kpis, charts=charts,
-                           username=session.get('odoo_username'),
-                           odoo_url=session.get('odoo_url'))
+    """Kept as the post-login / fallback target: sends the user to the first
+    module their access code allows (Invoices when unrestricted)."""
+    from access_codes import ACCESS_MODULE_KEYS
+    mods = session.get('access_modules') if session.get('access_code') else None
+    for key in (mods or ACCESS_MODULE_KEYS):
+        url = _module_home_url(key)
+        if url:
+            return redirect(url)
+    return redirect(url_for('financial', tab='invoices'))
 
 
 # ---------------------------------------------------------------------------
