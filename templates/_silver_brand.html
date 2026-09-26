@@ -1,0 +1,26 @@
+{# Silver Solutions branding — login pages only. The dashboard keeps Olens. #}
+<style>
+  .silver-brand { text-align: center; margin-bottom: 2rem; }
+  .silver-brand-logo {
+    display: block; margin: 0 auto .75rem;
+    max-height: 80px; max-width: 100%;
+    width: auto; height: auto; object-fit: contain;
+  }
+  .silver-brand-text {
+    font-size: 1.85rem; line-height: 1.2; letter-spacing: .01em;
+    margin: 0 0 .35rem;
+  }
+  .silver-brand-text .ss-silver { color: #9CA3AF; font-weight: 600; }
+  .silver-brand-text .ss-solutions { color: var(--text); font-weight: 800; }
+  .silver-brand-sub { color: var(--text-muted); font-size: .85rem; margin: 0; }
+</style>
+<div class="silver-brand">
+  {% if silver_logo_available %}
+  <img class="silver-brand-logo" src="{{ url_for('login_logo') }}" alt="Silver Solutions">
+  {% else %}
+  <h1 class="silver-brand-text" aria-label="Silver Solutions">
+    <span class="ss-silver">Silver</span> <span class="ss-solutions">Solutions</span>
+  </h1>
+  {% endif %}
+  <p class="silver-brand-sub">Odoo Analytics Platform — Powered by Silver Solutions</p>
+</div>
