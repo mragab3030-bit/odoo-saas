@@ -28,7 +28,6 @@ ACCESS_MODULES = [
     ('analytic',             'Analytic',             'Finance'),
     ('financial-statements', 'Financial Statements', 'Finance'),
     ('stock',                'Stock',                'Inventory'),
-    ('movements',            'Movements',            'Inventory'),
     ('valuation',            'Valuation',            'Inventory'),
     ('sales',                'Sales',                'Sales'),
     ('hr',                   'Human Resources',      'Human Resources'),

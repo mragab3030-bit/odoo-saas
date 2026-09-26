@@ -1,0 +1,242 @@
+{% extends 'base.html' %}
+{% block title %}Valuation · SS Dashboard{% endblock %}
+{% block page_title %}
+  <span data-i18n="inv_val_title">Valuation</span>
+{% endblock %}
+
+{# Query string for the current filters, minus `drop` — used by export
+   links and by the cards, which toggle their own dimension. #}
+{% macro qs(drop=None, extra=None) -%}
+  {%- set parts = [] -%}
+  {%- if filters.at_date and drop != 'at' %}{% set _ = parts.append('at=' ~ snap.at_date) %}{% endif -%}
+  {%- if filters.category_id and drop != 'category' %}{% set _ = parts.append('category=' ~ filters.category_id) %}{% endif -%}
+  {%- if filters.warehouse_id and drop != 'warehouse' %}{% set _ = parts.append('warehouse=' ~ filters.warehouse_id) %}{% endif -%}
+  {%- if filters.location_id and drop != 'location' %}{% set _ = parts.append('location=' ~ filters.location_id) %}{% endif -%}
+  {%- if filters.search and drop != 'search' %}{% set _ = parts.append('search=' ~ (filters.search | urlencode)) %}{% endif -%}
+  {%- if extra %}{% set _ = parts.append(extra) %}{% endif -%}
+  {{- ('?' ~ parts | join('&')) if parts else '' -}}
+{%- endmacro %}
+
+{% block topbar_actions %}
+<div class="export-group">
+  <a href="{{ url_for('export', key='inventory_valuation', fmt='pdf') }}{{ qs() }}"
+     class="btn btn-outline btn-sm" data-export>
+    <i class="fa-solid fa-file-pdf"></i> PDF
+  </a>
+  <a href="{{ url_for('export', key='inventory_valuation', fmt='excel') }}{{ qs() }}"
+     class="btn btn-outline btn-sm" data-export>
+    <i class="fa-solid fa-file-excel"></i> Excel
+  </a>
+</div>
+{% endblock %}
+
+{% block head %}
+<style>
+  .val-filters { display: flex; flex-wrap: wrap; gap: .75rem; align-items: flex-end; margin-bottom: 1.25rem; }
+  .val-filters .filter-group { min-width: 150px; }
+  .val-filters .filter-group.grow { flex: 1; min-width: 180px; }
+  .val-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: .75rem; margin-bottom: 1.25rem; }
+  .val-kpis .stat-card { text-align: center; padding: .7rem 1rem; }
+  .val-kpis .stat-sub { font-size: .7rem; color: var(--text-muted); margin-top: .2rem; }
+
+  .val-group { margin-bottom: 1.25rem; }
+  .val-group-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: .5rem; }
+  .val-group-title { font-size: .75rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); margin: 0; }
+  .val-group-clear { font-size: .75rem; }
+  .val-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: .6rem; }
+  .val-card {
+    display: block; text-decoration: none; color: var(--text);
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px;
+    padding: .7rem .85rem; box-shadow: var(--shadow);
+    transition: border-color .15s, transform .15s;
+  }
+  .val-card:hover { border-color: var(--primary); transform: translateY(-1px); }
+  .val-card.is-active { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(230, 48, 48, .18); }
+  .val-card-name { font-size: .78rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .val-card-value { font-size: 1.05rem; font-weight: 800; margin-top: .2rem; font-variant-numeric: tabular-nums; }
+  .val-card-meta { display: flex; justify-content: space-between; font-size: .68rem; color: var(--text-muted); margin-top: .15rem; }
+  .val-bar { height: 4px; background: var(--border); border-radius: 4px; margin-top: .45rem; overflow: hidden; }
+  .val-bar > span { display: block; height: 100%; background: var(--primary); border-radius: 4px; }
+
+  .val-table-wrap { overflow-x: auto; }
+  /* The layout column grows to fit its widest child; cap the table on
+     small screens so it scrolls inside its card instead. */
+  @media (max-width: 900px) { .val-table-wrap { max-width: calc(100vw - 2rem); } }
+  .val-table td.num, .val-table th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .val-table tfoot td { font-weight: 800; border-top: 2px solid var(--border); }
+  .val-variant { font-size: .65rem; color: var(--text-muted); font-weight: 600; margin-left: .3rem; text-transform: uppercase; }
+</style>
+{% endblock %}
+
+{% block content %}
+{% set ccy = snap.currency %}
+
+<form method="GET" action="{{ url_for('inventory_v2', page='valuation') }}" class="val-filters card" style="padding:.85rem 1rem">
+  <div class="filter-group">
+    <label for="valAt" data-i18n="inv_val_at_date">Valuation at</label>
+    <input type="date" id="valAt" name="at" class="form-control form-control-sm"
+           value="{{ snap.at_date }}" max="{{ today_iso }}">
+  </div>
+  <div class="filter-group">
+    <label for="valCat" data-i18n="inv_stock_filter_category">Category</label>
+    <select id="valCat" name="category" class="form-control form-control-sm" onchange="this.form.submit()">
+      <option value="" data-text-en="All Categories" data-text-ar="جميع الفئات">All Categories</option>
+      {% for c in snap.categories %}
+      <option value="{{ c.id }}" {% if filters.category_id == c.id %}selected{% endif %}
+              data-text-en="{{ c.name_en }}" data-text-ar="{{ c.name_ar }}">{{ c.name_en }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="filter-group">
+    <label for="valWh" data-i18n="inv_stock_filter_warehouse">Warehouse</label>
+    <select id="valWh" name="warehouse" class="form-control form-control-sm" onchange="this.form.location.value='';this.form.submit()">
+      <option value="" data-text-en="All Warehouses" data-text-ar="جميع المستودعات">All Warehouses</option>
+      {% for w in snap.warehouses %}
+      <option value="{{ w.id }}" {% if filters.warehouse_id == w.id %}selected{% endif %}
+              data-text-en="{{ w.name_en }}" data-text-ar="{{ w.name_ar }}">{{ w.name_en }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="filter-group">
+    <label for="valLoc" data-i18n="inv_val_location">Location</label>
+    <select id="valLoc" name="location" class="form-control form-control-sm" onchange="this.form.submit()">
+      <option value="" data-text-en="All Locations" data-text-ar="جميع المواقع">All Locations</option>
+      {% for l in snap.locations if not filters.warehouse_id or l.warehouse_id == filters.warehouse_id %}
+      <option value="{{ l.id }}" {% if filters.location_id == l.id %}selected{% endif %}>{{ l.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="filter-group grow">
+    <label for="valSearch" data-i18n="search">Search</label>
+    <input type="text" id="valSearch" name="search" class="form-control form-control-sm"
+           placeholder="Product…" value="{{ filters.search }}">
+  </div>
+  <div class="filter-group" style="flex-direction:row;gap:.4rem;min-width:0">
+    <button type="submit" class="btn btn-primary btn-sm">
+      <i class="fa-solid fa-magnifying-glass"></i> <span data-i18n="filter">Filter</span>
+    </button>
+    <a href="{{ url_for('inventory_v2', page='valuation') }}" class="btn btn-outline btn-sm" data-i18n="inv_stock_reset">Reset</a>
+  </div>
+</form>
+
+<div class="val-kpis">
+  <div class="stat-card">
+    <div class="stat-value" style="color:var(--primary)">{{ ccy }} {{ snap.total_value | fmt_currency }}</div>
+    <div class="stat-label" data-i18n="inv_val_total_value">Total Valuation</div>
+    <div class="stat-sub">
+      {% if snap.is_today %}<span data-i18n="inv_val_as_of_today">As of today</span>
+      {% else %}<span data-i18n="inv_val_as_of">As of</span> {{ snap.at_date }}{% endif %}
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ snap.product_count }}</div>
+    <div class="stat-label" data-i18n="inv_val_products">Products in Stock</div>
+    <div class="stat-sub" data-i18n="inv_val_products_sub">Product variants with quantity</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ '{:,.2f}'.format(snap.total_qty) }}</div>
+    <div class="stat-label" data-i18n="inv_val_total_qty">Total Quantity</div>
+    <div class="stat-sub" data-i18n="inv_val_total_qty_sub">All units of measure</div>
+  </div>
+</div>
+
+{% macro card_group(title_key, title, items, dim, active_id) %}
+<div class="val-group">
+  <div class="val-group-head">
+    <h6 class="val-group-title" data-i18n="{{ title_key }}">{{ title }}</h6>
+    {% if active_id %}<a class="val-group-clear" href="{{ url_for('inventory_v2', page='valuation') }}{{ qs(drop=dim) }}" data-i18n="inv_val_show_all">Show all</a>{% endif %}
+  </div>
+  {% set group_total = items | sum(attribute='value') %}
+  <div class="val-cards">
+    {% for it in items %}
+    {% set is_active = active_id == it.id %}
+    <a class="val-card {% if is_active %}is-active{% endif %}"
+       href="{{ url_for('inventory_v2', page='valuation') }}{{ qs(drop=dim) if is_active else qs(drop=dim, extra=dim ~ '=' ~ it.id) }}"
+       title="{{ it.name_en }}">
+      <div class="val-card-name" data-text-en="{{ it.name_en }}" data-text-ar="{{ it.name_ar }}">{{ it.name_en }}</div>
+      <div class="val-card-value">{{ it.value | fmt_currency }}</div>
+      {% set share = (it.value * 100 / group_total) if group_total else 0 %}
+      <div class="val-card-meta">
+        <span>{{ it.count }} <span data-i18n="inv_val_products_short">products</span></span>
+        <span>{{ '%.1f' | format(share) }}%</span>
+      </div>
+      <div class="val-bar"><span style="width:{{ '%.1f' | format(share) }}%"></span></div>
+    </a>
+    {% else %}
+    <div class="empty-state" style="padding:.5rem"><p data-i18n="no_valuation_data">No valuation data</p></div>
+    {% endfor %}
+  </div>
+</div>
+{% endmacro %}
+
+{{ card_group('inv_val_by_category', 'Value by Category', snap.by_category, 'category', filters.category_id) }}
+{{ card_group('inv_val_by_warehouse', 'Value by Warehouse', snap.by_warehouse, 'warehouse', filters.warehouse_id) }}
+{{ card_group('inv_val_by_location', 'Value by Location', snap.by_location, 'location', filters.location_id) }}
+
+<div class="card table-card">
+  <div class="val-table-wrap">
+  <table class="data-table val-table">
+    <thead>
+      <tr>
+        <th data-i18n="inv_val_product">Product</th>
+        <th data-i18n="inv_stock_filter_category">Category</th>
+        <th data-i18n="inv_stock_filter_warehouse">Warehouse</th>
+        <th data-i18n="inv_val_location">Location</th>
+        <th class="num" data-i18n="inv_val_quantity">Quantity</th>
+        <th class="num" data-i18n="inv_val_unit_cost">Cost per Unit</th>
+        <th class="num" data-i18n="inv_val_total_value_col">Total Value</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in records %}
+      <tr>
+        <td>
+          <strong data-text-en="{{ r.name_en }}" data-text-ar="{{ r.name_ar }}">{{ r.name_en }}</strong>
+          {% if r.is_variant %}<span class="val-variant" data-i18n="inv_val_variant">Variant</span>{% endif %}
+        </td>
+        <td data-text-en="{{ r.category_en }}" data-text-ar="{{ r.category_ar }}">{{ r.category_en }}</td>
+        <td data-text-en="{{ r.warehouse_en }}" data-text-ar="{{ r.warehouse_ar }}">{{ r.warehouse_en }}</td>
+        <td style="font-size:.8rem">{{ r.location }}</td>
+        <td class="num">{{ '{:,.2f}'.format(r.qty) }}</td>
+        <td class="num">{{ r.unit_cost | fmt_currency }}</td>
+        <td class="num"><strong>{{ r.value | fmt_currency }}</strong></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7"><div class="empty-state"><i class="fa-solid fa-sack-dollar"></i><p data-i18n="no_valuation_data">No valuation data</p></div></td></tr>
+      {% endfor %}
+    </tbody>
+    {% if records %}
+    <tfoot>
+      <tr>
+        <td colspan="4"><span data-i18n="total_label">Total</span> ({{ snap.product_count }})</td>
+        <td class="num">{{ '{:,.2f}'.format(snap.total_qty) }}</td>
+        <td></td>
+        <td class="num">{{ ccy }} {{ snap.total_value | fmt_currency }}</td>
+      </tr>
+    </tfoot>
+    {% endif %}
+  </table>
+  </div>
+  {% include '_pagination.html' %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  function lang() { try { return localStorage.getItem('olens.lang') || 'en'; } catch (e) { return 'en'; } }
+  function applyLang() {
+    var l = lang();
+    document.querySelectorAll('[data-text-en],[data-text-ar]').forEach(function (el) {
+      var v = el.getAttribute(l === 'ar' ? 'data-text-ar' : 'data-text-en');
+      if (v) el.textContent = v;
+    });
+  }
+  applyLang();
+  document.addEventListener('olens:language-change', applyLang);
+  // Picking a date applies it straight away, like the dropdowns.
+  var at = document.getElementById('valAt');
+  if (at) at.addEventListener('change', function () { if (at.value) at.form.submit(); });
+})();
+</script>
+{% endblock %}

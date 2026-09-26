@@ -2267,3 +2267,145 @@ def stock_snapshot(version_major=18, category_ids=None, warehouse_id=None):
             'warehouse_id': int(warehouse_id) if warehouse_id else None,
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# Inventory valuation "at date" — for /inventory/valuation
+# ---------------------------------------------------------------------------
+
+# (id, warehouse_id, full name). Mirrors Odoo's internal locations:
+# <WH code>/Stock plus a couple of child locations per warehouse.
+STOCK_LOCATIONS = [
+    (11, 1, 'WH/Stock'),
+    (12, 1, 'WH/Stock/Shelf A'),
+    (13, 1, 'WH/Stock/Shelf B'),
+    (21, 2, 'PRD/Stock'),
+    (22, 2, 'PRD/Pre-Production'),
+    (31, 3, 'FG/Stock'),
+    (32, 3, 'FG/Stock/Dispatch'),
+]
+
+VALUATION_HISTORY_DAYS = 365
+
+
+def _valuation_history(entry, today):
+    """Deterministic per-product history, walked back from today's stock.
+
+    Returns (location, moves, drift): moves are (date, qty_delta) newest
+    first, built so quantity never goes negative at any past date, with
+    an opening receipt so stock is zero before the product's first move.
+    `drift` is how much the unit cost moved over the year for AVCO/FIFO
+    (standard-cost products keep one price)."""
+    rng = random.Random(entry['id'] * 7919 + 13)
+    locs = [l for l in STOCK_LOCATIONS if l[1] == entry['warehouse_id']]
+    location = rng.choice(locs)
+
+    qty = max(entry['qty'], 0.0)
+    moves = []
+    days_back = 0
+    for _ in range(rng.randint(3, 10)):
+        days_back += rng.randint(5, 45)
+        if days_back >= VALUATION_HISTORY_DAYS:
+            break
+        size = max(1.0, round(qty * rng.uniform(0.1, 0.5) + rng.uniform(1, 5), 0))
+        if rng.random() < 0.5 and qty - size >= 0:
+            delta = size        # receipt: stock before it was lower
+        else:
+            delta = -size       # delivery: stock before it was higher
+        moves.append((today - timedelta(days=days_back), delta))
+        qty -= delta
+    if qty > 0:
+        opening = today - timedelta(days=min(days_back + rng.randint(5, 40),
+                                             VALUATION_HISTORY_DAYS))
+        moves.append((opening, qty))
+    drift = 0.0 if entry['costing'] == 'standard' else rng.uniform(-0.06, 0.12)
+    return location, moves, drift
+
+
+def valuation_snapshot(version_major=18, at_date=None, category_id=None,
+                       warehouse_id=None, location_id=None, search=''):
+    """Inventory Valuation at `at_date` (default today) for storable goods,
+    like Odoo's "Inventory Valuation" report with "At Date".
+
+    Rows are product variants with stock on that date. Each card group
+    (category / warehouse / location) is faceted: it honours every filter
+    except its own, so the cards always show the alternatives."""
+    today = date.today()
+    at = at_date or today
+    if at > today:
+        at = today
+    rng = random.Random(0xCAFEF00D ^ int(version_major))
+    entries = [e for e in _build_stock_entries(rng) if e['tracked'] is True]
+    cats = {c[0]: c for c in STOCK_CATEGORIES}
+    whs = {w[0]: w for w in STOCK_WAREHOUSES}
+    locs = {l[0]: l for l in STOCK_LOCATIONS}
+
+    rows = []
+    for e in entries:
+        location, moves, drift = _valuation_history(e, today)
+        qty = max(e['qty'], 0.0) - sum(d for when, d in moves if when > at)
+        qty = round(max(qty, 0.0), 2)
+        if qty <= 0:
+            continue
+        # Cost drifts linearly back in time; today's cost matches Stock.
+        back = (today - at).days / VALUATION_HISTORY_DAYS
+        unit_cost = round(e['unit_cost'] * (1 - drift * back), 2)
+        rows.append({
+            'id': e['id'],
+            'name_en': e['name_en'], 'name_ar': e['name_ar'],
+            'is_variant': e['is_variant'],
+            'category_id': e['category_id'],
+            'category_en': e['category_en'], 'category_ar': e['category_ar'],
+            'warehouse_id': e['warehouse_id'],
+            'warehouse_en': e['warehouse_en'], 'warehouse_ar': e['warehouse_ar'],
+            'location_id': location[0], 'location': location[2],
+            'costing': e['costing'],
+            'qty': qty,
+            'unit_cost': unit_cost,
+            'value': round(qty * unit_cost, 2),
+        })
+
+    needle = (search or '').strip().lower()
+
+    def keep(r, skip=None):
+        if needle and needle not in r['name_en'].lower() and needle not in r['name_ar']:
+            return False
+        if skip != 'category' and category_id and r['category_id'] != category_id:
+            return False
+        if skip != 'warehouse' and warehouse_id and r['warehouse_id'] != warehouse_id:
+            return False
+        if skip != 'location' and location_id and r['location_id'] != location_id:
+            return False
+        return True
+
+    def group(skip, key, label):
+        totals = {}
+        for r in rows:
+            if keep(r, skip):
+                t = totals.setdefault(r[key], {'value': 0.0, 'count': 0})
+                t['value'] += r['value']
+                t['count'] += 1
+        out = [dict(label(k), id=k, value=round(t['value'], 2), count=t['count'])
+               for k, t in totals.items()]
+        return sorted(out, key=lambda x: x['value'], reverse=True)
+
+    filtered = sorted((r for r in rows if keep(r)), key=lambda r: r['value'], reverse=True)
+    total_value = round(sum(r['value'] for r in filtered), 2)
+    return {
+        'currency': DEMO_CURRENCY_NAME,
+        'at_date': at.isoformat(),
+        'is_today': at == today,
+        'rows': filtered,
+        'total_value': total_value,
+        'total_qty': round(sum(r['qty'] for r in filtered), 2),
+        'product_count': len(filtered),
+        'by_category': group('category', 'category_id',
+                             lambda k: {'name_en': cats[k][1], 'name_ar': cats[k][2]}),
+        'by_warehouse': group('warehouse', 'warehouse_id',
+                              lambda k: {'name_en': whs[k][1], 'name_ar': whs[k][2]}),
+        'by_location': group('location', 'location_id',
+                             lambda k: {'name_en': locs[k][2], 'name_ar': locs[k][2]}),
+        'categories': [{'id': c[0], 'name_en': c[1], 'name_ar': c[2]} for c in STOCK_CATEGORIES],
+        'warehouses': [{'id': w[0], 'name_en': w[1], 'name_ar': w[2]} for w in STOCK_WAREHOUSES],
+        'locations': [{'id': l[0], 'warehouse_id': l[1], 'name': l[2]} for l in STOCK_LOCATIONS],
+    }
