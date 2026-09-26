@@ -15,3 +15,7 @@ htmlcov/
 *.log
 instance/
 flask_session/
+# Live access-code sessions (runtime state)
+sessions.json
+sessions.json.lock
+sessions.json.*.tmp
