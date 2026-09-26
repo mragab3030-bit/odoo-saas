@@ -466,6 +466,11 @@
       outstanding_label: 'Outstanding',
       total_label:       'Total',
 
+      // Assets
+      assets_by_model:          'Assets by Asset Model',
+      no_asset_model_data:      'No assets to chart',
+      clear_filter:             'Clear filter',
+
       // Inventory / Valuation
       inv_val_title:            'Valuation',
       inv_val_at_date:          'Valuation at',
@@ -981,6 +986,11 @@
       // Misc
       outstanding_label: 'المستحق',
       total_label:       'الإجمالي',
+
+      // Assets
+      assets_by_model:          'الأصول حسب نموذج الأصل',
+      no_asset_model_data:      'لا توجد أصول لعرضها',
+      clear_filter:             'مسح الفلتر',
 
       // Inventory / Valuation
       inv_val_title:            'التقييم',

@@ -2641,6 +2641,16 @@ def _pick_asset_value_fields(client, model):
     return acq, net
 
 
+def _pick_asset_model_field(client, model):
+    """Field holding the asset model, matching the table's Asset Model
+    column: v17+ `model_id`, v15/v16 `parent_id` (the template the asset
+    was created from). Falls back to the category field on installs
+    that have neither."""
+    fields = client.get_model_fields(model)
+    return next((f for f in ('model_id', 'parent_id') if f in fields),
+                None) or _pick_asset_category_field(client, model)
+
+
 def _pick_asset_category_field(client, model):
     fields = client.get_model_fields(model)
     return next((f for f in
@@ -2880,7 +2890,8 @@ def _compute_fully_depreciated_count(client, asset_model, base_domain):
     return client.safe_count(asset_model, list(base_domain) + dom_parts)
 
 
-def _compute_assets_by_category(client, asset_model, domain):
+def _compute_assets_by_category(client, asset_model, domain,
+                                group_field=None, empty_label='Uncategorized'):
     """Group the assets matching `domain` by their category-ish field
     and return one row per category:
         {id, name, count, net_value, original_value}
@@ -2893,7 +2904,7 @@ def _compute_assets_by_category(client, asset_model, domain):
 
     Assets with no category land under a synthetic 'Uncategorized'
     row with id=0 so the donut still accounts for them."""
-    cat_field = _pick_asset_category_field(client, asset_model)
+    cat_field = group_field or _pick_asset_category_field(client, asset_model)
     acq_field, net_field = _pick_asset_value_fields(client, asset_model)
     if not cat_field:
         return []
@@ -2918,14 +2929,14 @@ def _compute_assets_by_category(client, asset_model, domain):
         if isinstance(cat, (list, tuple)) and len(cat) >= 2:
             cid, name = int(cat[0]), cat[1]
         else:
-            cid, name = 0, 'Uncategorized'
+            cid, name = 0, empty_label
         count_val = (row.get('__count')
                      or row.get(cat_field + '_count')
                      or row.get('count')
                      or 0)
         out.append({
             'id':             cid,
-            'name':           name or 'Uncategorized',
+            'name':           name or empty_label,
             'count':          count_val,
             'original_value': (row.get(acq_field) if acq_field else 0) or 0,
             'net_value':      (row.get(net_field) if net_field else 0) or 0,
@@ -2954,9 +2965,9 @@ def _compute_assets_by_category(client, asset_model, domain):
         for r in records:
             cat = r.get(cat_field)
             if isinstance(cat, (list, tuple)) and len(cat) >= 2:
-                cid, name = int(cat[0]), cat[1] or 'Uncategorized'
+                cid, name = int(cat[0]), cat[1] or empty_label
             else:
-                cid, name = 0, 'Uncategorized'
+                cid, name = 0, empty_label
             b = buckets.setdefault(cid, {
                 'id': cid, 'name': name, 'count': 0,
                 'original_value': 0.0, 'net_value': 0.0,
@@ -3470,7 +3481,8 @@ def financial():
             asset_fields = c.get_model_fields(asset_model)
             read_fields  = _build_asset_fields(c, asset_model)
             acq_field, net_field = _pick_asset_value_fields(c, asset_model)
-            cat_field            = _pick_asset_category_field(c, asset_model)
+            # Chart + chart-click filter group by asset model.
+            cat_field            = _pick_asset_model_field(c, asset_model)
 
             state_filter = (request.args.get('state_filter', 'all') or 'all').strip()
             valid_states = {'all', 'draft', 'open', 'close', 'cancel', 'paused'}
@@ -3480,13 +3492,13 @@ def financial():
             # clicked, the URL gains fully_dep=1 and the table is
             # narrowed to rows that satisfy that OR-clause.
             fully_dep_only = request.args.get('fully_dep') == '1'
-            # Chart-driven filter: clicking a slice/bar appends
-            # ?category_id=<id> to the URL. 0 means Uncategorized.
+            # Chart-driven filter: clicking a bar appends
+            # ?asset_model=<id> to the URL. 0 means assets with no model.
             try:
-                category_filter_id = int(request.args.get('category_id', '') or 0)
+                category_filter_id = int(request.args.get('asset_model', '') or 0)
             except (TypeError, ValueError):
                 category_filter_id = 0
-            category_filter_active = 'category_id' in request.args
+            category_filter_active = 'asset_model' in request.args
 
             # account.asset multiplexes three record kinds via `asset_type`:
             # 'purchase' (fixed assets), 'expense' (deferred expenses), and
@@ -3655,7 +3667,8 @@ def financial():
                 # category filter itself) so every slice/bar stays
                 # visible after the user clicks one.
                 ctx['assets_by_category'] = _compute_assets_by_category(
-                    c, asset_model, chart_domain)
+                    c, asset_model, chart_domain,
+                    group_field=cat_field, empty_label='No Model')
                 ctx['category_filter_id']     = category_filter_id if category_filter_active else None
                 ctx['category_filter_active'] = category_filter_active
                 # Per-type counts so the selector can hide empty kinds.
