@@ -375,7 +375,7 @@ def _build_leads(rng):
             'name': f"Opportunity — {PARTNERS[partner_id - 100]}",
             'partner_id': [partner_id, PARTNERS[partner_id - 100]],
             'expected_revenue': revenue,
-            'probability': float(stage[0] * 18 + rng.randint(0, 15)),
+            'probability': _lead_probability(stage, rng.randint(0, 15)),
             'stage_id': [stage[0], stage[1]],
             'date_deadline': _iso(deadline),
             'create_date': f"{_iso(d)} 10:00:00",
@@ -385,7 +385,49 @@ def _build_leads(rng):
             'active': True,
             'company_id': list(_COM),
         })
+    leads += _build_lost_leads(today)
     return leads
+
+
+def _lead_probability(stage, jitter):
+    # Odoo pins won deals at 100%; open stages never reach it.
+    if stage[1] == 'Won':
+        return 100.0
+    return float(min(stage[0] * 18 + jitter, 95))
+
+
+LOST_REASONS = ['Too expensive', 'Chose a competitor', 'No budget', 'Not responsive']
+
+
+def _build_lost_leads(today):
+    """Lost opportunities: archived (active=False) at probability 0, the
+    way Odoo stores them. Own RNG so the shared sequence — and every other
+    model's demo data — stays unchanged."""
+    rng = random.Random(4242)
+    open_stages = [s for s in CRM_STAGES if s[1] != 'Won']
+    lost = []
+    for i in range(8):
+        partner_id = rng.randint(0, len(PARTNERS) - 1) + 100
+        salesperson = rng.randint(2, 12)
+        stage = rng.choice(open_stages)
+        d = today - timedelta(days=rng.randint(10, 120))
+        lost.append({
+            'id': 3500 + i,
+            'name': f"Opportunity — {PARTNERS[partner_id - 100]}",
+            'partner_id': [partner_id, PARTNERS[partner_id - 100]],
+            'expected_revenue': round(rng.uniform(8000, 200000), 2),
+            'probability': 0.0,
+            'stage_id': [stage[0], stage[1]],
+            'date_deadline': _iso(d + timedelta(days=rng.randint(5, 40))),
+            'create_date': f"{_iso(d)} 10:00:00",
+            'user_id': [salesperson, EMPLOYEES[salesperson % len(EMPLOYEES)]],
+            'priority': rng.choice(['0', '1', '2']),
+            'type': 'opportunity',
+            'active': False,
+            'lost_reason_id': [i % len(LOST_REASONS) + 1, LOST_REASONS[i % len(LOST_REASONS)]],
+            'company_id': list(_COM),
+        })
+    return lost
 
 
 def _build_employees(rng):
@@ -910,7 +952,7 @@ def model_fields(model, version_major):
         'crm.lead': {
             'id', 'name', 'partner_id', 'expected_revenue', 'probability',
             'stage_id', 'date_deadline', 'create_date', 'user_id',
-            'priority', 'type', 'active', 'company_id',
+            'priority', 'type', 'active', 'company_id', 'lost_reason_id',
         },
         'hr.employee': {
             'id', 'name', 'active', 'department_id', 'company_id',

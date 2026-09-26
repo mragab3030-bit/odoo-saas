@@ -5845,6 +5845,26 @@ def inventory():
 # Sales
 # ---------------------------------------------------------------------------
 
+def _pipeline_domain(search='', stage=''):
+    """crm.lead domain for the Pipeline tab and its export.
+
+    `stage` is '' (all open opportunities), a stage id, 'won' or 'lost'.
+    Lost deals are archived in Odoo (active=False, probability 0), so they
+    only appear when asked for explicitly."""
+    domain = [['type', '=', 'opportunity']]
+    if stage == 'lost':
+        domain += [['active', '=', False], ['probability', '=', 0]]
+    else:
+        domain.append(['active', '=', True])
+        if stage == 'won':
+            domain.append(['probability', '=', 100])
+        elif stage.isdigit():
+            domain.append(['stage_id', '=', int(stage)])
+    if search:
+        domain += ['|', ['name', 'ilike', search], ['partner_id.name', 'ilike', search]]
+    return domain
+
+
 @app.route('/sales')
 @login_required
 def sales():
@@ -5900,9 +5920,8 @@ def sales():
         })
 
     elif tab == 'pipeline':
-        domain = [['type', '=', 'opportunity'], ['active', '=', True]]
-        if search:
-            domain += ['|', ['name', 'ilike', search], ['partner_id.name', 'ilike', search]]
+        stage = request.args.get('stage', '').strip()
+        domain = _pipeline_domain(search, stage)
 
         total = c.safe_count('crm.lead', domain)
         records = c.safe_search_read('crm.lead', domain,
@@ -5921,6 +5940,34 @@ def sales():
         ctx['total_count'] = total
         ctx['stats'] = {'count': total, 'total_revenue': grand}
         ctx['stages'] = stage_grp
+        ctx['stage'] = stage
+        # Stage dropdown lists every stage that holds open opportunities,
+        # independent of the stage currently selected.
+        stage_options = [
+            g['stage_id'] for g in c.safe_read_group(
+                'crm.lead', _pipeline_domain(search, ''),
+                ['stage_id'], ['stage_id'])
+            if g.get('stage_id')
+        ]
+        # Pipeline order: Odoo's stage sequence when readable, else by id.
+        seq = {st['id']: i for i, st in enumerate(c.safe_search_read(
+            'crm.stage', [], ['id'], order='sequence, id') or [])}
+        stage_options.sort(key=lambda st: (seq.get(st[0], len(seq)), st[0]))
+        ctx['stage_options'] = stage_options
+
+        # Won vs lost, Odoo-style: won = probability 100 (Odoo pins won
+        # deals there), lost = archived with probability 0.
+        won = c.safe_count('crm.lead', _pipeline_domain(search, 'won'))
+        lost = c.safe_count('crm.lead', _pipeline_domain(search, 'lost'))
+        ctx['won_lost'] = {
+            'won': won, 'lost': lost,
+            'win_rate': round(won * 100 / (won + lost)) if (won + lost) else None,
+        }
+        ctx['won_stage_id'] = next(
+            (st[0] for st in ctx['stage_options'] if st[1].lower() == 'won'), None)
+        ctx['charts']['won_lost'] = json.dumps({
+            'labels': ['Won', 'Lost'], 'values': [won, lost],
+        })
         ctx['charts']['stages'] = json.dumps({
             'labels': [g['stage_id'][1] if g.get('stage_id') else 'No Stage' for g in stage_grp],
             'values': [g.get('expected_revenue', 0) for g in stage_grp],
@@ -6441,6 +6488,9 @@ def export(key: str, fmt: str):
         domain += [[df, '>=', date_from]]
     if df and date_to:
         domain += [[df, '<=', date_to]]
+
+    if key == 'sales_pipeline':
+        domain = _pipeline_domain(search, request.args.get('stage', '').strip())
 
     title = cfg['title']
     title_extras = []
