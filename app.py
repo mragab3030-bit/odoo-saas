@@ -1985,6 +1985,12 @@ def login():
     if request.method == 'POST' and mode == 'demo' and DEMO_MODE:
         return _process_demo_login()
 
+    # The tabbed page only offers Demo and Access Code — reject direct
+    # credential logins so real Odoo access goes through an issued code.
+    if request.method == 'POST' and mode != 'demo' and DEMO_MODE:
+        flash('Please sign in with an access code.', 'warning')
+        return _render_login_page(active_tab='access')
+
     if request.method == 'POST' and mode != 'demo':
         url = request.form.get('url', '').strip()
         db = request.form.get('database', '').strip()

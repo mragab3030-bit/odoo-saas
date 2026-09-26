@@ -180,11 +180,6 @@
         <span class="tab-emoji">🎭</span> Demo Mode
       </button>
       <button type="button" role="tab"
-              class="login-tab {% if active == 'live' %}active{% endif %}"
-              data-tab="live" aria-selected="{{ 'true' if active == 'live' else 'false' }}">
-        <span class="tab-emoji">⚡</span> Live Data
-      </button>
-      <button type="button" role="tab"
               class="login-tab {% if active == 'access' %}active{% endif %}"
               data-tab="access" aria-selected="{{ 'true' if active == 'access' else 'false' }}">
         <span class="tab-emoji">🔑</span> Access Code
@@ -265,60 +260,6 @@
 
     </div>
 
-    <!-- Live panel -->
-    <div class="login-panel {% if active == 'live' %}active{% endif %}"
-         data-panel="live" role="tabpanel">
-
-      <form method="POST" action="{{ url_for('login') }}" autocomplete="off" dir="ltr">
-        <input type="hidden" name="mode" value="live">
-        <div style="display:flex;flex-direction:column;gap:1rem;">
-
-          <div class="filter-group" style="width:100%">
-            <label for="url">Odoo URL</label>
-            <input type="text" id="url" name="url" class="form-control"
-                   placeholder="https://yourcompany.odoo.com"
-                   value="{{ live_url|default('') }}" required style="width:100%">
-          </div>
-
-          <div class="filter-group" style="width:100%">
-            <label for="database">Database</label>
-            <input type="text" id="database" name="database" class="form-control"
-                   placeholder="mydb"
-                   value="{{ live_database|default('') }}" required style="width:100%">
-          </div>
-
-          <div class="filter-group" style="width:100%">
-            <label for="username">Username</label>
-            <input type="text" id="username" name="username" class="form-control"
-                   placeholder="admin"
-                   value="{{ live_username|default('') }}" required style="width:100%">
-          </div>
-
-          <div class="filter-group" style="width:100%">
-            <label for="api_key">Password</label>
-            <div style="position:relative">
-              <input type="password" id="api_key" name="api_key" class="form-control"
-                     placeholder="Your password or API key" required
-                     style="width:100%;padding-right:2.5rem">
-              <button type="button" onclick="togglePwd()" tabindex="-1"
-                style="position:absolute;right:.75rem;top:50%;transform:translateY(-50%);
-                       background:none;border:none;color:var(--muted);cursor:pointer;padding:0">
-                <i class="fa-solid fa-eye" id="eyeIcon"></i>
-              </button>
-            </div>
-          </div>
-
-          <button type="submit" class="btn btn-primary"
-                  style="width:100%;justify-content:center;padding:.7rem 1rem;font-size:.95rem;gap:.5rem">
-            <i class="fa-solid fa-right-to-bracket"></i>
-            Connect to Odoo
-          </button>
-
-        </div>
-      </form>
-
-    </div>
-
     <!-- Access code panel -->
     <div class="login-panel {% if active == 'access' %}active{% endif %}"
          data-panel="access" role="tabpanel">
@@ -369,18 +310,6 @@
     });
   });
 })();
-
-function togglePwd() {
-  const inp = document.getElementById('api_key');
-  const icon = document.getElementById('eyeIcon');
-  if (inp.type === 'password') {
-    inp.type = 'text';
-    icon.classList.replace('fa-eye', 'fa-eye-slash');
-  } else {
-    inp.type = 'password';
-    icon.classList.replace('fa-eye-slash', 'fa-eye');
-  }
-}
 </script>
 <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
