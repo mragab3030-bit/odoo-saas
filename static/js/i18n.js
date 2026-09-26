@@ -238,7 +238,7 @@
       reference:        'Reference',
 
       // Login
-      login_title:      'Sign in to Olens',
+      login_title:      'Sign in to SS Dashboard',
       login_subtitle:   'Connect your Odoo instance',
       odoo_url:         'Odoo URL',
       database:         'Database',
@@ -731,7 +731,7 @@
       reference:        'المرجع',
 
       // Login
-      login_title:      'تسجيل الدخول إلى Olens',
+      login_title:      'تسجيل الدخول إلى SS Dashboard',
       login_subtitle:   'اربط حسابك في Odoo',
       odoo_url:         'رابط Odoo',
       database:         'قاعدة البيانات',

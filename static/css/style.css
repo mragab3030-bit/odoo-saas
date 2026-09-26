@@ -175,13 +175,16 @@ a:hover { text-decoration: none; }
   flex-shrink: 0;
 }
 
-.sidebar-brand .brand-icon .olens-logo {
-  width: 100%; height: 100%; display: block;
-  /* Red drop-shadow on the lens icon — drop-shadow respects the SVG's
-     painted regions (not the bounding box), so the glow hugs the
-     circle + crosshairs rather than appearing as a square halo. */
-  filter: drop-shadow(0 0 6px rgba(230, 48, 48, .7));
+/* Silver Solutions mark: its charcoal half would vanish on the dark
+   sidebars, so it sits on a white tile in every theme. */
+.sidebar-brand .brand-icon--ss {
+  background: #ffffff;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .25);
 }
+.sidebar-brand .brand-icon--ss img { width: 30px; height: 30px; display: block; }
+.brand-name-ss { color: #e04a9e; }
+[data-theme="light"] .brand-name-ss { color: #810054; }
 
 .brand-text { overflow: hidden; }
 .brand-text .brand-name {
@@ -191,11 +194,7 @@ a:hover { text-decoration: none; }
   /* The two halves carry their own colors below — leave the parent
      unset so the cascade doesn't leak into either span. */
 }
-.brand-name-o {
-  color: #E63030;
-  text-shadow: 0 0 10px rgba(230, 48, 48, .6);
-}
-/* "lens" defers to the sidebar's strong-text token so it stays legible
+/* "Dashboard" defers to the sidebar's strong-text token so it stays legible
    on the light theme (dark text) while reading white on dark/midnight. */
 .brand-name-rest { color: var(--sidebar-text-strong); }
 .brand-text .brand-sub {
